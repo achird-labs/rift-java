@@ -25,7 +25,7 @@ public sealed interface Response {
 
     /**
      * A literal ("is") response. {@code extra} carries any top-level wire keys that sat alongside a
-     * <em>wrapped</em> {@code is:{}} (e.g. an unknown/future key, or a {@code proxy:null} Mimeo-compat
+     * <em>wrapped</em> {@code is:{}} (e.g. an unknown/future key, or a {@code proxy:null} migration-compat
      * sibling) so they survive a parse → serialize round-trip instead of being dropped. The typed
      * siblings ({@code _behaviors}/{@code behaviors}/{@code _rift}) and {@code is} itself are never in
      * {@code extra}. The flat/recorded form keeps its unknowns inside {@link IsResponse#extra} instead.
