@@ -56,7 +56,7 @@ holding `manifest.json` and `corpus/`):
 ```bash
 # Download + extract the corpus for the pinned engine version, then:
 ./mvnw -pl rift-java-conformance -am test \
-  -Drift.corpus.root=/path/to/sdk-conformance-v0.16.0
+  -Drift.corpus.root=/path/to/sdk-conformance-v0.17.0
 ```
 
 Resolution order for the corpus: `-Drift.corpus.root` → `RIFT_CORPUS_ROOT` → `target/corpus`. When
@@ -68,14 +68,14 @@ cached on first use):
 
 ```bash
 RIFT_IT=1 ./mvnw -pl rift-java-conformance -am verify \
-  -Drift.corpus.root=/path/to/sdk-conformance-v0.16.0
+  -Drift.corpus.root=/path/to/sdk-conformance-v0.17.0
 ```
 
 Over the embedded transport (JDK 21 or 22+, with a `librift_ffi` for your platform):
 
 ```bash
 RIFT_IT=1 CONFORMANCE_TRANSPORT=EMBEDDED ./mvnw -pl rift-java-conformance -am verify \
-  -Drift.corpus.root=/path/to/sdk-conformance-v0.16.0 \
+  -Drift.corpus.root=/path/to/sdk-conformance-v0.17.0 \
   -Drift.ffi.lib=/path/to/librift_ffi-<platform>.<ext>
 ```
 
