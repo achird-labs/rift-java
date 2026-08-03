@@ -7,7 +7,7 @@
   <parent>
     <groupId>io.github.achird-labs</groupId>
     <artifactId>rift-java-parent</artifactId>
-    <version>0.2.3-SNAPSHOT</version>
+    <version>0.2.4-SNAPSHOT</version>
   </parent>
 
   <artifactId>rift-java-conformance</artifactId>
