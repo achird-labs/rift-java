@@ -15,9 +15,9 @@ class RiftContainerTest {
     @Test
     void defaultImageUsesPinnedEngineVersion() {
         // AC4: single-sourced from the <rift.engine.version> property via resource filtering.
-        assertEquals("0.16.0", RiftContainer.ENGINE_VERSION, "engine version resolved from filtered resource");
+        assertEquals("0.17.0", RiftContainer.ENGINE_VERSION, "engine version resolved from filtered resource");
         try (RiftContainer container = new RiftContainer()) {
-            assertEquals("zainalpour/rift-proxy:v0.16.0", container.configuredImageName());
+            assertEquals("zainalpour/rift-proxy:v0.17.0", container.configuredImageName());
         }
     }
 

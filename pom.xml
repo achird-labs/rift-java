@@ -44,7 +44,7 @@
     <maven.compiler.release>17</maven.compiler.release>
 
     <!-- Pinned Rift engine release the natives + version preflight track (no leading 'v'). -->
-    <rift.engine.version>0.16.0</rift.engine.version>
+    <rift.engine.version>0.17.0</rift.engine.version>
 
     <!-- rift-java-bom's resolve-through-bom invoker IT is self-validation, not a prerequisite for
          the BOM artifact. It runs at integration-test (before install) and needs network to resolve
