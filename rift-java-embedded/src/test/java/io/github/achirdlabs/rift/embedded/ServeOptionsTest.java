@@ -37,10 +37,11 @@ class ServeOptionsTest {
 
     @Test
     void aBlankApiKeyIsRejectedRatherThanSentAsAnEmptyKey() {
-        // The engine gates on the key being *present*, then compares it against the request's
-        // Authorization header defaulted to "" — so `"apiKey":""` switches auth on and then matches
-        // every unauthenticated caller. Failing open on a plane the caller believes is locked is
-        // worse than not locking it, so the blank never reaches the payload.
+        // The engine used to gate on the key being *present*, then compare it against the request's
+        // Authorization header defaulted to "" — so `"apiKey":""` switched auth on and then matched
+        // every unauthenticated caller. Engine 0.17.0 (achird-labs/rift#844) rejects a blank key at
+        // the C-ABI instead, but the builder keeps failing first so the blank never reaches the
+        // payload and the caller hears about it at the configuring call.
         assertThrows(IllegalArgumentException.class, () -> EmbeddedOptions.builder().apiKey(""));
         assertThrows(IllegalArgumentException.class, () -> EmbeddedOptions.builder().apiKey("   "));
     }
