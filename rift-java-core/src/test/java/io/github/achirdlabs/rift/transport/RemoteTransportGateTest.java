@@ -127,18 +127,21 @@ class RemoteTransportGateTest {
     }
 
     /**
-     * The same door's non-{@code BackendUnavailable} branch: a 500 whose {@code errors[0]} has no
-     * {@code feature} key at all, and whose deprecated top-level keys are {@code error}/{@code detail}
-     * only. Pinned alongside the 503 so neither shape regresses independently.
+     * The same door's non-{@code BackendUnavailable} branch: a 500 whose {@code errors[0]} carries no
+     * {@code feature} key at all. Decoding must not require one — that key is specific to the
+     * backend-unavailable branch — so this pins the plain {@code code}/{@code type}/{@code message}
+     * shape alongside the 503's richer one, and neither can regress independently.
+     *
+     * <p>The {@code errors} envelope is the whole body here too: engine 0.18.0 (achird-labs/rift#801)
+     * dropped the deprecated top-level {@code error}/{@code detail} siblings this fixture used to
+     * pin, so keeping them would document a shape no supported engine sends.
      */
     @Test
     void internalErrorEnvelopeWithoutFeatureMapsToEngineError() {
         try (FakeAdminServer server = new FakeAdminServer()) {
             server.respond("POST /imposters", 500, """
                     {"errors":[{"code":"500","type":"internal error",\
-                    "message":"flow store write failed: redis connection refused"}],\
-                    "error":"internalError",\
-                    "detail":"flow store write failed: redis connection refused"}""");
+                    "message":"flow store write failed: redis connection refused"}]}""");
             try (Rift rift = connectNoPreflight(server)) {
                 EngineError ex = assertThrows(EngineError.class, () -> rift.create(imposter("x").port(4545)));
                 assertEquals(500, ex.code());
