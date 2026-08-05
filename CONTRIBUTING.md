@@ -46,6 +46,14 @@ both; release-smoke covers them on every PR.
 
 Missing-tag warnings (`no @param`, `no @return`) are *not* errors and do not fail the build.
 
+That strictness is itself guarded. A clean build cannot distinguish "strict and clean" from
+"permissive and clean", so release-smoke runs a canary step that injects a broken `{@link}` into
+`Rift.java` and fails the job if the release-lane build *succeeds* — re-adding `failOnError=false`,
+`doclint=none`, or any other silencer cannot slip through unnoticed. The step reverts its own edit.
+One maintenance note: it anchors on the phrase `admin API.` in `Rift.java`'s opening javadoc
+sentence, so if you reword that sentence, update the anchor in `.github/workflows/ci.yml`. The step
+fails loudly and says so when the anchor stops matching.
+
 ## Module layout
 
 | Module | JDK | Contents |
