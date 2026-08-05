@@ -137,6 +137,17 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>${maven-javadoc-plugin.version}</version>
+          <!-- Pinned, not merely left to the strict defaults: these three parameters bind to the
+               user properties maven.javadoc.failOnError / maven.javadoc.skip / doclint, so without
+               an explicit value here a `-Dmaven.javadoc.failOnError=false` on any mvn command line
+               silences javadoc errors for that invocation (#205). A <configuration> value takes
+               precedence over the property, which makes that override impossible rather than merely
+               detectable. scripts/check-javadoc-strictness.py requires this block to stay. -->
+          <configuration>
+            <failOnError>true</failOnError>
+            <skip>false</skip>
+            <doclint>all</doclint>
+          </configuration>
         </plugin>
         <!-- Not bound to any phase: CI's javadoc-strictness sweep invokes help:effective-pom by
              goal prefix (#203). Prefix-invoked goals otherwise resolve whatever is newest on Central
