@@ -79,6 +79,23 @@ Push the tag with credentials of your own, not `GITHUB_TOKEN`: GitHub deliberate
 a workflow from a tag pushed by `GITHUB_TOKEN`, which is why the optional auto-release loop needs a
 separate `RELEASE_TOKEN` secret.
 
+### The dependency-bump loop and its two secrets
+
+`Engine Bump` (weekly, plus `workflow_dispatch`) polls `achird-labs/rift` and opens a
+`chore/engine-<version>` PR through the reusable `dep-bump.yml`; when CI on that PR is green,
+`auto-release.yml` merges it and pushes the release tag that `Publish` acts on. The loop needs **two**
+repository secrets, and it stalls in a different place if either is missing:
+
+| secret | used for | if absent |
+|--------|----------|-----------|
+| `BUMP_TOKEN` | pushing the bump branch and opening the bump PR | the bump fails loudly before pushing — because a PR opened by `GITHUB_TOKEN` reports zero checks, so CI never runs and `auto-release` never fires |
+| `RELEASE_TOKEN` | pushing the `vX.Y.Z` tag after the merge | `auto-release` fails before merging; the bump PR is left open for a human |
+
+Both are the same shape of credential — a PAT or fine-grained token with `contents:write` and
+`pull-requests:write`, plus `workflows` if the repo's bump touches `.github/workflows/`. The reason
+neither can be `GITHUB_TOKEN` is the same in both rows: GitHub does not trigger workflows from events
+it authors, so a token-authored PR or tag produces no downstream run.
+
 The `Publish` workflow is a no-op until these repository secrets are configured:
 `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD` (a Central Portal user token), `GPG_PRIVATE_KEY`,
 and `MAVEN_GPG_PASSPHRASE`. Signing and the sources/javadoc jars live in the `release` profile
