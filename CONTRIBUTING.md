@@ -30,8 +30,8 @@ installing). It runs automatically in the release lane (`-Prelease`, i.e. CI's r
 deploy); to run it locally, add `-Dinvoker.skip=false`.
 
 Javadoc errors fail the build. A broken `{@link}`, an unresolvable reference, or a malformed tag
-is an error under the JDK's default doclint, and the javadoc jars published to Maven Central are
-built with the plugin's default `failOnError=true`. Javadoc only runs in the release lane, so a
+is an error under doclint, and the javadoc jars published to Maven Central are built with
+`failOnError` on — both pinned explicitly in the root pom (see *The pin*, below). Javadoc only runs in the release lane, so a
 plain `./mvnw verify` will not catch it, but CI's release-smoke will — check it locally with:
 
 ```sh
@@ -61,7 +61,7 @@ override elsewhere would leave it green. The sweep runs `help:effective-pom` ove
 reactor and rejects any module whose *effective* javadoc config silences errors — `failOnError`,
 `skip`, `skippedModules`, a `doclint` value other than `all`, an `-Xdoclint` option that disables a
 group, or the equivalent `maven.javadoc.*` / `doclint` **properties**, which need no `<configuration>`
-at all. Run it locally with:
+at all. It also **requires** the pin described below to be present on every module. Run it locally with:
 
 ```sh
 # -DdualEmbedded matches CI, so the sweep covers rift-java-embedded too
@@ -73,11 +73,37 @@ python3 scripts/check-javadoc-strictness.py --self-test   # asserts the detector
 The module set depends on your JDK (`rift-java-embedded-jdk21` only joins on JDK 21), so a local run
 sweeps fewer modules than CI — pass `--require` only if you know which set to expect.
 
-Two things it deliberately does *not* do: it reads configuration, not behaviour (that is the
-canary's job), and it cannot see a `-Dmaven.javadoc.failOnError=false` added to a workflow's own
-`mvn` command line. Its `--require` list in `ci.yml` names the modules the reactor must contain, so
-a module dropping out of the reactor fails the sweep instead of silently shrinking it — add new
-published modules there.
+It reads configuration, not behaviour — proving the behaviour is the canary's job. Its `--require`
+list in `ci.yml` names the modules the reactor must contain, so a module dropping out of the reactor
+fails the sweep instead of silently shrinking it; add new published modules there.
+
+**The pin** closes the command-line gap, and is the reason the root `pluginManagement` sets these
+three explicitly rather than relying on their (already strict) defaults:
+
+```xml
+<configuration>
+  <failOnError>true</failOnError>
+  <skip>false</skip>
+  <doclint>all</doclint>
+</configuration>
+```
+
+Each of these parameters binds to a Maven **user property**, and a property only supplies the value
+when the POM does not. Left unset, `-Dmaven.javadoc.failOnError=false` on any `mvn` command line —
+including `publish.yml`'s real deploy — silences javadoc errors for that invocation without touching
+a file in the repo, where neither guard above could see it. A `<configuration>` value takes
+precedence over the property, so pinning makes that override *impossible* rather than merely
+detectable. Verified: with the pin, a broken `{@link}` still fails the build under
+`-Dmaven.javadoc.failOnError=false`, `-Dmaven.javadoc.skip=true` and `-Ddoclint=none`.
+
+Deleting the pin would restore the silently-overridable state without introducing any *permissive*
+value, so the sweep requires it and names any module that lost it. Do not remove it.
+
+The sweep requires the pin on the entry Maven actually **executes**, and on any `<execution>` that
+carries its own `<configuration>`. Both are load-bearing: a module can override its inherited
+configuration (`combine.self="override"`) at either level, which drops the pin at run time while the
+inherited copy still looks pinned. If you add a javadoc `<configuration>` to a module or an
+execution, repeat the three pinned values in it.
 
 ## Module layout
 
