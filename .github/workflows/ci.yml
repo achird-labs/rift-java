@@ -91,13 +91,20 @@ jobs:
             </toolchain>
           </toolchains>
           XML
-      - name: Package with the release profile (no signing, no deploy)
+      - name: Verify with the release profile (no signing, no deploy)
         # Include natives-bundle so a broken natives assembly (fetch, sha256, classifier jar wiring,
         # or a manifest/platform drift) is caught on every push/PR, not at the next real deploy.
         # -DdualEmbedded matches what publish.yml actually deploys, so every module that ships to
         # Central has its javadoc built here. Without it rift-java-embedded is absent from this
         # reactor and a javadoc error in it would surface only mid-deploy, after the tag is pushed.
-        run: ./mvnw -B -ntp -Prelease,natives-bundle -DdualEmbedded -DskipTests -Dgpg.skip=true package
+        # The goal must be `verify`, not `package`: rift-java-bom's resolve-through-bom invoker IT
+        # binds to pre-integration-test/integration-test, which are *after* package, so at package
+        # the IT is silently never reached even though -Prelease sets invoker.skip=false (#199).
+        # Two consequences of reaching `verify`: -Dgpg.skip=true is now load-bearing (gpg:sign also
+        # binds to verify, and the runner has no key), and invoker.streamLogs surfaces the forked
+        # consumer build's output in this job's log — without it a failed IT reports little beyond
+        # "The following builds failed: resolve-through-bom".
+        run: ./mvnw -B -ntp -Prelease,natives-bundle -DdualEmbedded -DskipTests -Dgpg.skip=true -Dinvoker.streamLogs=true verify
 
   # The Docker-enabled lane for rift-java-testcontainers: RIFT_IT=1 un-gates the RiftContainer
   # round-trip ITs (they self-skip everywhere else). ubuntu-latest runners ship a Docker daemon.
