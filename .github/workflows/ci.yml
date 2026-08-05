@@ -149,6 +149,25 @@ jobs:
 
           echo "javadoc strictness confirmed: the poisoned build failed with 'error: reference not found'"
 
+      # The canary above only poisons rift-java-core, so it pins the ROOT pluginManagement. A
+      # per-module <failOnError>false</failOnError> in some other module leaves it — and the main
+      # release build — green while that module ships broken javadoc to Central (#203). This sweeps
+      # the effective pom of EVERY module in the release reactor for the known silencers. Same flags
+      # as the main step, so the reactor inspected is the one that actually publishes.
+      - name: Javadoc strictness across all modules (effective-pom sweep)
+        run: |
+          set -euo pipefail
+          EFF=$(mktemp)
+          trap 'rm -f "$EFF"' EXIT
+          # Prove the detector still detects before trusting a clean sweep: a checker edit that
+          # stopped flagging anything would otherwise report "confirmed" forever.
+          python3 scripts/check-javadoc-strictness.py --self-test
+          ./mvnw -B -ntp -Prelease,natives-bundle -DdualEmbedded help:effective-pom -Doutput="$EFF"
+          # --require names the modules this JDK-21 + -DdualEmbedded reactor must contain, so a
+          # module silently dropping out of the reactor fails the sweep instead of shrinking it.
+          python3 scripts/check-javadoc-strictness.py "$EFF" --require \
+            rift-java-parent,rift-java-core,rift-java-jackson,rift-java-junit5,rift-java-natives,rift-java-spring,rift-java-testcontainers,rift-java-conformance,rift-java-bom,rift-java-embedded,rift-java-embedded-jdk21
+
   # The Docker-enabled lane for rift-java-testcontainers: RIFT_IT=1 un-gates the RiftContainer
   # round-trip ITs (they self-skip everywhere else). ubuntu-latest runners ship a Docker daemon.
   testcontainers-it:

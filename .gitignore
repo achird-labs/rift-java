@@ -28,3 +28,7 @@ native-local/
 
 # MkDocs build output
 site/
+
+# Bytecode from scripts/*.py (the javadoc-strictness sweep)
+__pycache__/
+*.pyc
