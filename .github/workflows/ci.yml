@@ -106,6 +106,49 @@ jobs:
         # "The following builds failed: resolve-through-bom".
         run: ./mvnw -B -ntp -Prelease,natives-bundle -DdualEmbedded -DskipTests -Dgpg.skip=true -Dinvoker.streamLogs=true verify
 
+      # The step above proves only that the CURRENT doc comments are clean, which cannot distinguish
+      # "strict and clean" from "permissive and clean" — so a re-added failOnError=false would make
+      # every future run pass silently (#200). Poison one doc comment and require the release-lane
+      # javadoc build to fail: that is the negative test which verified #197/ca2c031, made permanent.
+      # Behavioural on purpose — it catches any mechanism that silences javadoc errors for
+      # rift-java-core (failOnError=false, doclint=none, -Xdoclint:none in additionalJOptions,
+      # maven.javadoc.skip), rather than grepping for one literal flag. The config it pins lives in
+      # the root pluginManagement, which is the realistic regression vector; a per-module override
+      # elsewhere would not be caught here.
+      - name: Javadoc strictness canary (negative test)
+        run: |
+          set -euo pipefail
+          F=rift-java-core/src/main/java/io/github/achirdlabs/rift/Rift.java
+          LOG=$(mktemp)
+          # Restore on EVERY exit path (including a cancelled job) so the deliberately-broken doc
+          # comment can never leak into a later step, and so an error branch prints its diagnostic
+          # instead of being pre-empted by a failing cleanup command under `set -e`.
+          trap 'git checkout -- "$F"; rm -f "$LOG"' EXIT
+
+          sed -i.bak 's|admin API\.|admin API. {@link does.not.Exist}|' "$F" && rm -f "$F.bak"
+          # Anchor drift (someone rewords Rift.java's first javadoc sentence) must fail loud here,
+          # otherwise the un-poisoned build below would succeed and be reported as a regression.
+          if git diff --quiet -- "$F"; then
+            echo "::error::javadoc canary: sed anchor matched nothing in $F — update the anchor"
+            exit 1
+          fi
+
+          if ./mvnw -B -ntp -Prelease -DskipTests -Dgpg.skip=true -pl rift-java-core -am package > "$LOG" 2>&1; then
+            echo "::error::javadoc strictness regressed: a broken {@link} no longer fails the release build (#197). If the anchor sentence moved out of Rift.java's javadoc comment, fix the anchor instead."
+            tail -40 "$LOG"
+            exit 1
+          fi
+
+          # A build that failed for some OTHER reason (compile break, network, OOM) would satisfy the
+          # check above vacuously, so require the doclint diagnostic against the file we poisoned.
+          if ! grep -q 'Rift\.java:[0-9]\+: error: reference not found' "$LOG"; then
+            echo "::error::javadoc canary build failed, but not with the expected doclint error — strictness is unproven"
+            tail -40 "$LOG"
+            exit 1
+          fi
+
+          echo "javadoc strictness confirmed: the poisoned build failed with 'error: reference not found'"
+
   # The Docker-enabled lane for rift-java-testcontainers: RIFT_IT=1 un-gates the RiftContainer
   # round-trip ITs (they self-skip everywhere else). ubuntu-latest runners ship a Docker daemon.
   testcontainers-it:
