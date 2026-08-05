@@ -51,6 +51,17 @@
             <include>**/*Test.java</include>
             <include>**/*IT.java</include>
           </includes>
+          <!-- CorpusReplayIT encodes the transport in its dynamic-test display names
+               ("01 · Basic REST API [EMBEDDED]"). Surefire's default reporter writes dynamic tests as
+               a bare "replay()[1]", so that tag never reaches the XML and an external gate asserting
+               on it can only ever fail (achird-labs/rift#927). The phrased reporter emits
+               "replay() 01 · Basic REST API [EMBEDDED]" instead. Declared here rather than per-profile:
+               Maven merges this configuration into the profile-specific surefire blocks below, so the
+               EMBEDDED lanes inherit it. -->
+          <statelessTestsetReporter
+              implementation="org.apache.maven.plugin.surefire.extensions.junit5.JUnit5Xml30StatelessReporter">
+            <usePhrasedTestCaseMethodName>true</usePhrasedTestCaseMethodName>
+          </statelessTestsetReporter>
         </configuration>
       </plugin>
     </plugins>
