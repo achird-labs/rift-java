@@ -379,10 +379,10 @@ final class FfiCalls {
     private RuntimeException engineError() {
         MemorySegment errSeg = ffi.lastError();
         if (RiftFfi.isNull(errSeg)) {
-            return new EngineError(-1, "rift engine call failed with no error message");
+            return new EngineError(EngineError.NO_HTTP_STATUS, "rift engine call failed with no error message");
         }
         String message = RiftFfi.readString(errSeg);
         ffi.free(errSeg);
-        return new EngineError(-1, message);
+        return new EngineError(EngineError.NO_HTTP_STATUS, message);
     }
 }
