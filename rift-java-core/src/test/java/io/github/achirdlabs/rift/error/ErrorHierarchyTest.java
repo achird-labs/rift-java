@@ -34,4 +34,14 @@ class ErrorHierarchyTest {
         assertEquals(503, ((EngineError) engineError).code());
         assertTrue(engineError instanceof RiftException);
     }
+
+    /**
+     * {@code -1} is the value the embedded transport publishes as {@code code()} for a failure that
+     * never had an HTTP status. Pinning the literal makes a renumber a test failure rather than a
+     * silent change to what callers already see; a rename fails compilation instead.
+     */
+    @Test
+    void engineErrorPinsItsNonHttpSentinel() {
+        assertEquals(-1, EngineError.NO_HTTP_STATUS);
+    }
 }

@@ -13,7 +13,8 @@ package io.github.achirdlabs.rift.error;
  *   <li>{@link CommunicationError} — the engine answered successfully but the response body could
  *       not be parsed.
  *   <li>{@link ImposterNotFound} — an operation referenced a port with no such imposter.
- *   <li>{@link EngineError} — any other non-2xx response.
+ *   <li>{@link EngineError} — any other engine failure: a non-2xx response, or an embedded C-ABI
+ *       call that yielded no usable result.
  * </ul>
  */
 public abstract sealed class RiftException extends RuntimeException

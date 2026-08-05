@@ -380,7 +380,8 @@ public final class EmbeddedTransport implements RiftTransport {
                 warnIfExposedWithoutAKey();
                 JsonValue result = calls.serveAdmin(serveOptions(options));
                 if (!(result instanceof JsonObject obj && obj.get("adminUrl") instanceof JsonString adminUrl)) {
-                    throw new EngineError(-1, "rift_serve_admin did not return an adminUrl: " + result.toJson());
+                    throw new EngineError(EngineError.NO_HTTP_STATUS,
+                            "rift_serve_admin did not return an adminUrl: " + result.toJson());
                 }
                 // The same key the server was just given: a client that could not authenticate to
                 // the plane it configured would break every delegated op the moment one was set.
