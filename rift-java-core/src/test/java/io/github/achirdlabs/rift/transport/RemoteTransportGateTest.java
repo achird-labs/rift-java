@@ -106,6 +106,10 @@ class RemoteTransportGateTest {
      * {@code message}. Envelope decoding must key off {@code errors[0].message} and ignore the rest
      * rather than reject the object, so a Redis-backed flow-store outage surfaces as its 503 instead
      * of a decode failure.
+     *
+     * <p>The {@code errors} envelope is the whole body: engine 0.18.0 (achird-labs/rift#801) dropped
+     * the deprecated top-level {@code error}/{@code feature}/{@code detail} siblings, so pinning them
+     * here would document a shape no supported engine sends.
      */
     @Test
     void backendUnavailableEnvelopeWithExtraKeysMapsToEngineError() {
@@ -113,9 +117,7 @@ class RemoteTransportGateTest {
             server.respond("POST /imposters", 503, """
                     {"errors":[{"code":"503","type":"backend unavailable",\
                     "message":"flowState: redis connection refused",\
-                    "feature":"flowState","detail":"redis connection refused"}],\
-                    "error":"backendUnavailable","feature":"flowState",\
-                    "detail":"redis connection refused"}""");
+                    "feature":"flowState","detail":"redis connection refused"}]}""");
             try (Rift rift = connectNoPreflight(server)) {
                 EngineError ex = assertThrows(EngineError.class, () -> rift.create(imposter("x").port(4545)));
                 assertEquals(503, ex.code());
