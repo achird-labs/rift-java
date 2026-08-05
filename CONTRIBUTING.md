@@ -29,6 +29,23 @@ network to resolve the managed modules' transitive deps and would otherwise bloc
 installing). It runs automatically in the release lane (`-Prelease`, i.e. CI's release-smoke and
 deploy); to run it locally, add `-Dinvoker.skip=false`.
 
+Javadoc errors fail the build. A broken `{@link}`, an unresolvable reference, or a malformed tag
+is an error under the JDK's default doclint, and the javadoc jars published to Maven Central are
+built with the plugin's default `failOnError=true`. Javadoc only runs in the release lane, so a
+plain `./mvnw verify` will not catch it, but CI's release-smoke will — check it locally with:
+
+```sh
+./mvnw -DskipTests compile javadoc:javadoc   # add -pl <module> -am to narrow it
+```
+
+`compile` is required: `javadoc:javadoc` on its own resolves each module's dependencies from the
+repository rather than the reactor, so on a clean clone it fails to resolve the sibling modules
+before it ever reaches javadoc. The embedded modules are JDK-gated (`rift-java-embedded-jdk21`
+needs exactly JDK 21, `rift-java-embedded` needs 22+), so on JDK 17 the command silently skips
+both; release-smoke covers them on every PR.
+
+Missing-tag warnings (`no @param`, `no @return`) are *not* errors and do not fail the build.
+
 ## Module layout
 
 | Module | JDK | Contents |

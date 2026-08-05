@@ -58,20 +58,46 @@ jobs:
   # so a regression in the publish path is caught on every push/PR, not at the next real deploy.
   # GPG signing and the actual deploy need secrets and run only in publish.yml.
   release-smoke:
-    name: release assembly (dry, JDK 21)
+    name: release assembly (dry, JDK 21 + JDK 22 toolchain)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Set up JDK 21
+      # Mirrors publish.yml's JDK setup: the reactor runs on JDK 21 and JDK 22 is installed
+      # alongside as a toolchain, so -DdualEmbedded below can build the stable-FFM
+      # rift-java-embedded in the same reactor. setup-java lists 22 first so JAVA_HOME ends up
+      # on 21, and exports JAVA_HOME_22_X64 for the toolchains.xml step.
+      - name: Set up JDK 21 (reactor) and JDK 22 (toolchain)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: |
+            22
+            21
           cache: maven
+      - name: Register the JDK 22 toolchain
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/toolchains.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <toolchains>
+            <toolchain>
+              <type>jdk</type>
+              <provides>
+                <version>22</version>
+              </provides>
+              <configuration>
+                <jdkHome>${JAVA_HOME_22_X64}</jdkHome>
+              </configuration>
+            </toolchain>
+          </toolchains>
+          XML
       - name: Package with the release profile (no signing, no deploy)
         # Include natives-bundle so a broken natives assembly (fetch, sha256, classifier jar wiring,
         # or a manifest/platform drift) is caught on every push/PR, not at the next real deploy.
-        run: ./mvnw -B -ntp -Prelease,natives-bundle -DskipTests -Dgpg.skip=true package
+        # -DdualEmbedded matches what publish.yml actually deploys, so every module that ships to
+        # Central has its javadoc built here. Without it rift-java-embedded is absent from this
+        # reactor and a javadoc error in it would surface only mid-deploy, after the tag is pushed.
+        run: ./mvnw -B -ntp -Prelease,natives-bundle -DdualEmbedded -DskipTests -Dgpg.skip=true package
 
   # The Docker-enabled lane for rift-java-testcontainers: RIFT_IT=1 un-gates the RiftContainer
   # round-trip ITs (they self-skip everywhere else). ubuntu-latest runners ship a Docker daemon.

@@ -136,12 +136,6 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>${maven-javadoc-plugin.version}</version>
-          <configuration>
-            <!-- Skeleton modules carry only package-info until their public API lands in later
-                 issues; don't let an empty module fail the javadoc jar Central requires. -->
-            <failOnError>false</failOnError>
-            <quiet>true</quiet>
-          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
