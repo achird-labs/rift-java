@@ -8,6 +8,15 @@
 # Contract with the calling repo:
 #   scripts/bump.sh --current      -> prints the currently pinned version (bare, no leading v)
 #   scripts/bump.sh <new-version>  -> rewrites every pin literal and self-verifies (non-zero on failure)
+#   secrets: BUMP_TOKEN            -> a PAT the caller must pass; see below for why it is not optional
+#                                     in practice
+#
+# WHY THE CALLER MUST PASS A TOKEN: GitHub deliberately does not trigger workflows from events authored
+# by GITHUB_TOKEN. A bump PR opened with the default token therefore reports *zero* checks, which means
+# CI never runs and the companion auto-release (which triggers on the CI workflow's `workflow_run`)
+# can never fire — the loop cannot complete a single cycle. Passing a PAT as BUMP_TOKEN is what makes
+# the opened PR a real, CI-running PR. The secret is declared optional so polling and dry runs still
+# work without it, but a real bump fails loudly rather than opening a PR that silently never runs.
 #
 # Callers own the triggers (schedule + workflow_dispatch) and pass inputs; this workflow cannot declare
 # its own schedule. The companion auto-release stays per-repo (the publish step genuinely differs per
@@ -34,6 +43,16 @@ on:
         description: "Do everything except push the branch / open the PR"
         type: boolean
         default: false
+    secrets:
+      BUMP_TOKEN:
+        description: >-
+          PAT (or fine-grained token) used to push the bump branch and open the PR. Required for a
+          real bump; optional so that polling and dry runs still work without it. GitHub deliberately
+          does not trigger workflows from events authored by GITHUB_TOKEN, so a PR opened with the
+          default token gets zero checks — which leaves the bump PR unmergeable and never fires
+          auto-release's `workflow_run` trigger. Needs contents:write + pull-requests:write, plus
+          `workflows` in any repo whose bump touches `.github/workflows/`.
+        required: false
 
 jobs:
   bump:
@@ -43,10 +62,16 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      GH_TOKEN: ${{ github.token }}
+      # Falls back to the default token so the read-only poll/compare steps and dry runs keep working
+      # in a repo that has not set BUMP_TOKEN; the push/PR path guards on the real secret below.
+      GH_TOKEN: ${{ secrets.BUMP_TOKEN || github.token }}
       UPSTREAM_REPO: ${{ inputs.upstream_repo }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Persisted as the credential `git push` uses, so the branch is pushed as the PAT's user
+          # rather than as GITHUB_TOKEN.
+          token: ${{ secrets.BUMP_TOKEN || github.token }}
 
       - name: Determine latest upstream release and current pin
         id: versions
@@ -139,6 +164,26 @@ jobs:
 
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
           echo "exists=${EXISTS}" >> "$GITHUB_OUTPUT"
+
+      # Fails before any branch is pushed, rather than opening a PR that can never run CI. Mirrors the
+      # RELEASE_TOKEN guard in auto-release.yml: an unarmed loop should be loud, not silently stuck.
+      - name: Require BUMP_TOKEN before pushing
+        if: steps.compare.outputs.should_bump == 'true' && steps.existing.outputs.exists == 'false' && inputs.dry_run != true
+        shell: bash
+        env:
+          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUMP_TOKEN}" ]; then
+            echo "::error::BUMP_TOKEN secret is not set. A bump PR opened with GITHUB_TOKEN gets zero"
+            echo "::error::checks — GitHub does not trigger workflows from GITHUB_TOKEN-authored events —"
+            echo "::error::so CI never runs, auto-release's workflow_run trigger never fires, and the PR"
+            echo "::error::sits open forever. Add a BUMP_TOKEN secret (PAT/fine-grained with"
+            echo "::error::contents:write + pull-requests:write, plus 'workflows' if this repo's bump"
+            echo "::error::touches .github/workflows/) and pass it through from the calling workflow."
+            echo "::error::No branch was pushed and no PR was opened."
+            exit 1
+          fi
 
       - name: Bump the pin and open a PR
         if: steps.compare.outputs.should_bump == 'true' && steps.existing.outputs.exists == 'false'
