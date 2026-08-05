@@ -141,12 +141,20 @@ public final class EmbeddedOptions {
          * <p>Worth setting when {@link #adminHost(String)} is not loopback. This SDK's own delegated
          * calls authenticate themselves, so setting it costs nothing here.
          *
-         * <p>A blank key is <b>rejected</b>, not treated as "unset". The engine gates on the key
-         * being <em>present</em> and then compares it to the request's {@code Authorization} header
-         * defaulted to the empty string — so a blank key switches authentication on and then matches
-         * every unauthenticated caller. That fails open on a plane the caller believes is locked,
-         * and it is exactly what a {@code getProperty("rift.apiKey", "")} style default produces.
-         * Omit the key to run unauthenticated deliberately.
+         * <p>A blank key is <b>rejected</b>, not treated as "unset" — it is what a
+         * {@code getProperty("rift.apiKey", "")} style default produces, and that is not the same
+         * thing as asking to run unauthenticated. Historically it was worse than unset: the engine
+         * gated on the key being <em>present</em> and then compared it to the request's
+         * {@code Authorization} header defaulted to the empty string, so a blank key switched
+         * authentication on and then matched every unauthenticated caller — failing open on a plane
+         * the caller believed was locked. Omit the key to run unauthenticated deliberately.
+         *
+         * <p>Engine 0.17.0 (achird-labs/rift#844) closed that hole at the C-ABI boundary:
+         * {@code rift_serve_admin} now fails rather than enabling a gate that authenticates
+         * everyone. This builder check is kept anyway (achird-labs/rift-java#182) because it
+         * rejects here, at the configuring call, whereas the engine's rejection surfaces as an
+         * {@link io.github.achirdlabs.rift.error.EngineError} from whichever later call first
+         * starts the admin plane — far from the configuration that caused it.
          *
          * @throws IllegalArgumentException if {@code apiKey} is blank
          */
@@ -154,7 +162,7 @@ public final class EmbeddedOptions {
             Objects.requireNonNull(apiKey, "apiKey");
             if (apiKey.isBlank()) {
                 throw new IllegalArgumentException(
-                        "apiKey must not be blank — a blank key authenticates everyone; omit it to run unauthenticated");
+                        "apiKey must not be blank — blank is a misconfiguration, not a key; omit it to run unauthenticated");
             }
             this.apiKey = Optional.of(apiKey);
             return this;
