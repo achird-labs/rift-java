@@ -28,7 +28,20 @@ public interface Intercept extends AutoCloseable {
     /** A {@link ProxySelector} routing every request through this intercept — convenience for {@code java.net.http.HttpClient}. */
     ProxySelector proxySelector();
 
-    /** Adds a rule answering requests to {@code host} directly with {@code response}, without contacting the real host. */
+    /**
+     * Adds a rule answering requests to {@code host} directly with {@code response}, without
+     * contacting the real host.
+     *
+     * <p>The engine's serve action carries only a numeric {@code statusCode}, <em>single-valued</em>
+     * {@code headers} and a text {@code body}. A response using anything else — any behavior
+     * ({@code wait}/{@code decorate}/{@code repeat}/{@code copy}/{@code lookup}/{@code
+     * shellTransform}), any {@code _rift} extension ({@code templated}, {@code script}, or a
+     * latency/error/TCP fault), a binary body, or a repeated header — is rejected here rather than
+     * silently dropped. Use {@link #redirectTo} to reach an imposter, which has full stub fidelity.
+     *
+     * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a
+     *         construct the serve action cannot deliver; the rule is not registered
+     */
     InterceptRule serve(String host, IsSpec response);
 
     /** Adds a rule forwarding requests to {@code host} on to {@code hostPort} (a {@code host:port} on localhost). */

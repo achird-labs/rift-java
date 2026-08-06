@@ -55,7 +55,29 @@ intercept.redirectTo("api.partner.com", partnerImposter);
 ```
 
 `serve`'s response is an `IsSpec` — the same response builder the DSL uses for stub responses
-(`RiftDsl.ok()`, `okJson(...)`, `status(code)`, and so on). `redirectTo` rides the same
+(`RiftDsl.ok()`, `okJson(...)`, `status(code)`, and so on) — but the engine's serve action is
+narrower than that builder. It carries **only** a numeric status code, **single-valued** headers,
+and a text body.
+
+A response using anything beyond that is **rejected** with an `InvalidDefinition`, and the rule is
+not registered:
+
+- any behavior — `after`/`waitMs`, `decorate`, `repeat`, `copy`, `lookup`, `shellTransform`;
+- any `_rift` extension — `templated()`, a script, or a fault (`withLatencyFault`,
+  `withErrorFault`, `withTcpFault`);
+- a binary body (`withBinaryBody`), which the serve action can only carry as its base64 text;
+- a repeated header — `withHeader(name, a, b)`.
+
+```java
+// Throws InvalidDefinition: the serve action has no fault concept, so without this the rule
+// would register happily and then answer a plain 200.
+intercept.serve("example.com", status(200).withTextBody("b").withTcpFault(Fault.CONNECTION_RESET_BY_PEER));
+
+// Point at an imposter instead — it is a real stub, so every construct above works there.
+intercept.redirectTo("example.com", faultyImposter);
+```
+
+`redirectTo` rides the same
 wire-level `forward` action as `forward` itself, pointed at `imposter.port()`; a rule read back
 from `intercept.rules()` therefore only ever reports `RuleKind.SERVE` or `RuleKind.FORWARD` — the
 engine has no way to echo back that a `forward` action originated from `redirectTo`.
