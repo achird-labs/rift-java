@@ -7,7 +7,8 @@ package io.github.achirdlabs.rift.error;
  * base class.
  *
  * <ul>
- *   <li>{@link InvalidDefinition} — the engine rejected a definition (HTTP 400).
+ *   <li>{@link InvalidDefinition} — a definition was rejected, by the engine (HTTP 400) or by this
+ *       SDK when the target wire format cannot carry it.
  *   <li>{@link EngineUnavailable} — the engine could not be reached at all (connection refused,
  *       spawn failure, a failed version preflight).
  *   <li>{@link CommunicationError} — the engine answered successfully but the response body could

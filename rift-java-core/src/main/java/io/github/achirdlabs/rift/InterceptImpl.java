@@ -2,6 +2,7 @@ package io.github.achirdlabs.rift;
 
 import io.github.achirdlabs.rift.dsl.IsSpec;
 import io.github.achirdlabs.rift.error.CommunicationError;
+import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
@@ -10,6 +11,7 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.IsResponse;
 import io.github.achirdlabs.rift.model.Predicate;
 import io.github.achirdlabs.rift.model.Response;
+import io.github.achirdlabs.rift.model.ResponseMode;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
 import java.net.InetSocketAddress;
@@ -217,13 +219,16 @@ final class InterceptImpl implements Intercept {
      * {@code statusCode}, single-valued {@code headers}, and a plain-text {@code body} (see
      * {@code ServeStub} in {@code intercept_rules.rs}) — narrower than the full {@code is} response
      * shape a stub uses (multi-value headers, a structured JSON body, behaviors, faults). Anything
-     * beyond status/headers/body on the given response is not carried over: the intercept Serve
-     * action has no behaviors/faults concept.
+     * beyond status/headers/body is <em>rejected</em> rather than dropped — see
+     * {@link #requireDeliverable}.
+     *
+     * @throws InvalidDefinition if the response carries a construct the serve action cannot deliver
      */
     private static JsonObject toServeStub(IsSpec response) {
         if (!(response.build() instanceof Response.Is is)) {
             throw new IllegalStateException("unreachable: IsSpec.build() always returns Response.Is");
         }
+        requireDeliverable(is);
         IsResponse ir = is.is();
         JsonObject.Builder builder = JsonObject.builder();
         builder.put("statusCode", JsonNumber.of(statusAsInt(ir.statusCode())));
@@ -238,6 +243,64 @@ final class InterceptImpl implements Intercept {
         }
         ir.body().ifPresent(body -> builder.put("body", new JsonString(bodyAsText(body))));
         return builder.build();
+    }
+
+    /**
+     * Rejects a response the intercept {@code serve} action cannot deliver.
+     *
+     * <p>The engine's {@code ServeStub} is only {@code {statusCode, headers, body}} with
+     * <em>single-valued</em> headers, and its deserializer does not use {@code deny_unknown_fields} —
+     * so a richer response posted here is accepted with a {@code 200} and then silently ignored at
+     * request time. That is worse than a rejection: a fault-injection test written against a
+     * {@code serve} rule stays green while asserting on the success response it never asked for.
+     *
+     * <p>Every offending construct is collected in one pass so a caller learns about all of them at
+     * once rather than one exception per round trip. Ordering is deterministic: behaviors keep their
+     * declaration order and headers are insertion-ordered by {@code JsonSupport.orderedCopy}.
+     *
+     * @throws InvalidDefinition naming every offending construct, and pointing at
+     *         {@link Intercept#redirectTo}, which reaches a real imposter and so has full stub fidelity
+     */
+    static void requireDeliverable(Response.Is is) {
+        List<String> undeliverable = new ArrayList<>();
+        is.behaviors().entries().forEach(behavior -> undeliverable.add("_behaviors." + behavior.key()));
+        is.rift().ifPresent(rift -> {
+            rift.fault().ifPresent(fault -> {
+                if (fault.latency().isPresent()) {
+                    undeliverable.add("_rift.fault.latency (withLatencyFault)");
+                }
+                if (fault.error().isPresent()) {
+                    undeliverable.add("_rift.fault.error (withErrorFault)");
+                }
+                if (fault.tcp().isPresent()) {
+                    undeliverable.add("_rift.fault.tcp (withTcpFault)");
+                }
+            });
+            if (rift.script().isPresent()) {
+                undeliverable.add("_rift.script");
+            }
+            if (rift.templated()) {
+                undeliverable.add("_rift.templated (templated)");
+            }
+        });
+        IsResponse ir = is.is();
+        if (ir.mode() == ResponseMode.BINARY) {
+            undeliverable.add("a binary body (_mode=binary, withBinaryBody)");
+        }
+        ir.headers().forEach((name, values) -> {
+            if (values.size() > 1) {
+                undeliverable.add("repeated header '" + name + "'");
+            }
+        });
+        is.extra().keySet().forEach(key -> undeliverable.add("response key '" + key + "'"));
+        ir.extra().keySet().forEach(key -> undeliverable.add("is response key '" + key + "'"));
+
+        if (!undeliverable.isEmpty()) {
+            throw new InvalidDefinition("intercept serve cannot deliver " + String.join(", ", undeliverable)
+                    + " — the engine's serve action carries only statusCode, single-valued headers and body, so"
+                    + " the rule would be registered and then answer a response you did not ask for."
+                    + " Use redirectTo(imposter) for full stub fidelity.");
+        }
     }
 
     private static int statusAsInt(String statusCode) {

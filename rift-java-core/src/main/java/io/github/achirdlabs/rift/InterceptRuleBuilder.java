@@ -40,7 +40,16 @@ public final class InterceptRuleBuilder {
         return this;
     }
 
-    /** Answers matching requests inline with {@code response}; the real host is never contacted. */
+    /**
+     * Answers matching requests inline with {@code response}; the real host is never contacted.
+     *
+     * <p>Restricted to what the engine's serve action can carry — status, single-valued headers and
+     * a text body. See {@link Intercept#serve} for the full deliverable set; anything outside it is
+     * rejected rather than silently dropped.
+     *
+     * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a
+     *         construct the serve action cannot deliver; the rule is not registered
+     */
     public InterceptRule serve(IsSpec response) {
         return intercept.addServeRule(host, predicates, response, RuleKind.SERVE);
     }
