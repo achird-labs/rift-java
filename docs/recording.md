@@ -48,3 +48,13 @@ RecordSpec spec = RecordSpec.builder()
 
 `persist(file)` writes the engine's **replayable imposter definition** — the same format loadable by
 `rift --configfile`, rift-node, and rift-scala — so a captured golden file is portable across SDKs.
+
+To replay it from rift-java, read the file yourself and hand the JSON to the engine:
+
+```java
+Imposter replayed = rift.create(Files.readString(file));
+```
+
+rift-java has no `configFile` option of its own: the engine's `--configfile` (and its `noParse`
+switch) is for the CLI, where the file may carry EJS templates. Config the SDK loads is never
+run through EJS, so a literal `<%` in a recorded body is safe as-is.
