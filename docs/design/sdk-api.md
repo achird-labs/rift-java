@@ -423,6 +423,11 @@ IsSpec waitInject(String script)                         // _behaviors.wait as {
 IsSpec waitScript(String source)                         // _behaviors.wait as a bare function string (the Mountebank-compatible spelling)
 // both wait spellings are one injection capability: the engine must run with --allowInjection or it
 // rejects the imposter with 400 (rift#610). Fixed/{min,max} waits are unaffected.
+// Calling one chainer twice appends two entries. The `_behaviors` object cannot hold a repeated
+// key, so the write switches to the `behaviors` array form, one element per entry (#217) — the
+// object form is kept whenever no key repeats, so existing output is byte-unchanged. Carrying a
+// repeated key is not running it: rift 0.17.0 merges that array on parse and applies only the last
+// entry; Mountebank runs both.
 IsSpec templated()                                       // rename of template(); _rift.templated
 // probabilistic _rift faults (chainable, composable):
 IsSpec withLatencyFault(double probability, Duration min, Duration max)
