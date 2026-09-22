@@ -31,6 +31,9 @@ final class RiftImpl implements Rift {
     /** The first engine release that runs behaviors on a {@code proxy} or {@code inject} response. */
     static final String PROXY_INJECT_BEHAVIORS_SINCE = "0.18.0";
 
+    /** The first engine release that honours {@code mutualAuth} (older ones accept every client). */
+    static final String CLIENT_AUTH_SINCE = "0.18.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;
@@ -174,21 +177,52 @@ final class RiftImpl implements Rift {
      * SDK supports at all. It is sent with a warning rather than refused.
      */
     private void requireEngineSupport(ImposterDefinition def) {
-        if (options.versionCheck() == VersionCheck.OFF || !hasProxyOrInjectBehaviors(def)) {
+        List<EngineRequirement> requirements = requirementsOf(def);
+        if (options.versionCheck() == VersionCheck.OFF || requirements.isEmpty()) {
             return;
         }
         engineVersion().ifPresent(version -> {
             if (!EngineVersion.atLeast(version, MIN_ENGINE_VERSION)) {
                 LOG.log(Level.WARNING, "rift engine reports version " + version + ", below the " + MIN_ENGINE_VERSION
-                        + " floor, so whether it runs behaviors on a proxy/inject response (rift >= "
-                        + PROXY_INJECT_BEHAVIORS_SINCE + ") cannot be checked; sending them unchecked.");
-            } else if (!EngineVersion.atLeast(version, PROXY_INJECT_BEHAVIORS_SINCE)) {
-                throw new InvalidDefinition("behaviors on a proxy/inject response need rift >= "
-                        + PROXY_INJECT_BEHAVIORS_SINCE + "; the running engine (" + version
-                        + ") accepts them and drops them silently. Upgrade the engine, remove the behaviors, "
-                        + "or turn the check off (versionCheck(OFF), or -Drift.versionCheck=off) to send them anyway.");
+                        + " floor, so it cannot be checked for "
+                        + requirements.stream().map(r -> r.feature() + " (rift >= " + r.since() + ")").toList()
+                        + "; sending the definition unchecked.");
+                return;
+            }
+            for (EngineRequirement requirement : requirements) {
+                if (!EngineVersion.atLeast(version, requirement.since())) {
+                    throw new InvalidDefinition(requirement.feature() + ": needs rift >= " + requirement.since()
+                            + "; the running engine (" + version + ") " + requirement.olderEngine()
+                            + ". Upgrade the engine, " + requirement.remedy() + ", or turn the check off "
+                            + "(versionCheck(OFF), or -Drift.versionCheck=off) to send it anyway.");
+                }
             }
         });
+    }
+
+    /**
+     * Something in a definition that an older engine would accept and not honour.
+     *
+     * @param olderEngine what an engine older than {@code since} does with it, as the rest of a sentence
+     * @param remedy      how to do without it, as an imperative clause
+     */
+    private record EngineRequirement(String since, String feature, String olderEngine, String remedy) {
+    }
+
+    private static List<EngineRequirement> requirementsOf(ImposterDefinition def) {
+        List<EngineRequirement> requirements = new ArrayList<>();
+        if (hasProxyOrInjectBehaviors(def)) {
+            requirements.add(new EngineRequirement(PROXY_INJECT_BEHAVIORS_SINCE,
+                    "behaviors on a proxy/inject response", "accepts them and drops them silently",
+                    "remove the behaviors"));
+        }
+        // Any of the three, not only mutualAuth: an older engine drops each of them without a word.
+        if (def.mutualAuth() || def.rejectUnauthorized() || def.ca().isPresent()) {
+            requirements.add(new EngineRequirement(CLIENT_AUTH_SINCE,
+                    "client-certificate authentication (mutualAuth / rejectUnauthorized / ca)",
+                    "ignores it and would accept every client", "remove requireClientCertificate"));
+        }
+        return requirements;
     }
 
     private static boolean hasProxyOrInjectBehaviors(ImposterDefinition def) {
