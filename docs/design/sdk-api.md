@@ -397,9 +397,11 @@ public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, Injec
 ```
 
 - `ok()/okJson()/created()/noContent()/notFound()/status(n)` return **`IsSpec`** — the only
-  type carrying body/header/behavior chain methods.
-- `fault(Fault)` → `FaultSpec`, `inject(js)` → `InjectSpec`, `script(Script)` → `ScriptSpec`
-  (terminal: no body/header methods exist to call).
+  type carrying status/body/header chain methods.
+- Behavior chainers live on `BehaviorChain<S>` (§7.3), implemented by `IsSpec`, `ProxySpec` and
+  `InjectSpec` — the three shapes the engine runs behaviors on (proxy/inject from rift 0.18.0, #215).
+- `fault(Fault)` → `FaultSpec`, `script(Script)` → `ScriptSpec` (terminal: no chain methods exist to
+  call); `inject(js)` → `InjectSpec` (behavior chainers only).
 - `willReturn(ResponseSpec...)` accepts them all. `ImposterSpec.defaultResponse(IsSpec)` is
   typed to the engine's actual constraint (defaultResponse is an `is` response, no behaviors).
 - `Fault` becomes a plain 4-value enum mirroring the engine (and WireMock) exactly:
@@ -407,20 +409,35 @@ public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, Injec
   The current `Fault.latencySpike(Duration)` hybrid moves to the probabilistic `_rift` fault
   surface below.
 
-### 7.3 New `IsSpec` methods (full behavior + `_rift` coverage)
+### 7.3 `IsSpec` methods and the shared `BehaviorChain` (full behavior + `_rift` coverage)
 
 ```java
 // RiftDsl factory: okJsonRaw(String) serves the JSON verbatim (byte-for-byte, no reparse),
 // unlike okJson(String) which parses + canonicalizes — for payloads whose exact form matters.
 IsSpec withBinaryBody(byte[] bytes)                      // base64 + _mode=binary
 IsSpec withBodyFromCodec(Object pojo)                    // via RiftBodyCodec SPI (§10)
-IsSpec copy(CopySpec... copies)                          // _behaviors.copy (array wire form)
-IsSpec copyObject(CopySpec copy)                         // _behaviors.copy (single-object wire form)
-IsSpec lookup(LookupSpec... lookups)                     // _behaviors.lookup (array wire form)
-IsSpec lookupObject(LookupSpec lookup)                   // _behaviors.lookup (single-object wire form)
-IsSpec shellTransform(String... commands)                // _behaviors.shellTransform
-IsSpec waitInject(String script)                         // _behaviors.wait as {"inject": ...}; a rift superset, not portable to Mountebank (rift#608)
-IsSpec waitScript(String source)                         // _behaviors.wait as a bare function string (the Mountebank-compatible spelling)
+
+// Behavior chainers: one home, shared by IsSpec, ProxySpec and InjectSpec (#215). Each returns
+// the spec kind it was called on, so behaviors can sit anywhere in a chain.
+public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
+        permits IsSpec, ProxySpec, InjectSpec {
+    S withBehavior(Behavior behavior);                   // the one abstract method
+    S after(Duration d);  S waitMs(long ms);  S waitBetween(long minMs, long maxMs);
+    S decorate(String script);  S repeat(int count);
+    S copy(CopySpec... copies)                           // _behaviors.copy (array wire form)
+    S copyObject(CopySpec copy)                          // _behaviors.copy (single-object wire form)
+    S lookup(LookupSpec... lookups)                      // _behaviors.lookup (array wire form)
+    S lookupObject(LookupSpec lookup)                    // _behaviors.lookup (single-object wire form)
+    S shellTransform(String... commands)                 // _behaviors.shellTransform
+    S waitInject(String script)                          // _behaviors.wait as {"inject": ...}; a rift superset, not portable to Mountebank (rift#608)
+    S waitScript(String source)                          // _behaviors.wait as a bare function string (the Mountebank-compatible spelling)
+}
+// On proxy/inject the block is written beside `proxy`/`inject` in the same shape as beside `is`,
+// and Response.Proxy/Response.Inject carry typed Behaviors. rift < 0.18.0 accepts the block there
+// and drops it silently, so Rift.create(ImposterDefinition) and replaceAll refuse such a definition
+// with InvalidDefinition when the engine reports 0.13.1 <= version < 0.18.0 (VersionCheck.OFF skips
+// the check; a below-floor placeholder version is not treated as old; the raw-JSON create overloads
+// are not inspected).
 // both wait spellings are one injection capability: the engine must run with --allowInjection or it
 // rejects the imposter with 400 (rift#610). Fixed/{min,max} waits are unaffected.
 // Calling one chainer twice appends two entries. The `_behaviors` object cannot hold a repeated
@@ -492,8 +509,10 @@ static FlowStateSpec redisFlowState(String url)          // .poolSize(n).keyPref
 ```java
 ProxySpec generateBy(RequestField... fields)             // enum METHOD, PATH, QUERY, HEADERS, BODY
 ProxySpec generateBy(PredicateGeneratorSpec generator)   // .matching(fields).caseSensitive(b).jsonPath(sel)
-ProxySpec addWaitBehavior()                              // currently hardcoded false
-ProxySpec decorateWith(String script)                    // addDecorateBehavior
+ProxySpec addWaitBehavior()                              // proxy.addWaitBehavior: records upstream latency on recorded stubs
+ProxySpec decorateWith(String script)                    // proxy.addDecorateBehavior: decorates the stubs this proxy records
+// not to be confused with BehaviorChain.waitMs/decorate (§7.3), which act on this proxy's own
+// response — before it is served and before it is recorded.
 ```
 
 ### 7.7 Verification grammar (single vocabulary, WireMock-quality diffs)

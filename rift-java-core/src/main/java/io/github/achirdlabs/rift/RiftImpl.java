@@ -4,6 +4,7 @@ import io.github.achirdlabs.rift.dsl.ImposterSpec;
 import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
 import io.github.achirdlabs.rift.error.ImposterNotFound;
+import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonNumber;
@@ -11,6 +12,7 @@ import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
+import io.github.achirdlabs.rift.model.Response;
 import io.github.achirdlabs.rift.transport.RemoteTransport;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
@@ -26,25 +28,35 @@ final class RiftImpl implements Rift {
     /** The oldest engine version this SDK is known to work against; see the version preflight. */
     static final String MIN_ENGINE_VERSION = "0.13.1";
 
+    /** The first engine release that runs behaviors on a {@code proxy} or {@code inject} response. */
+    static final String PROXY_INJECT_BEHAVIORS_SINCE = "0.18.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;
     private final ConnectOptions options;
     private final Runnable onClose;
     private final AtomicBoolean interceptStarted = new AtomicBoolean(false);
+    /**
+     * The engine's reported version: seeded by the preflight when it ran, else read on first need, then
+     * kept for the life of this handle. Concurrent first reads may both hit the engine; they read the
+     * same value, so the race is tolerated rather than locked.
+     */
+    private volatile String engineVersion;
 
-    private RiftImpl(RiftTransport transport, ConnectOptions options, Runnable onClose) {
+    private RiftImpl(RiftTransport transport, ConnectOptions options, Runnable onClose, String engineVersion) {
         this.transport = transport;
         this.options = options;
         this.onClose = onClose;
+        this.engineVersion = engineVersion;
     }
 
     static Rift connect(ConnectOptions options) {
         RiftTransport transport = new RemoteTransport(options.adminUri(), options.apiKey(), options.requestTimeout());
-        if (options.versionCheck() != VersionCheck.OFF) {
-            preflight(transport, options.versionCheck(), false);
-        }
-        return new RiftImpl(transport, options, () -> { });
+        String version = options.versionCheck() != VersionCheck.OFF
+                ? preflight(transport, options.versionCheck(), false)
+                : null;
+        return new RiftImpl(transport, options, () -> { }, version);
     }
 
     /**
@@ -54,7 +66,7 @@ final class RiftImpl implements Rift {
      * process it launched.
      */
     static Rift spawned(RiftTransport transport, ConnectOptions options, Runnable onClose) {
-        return new RiftImpl(transport, options, onClose);
+        return new RiftImpl(transport, options, onClose, null);
     }
 
     /**
@@ -64,11 +76,12 @@ final class RiftImpl implements Rift {
      * unless the caller opted out with {@code VersionCheck.OFF}.
      */
     static Rift embedded(RiftTransport transport, EmbeddedOptions options, Runnable onClose) {
+        String version = null;
         if (options.versionCheck() != VersionCheck.OFF) {
             // start() already loaded the native library and opened the transport. A version mismatch is
             // a first-class outcome here, so release those native resources before propagating.
             try {
-                preflight(transport, options.versionCheck(), true);
+                version = preflight(transport, options.versionCheck(), true);
             } catch (RuntimeException e) {
                 try {
                     transport.close();
@@ -84,10 +97,10 @@ final class RiftImpl implements Rift {
         // imposter's uri(), so any placeholder value here is inert.
         ConnectOptions.Builder builder = ConnectOptions
                 .builder(URI.create("http://" + options.adminHost() + ":" + options.adminPort()))
-                .versionCheck(VersionCheck.OFF)
+                .versionCheck(options.versionCheck())
                 .hostResolver(port -> URI.create("http://" + options.adminHost() + ":" + port));
         options.apiKey().ifPresent(builder::apiKey);
-        return new RiftImpl(transport, builder.build(), onClose);
+        return new RiftImpl(transport, builder.build(), onClose, version);
     }
 
     /** The outcome of comparing a reported engine version against the floor. Package-private for testing. */
@@ -102,7 +115,7 @@ final class RiftImpl implements Rift {
      * clearer message. Remote/spawn have no symbol gate, so they keep the strict compare.
      */
     static PreflightDecision decide(String version, VersionCheck mode, boolean abiVerified) {
-        if (compareSemver(version, MIN_ENGINE_VERSION) >= 0) {
+        if (EngineVersion.atLeast(version, MIN_ENGINE_VERSION)) {
             return PreflightDecision.PASS;
         }
         if (abiVerified) {
@@ -111,7 +124,8 @@ final class RiftImpl implements Rift {
         return mode == VersionCheck.FAIL ? PreflightDecision.FAIL : PreflightDecision.WARN;
     }
 
-    private static void preflight(RiftTransport transport, VersionCheck mode, boolean abiVerified) {
+    /** Runs the preflight and returns the version it read, or {@code null} when WARN mode could not read one. */
+    private static String preflight(RiftTransport transport, VersionCheck mode, boolean abiVerified) {
         String version;
         try {
             // extractVersion is inside the try so a malformed /config body (CommunicationError) is
@@ -120,7 +134,7 @@ final class RiftImpl implements Rift {
         } catch (RiftException e) {
             if (mode == VersionCheck.WARN) {
                 LOG.log(Level.WARNING, "unable to verify the rift engine version: " + e.getMessage());
-                return;
+                return null;
             }
             throw e;
         }
@@ -139,6 +153,7 @@ final class RiftImpl implements Rift {
                     + ", found " + version + ". If you know the engine is compatible, relax the check via "
                     + "EmbeddedOptions/ConnectOptions.versionCheck(WARN|OFF) or -Drift.versionCheck=warn|off.");
         }
+        return version;
     }
 
     private static String extractVersion(JsonValue config) {
@@ -148,36 +163,62 @@ final class RiftImpl implements Rift {
         throw new CommunicationError("rift admin API GET /config response is missing a 'version' field");
     }
 
-    /** Compares major.minor.patch, ignoring any {@code -pre} suffix on the patch component. */
-    private static int compareSemver(String a, String b) {
-        int[] pa = parseSemver(a);
-        int[] pb = parseSemver(b);
-        for (int i = 0; i < 3; i++) {
-            int cmp = Integer.compare(pa[i], pb[i]);
-            if (cmp != 0) {
-                return cmp;
+    /**
+     * Refuses a typed definition the running engine would accept and then silently ignore part of.
+     * Only typed definitions are inspected; the raw-JSON {@code create} overloads are the escape hatch
+     * and go through untouched, as does everything under {@link VersionCheck#OFF}.
+     *
+     * <p>A version below {@link #MIN_ENGINE_VERSION} cannot be judged: it is normally the placeholder a
+     * locally built engine reports (the reading {@link #decide} gives an ABI-verified embedded engine),
+     * which says nothing about what it supports, and a genuine release that old is outside what this
+     * SDK supports at all. It is sent with a warning rather than refused.
+     */
+    private void requireEngineSupport(ImposterDefinition def) {
+        if (options.versionCheck() == VersionCheck.OFF || !hasProxyOrInjectBehaviors(def)) {
+            return;
+        }
+        engineVersion().ifPresent(version -> {
+            if (!EngineVersion.atLeast(version, MIN_ENGINE_VERSION)) {
+                LOG.log(Level.WARNING, "rift engine reports version " + version + ", below the " + MIN_ENGINE_VERSION
+                        + " floor, so whether it runs behaviors on a proxy/inject response (rift >= "
+                        + PROXY_INJECT_BEHAVIORS_SINCE + ") cannot be checked; sending them unchecked.");
+            } else if (!EngineVersion.atLeast(version, PROXY_INJECT_BEHAVIORS_SINCE)) {
+                throw new InvalidDefinition("behaviors on a proxy/inject response need rift >= "
+                        + PROXY_INJECT_BEHAVIORS_SINCE + "; the running engine (" + version
+                        + ") accepts them and drops them silently. Upgrade the engine, remove the behaviors, "
+                        + "or turn the check off (versionCheck(OFF), or -Drift.versionCheck=off) to send them anyway.");
             }
-        }
-        return 0;
+        });
     }
 
-    private static int[] parseSemver(String version) {
-        String v = version.isEmpty() ? version
-                : (version.charAt(0) == 'v' || version.charAt(0) == 'V') ? version.substring(1) : version;
-        String[] parts = v.split("\\.", 3);
-        int[] out = new int[3];
-        for (int i = 0; i < parts.length && i < 3; i++) {
-            out[i] = leadingInt(parts[i]);
-        }
-        return out;
+    private static boolean hasProxyOrInjectBehaviors(ImposterDefinition def) {
+        return def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                .anyMatch(r -> (r instanceof Response.Proxy p && !p.behaviors().isEmpty())
+                        || (r instanceof Response.Inject i && !i.behaviors().isEmpty()));
     }
 
-    private static int leadingInt(String s) {
-        int end = 0;
-        while (end < s.length() && Character.isDigit(s.charAt(end))) {
-            end++;
+    /**
+     * The engine's version, read once. An unreadable version fails the call in {@code FAIL} mode and
+     * is logged and skipped in {@code WARN} mode — the same split the connect-time preflight makes.
+     */
+    private Optional<String> engineVersion() {
+        String cached = engineVersion;
+        if (cached != null) {
+            return Optional.of(cached);
         }
-        return end == 0 ? 0 : Integer.parseInt(s.substring(0, end));
+        try {
+            cached = extractVersion(transport.buildInfo());
+        } catch (RiftException e) {
+            if (options.versionCheck() == VersionCheck.WARN) {
+                LOG.log(Level.WARNING, "unable to verify the rift engine version, so this definition is sent "
+                        + "unchecked: " + e.getMessage());
+                return Optional.empty();
+            }
+            throw e;
+        }
+        engineVersion = cached;
+        return Optional.of(cached);
     }
 
     @Override
@@ -187,6 +228,7 @@ final class RiftImpl implements Rift {
 
     @Override
     public Imposter create(ImposterDefinition def) {
+        requireEngineSupport(def);
         return create(JsonValue.parse(def.toJson()));
     }
 
@@ -235,6 +277,7 @@ final class RiftImpl implements Rift {
 
     @Override
     public void replaceAll(List<ImposterDefinition> imposters) {
+        imposters.forEach(this::requireEngineSupport);
         JsonArray docs = new JsonArray(imposters.stream().map(d -> (JsonValue) JsonValue.parse(d.toJson())).toList());
         JsonObject doc = JsonObject.builder().put("imposters", docs).build();
         transport.replaceAllImposters(doc);

@@ -49,34 +49,56 @@ public sealed interface Response {
     }
 
     /**
-     * A proxy response. {@code extra} carries any top-level wire keys that sat alongside {@code proxy}
-     * (e.g. {@code _behaviors} or unknown/future keys) so they survive a parse → serialize round-trip
-     * instead of being dropped — {@code proxy} itself is never in {@code extra}.
+     * A proxy response. {@code behaviors} run on the upstream response before it is served or
+     * recorded (rift &ge; 0.18.0; older engines accept the block and drop it). {@code extra} carries
+     * any other top-level wire keys that sat alongside {@code proxy} (unknown/future keys, a
+     * {@code _rift} sibling) so they survive a parse → serialize round-trip instead of being dropped —
+     * {@code proxy} and the behavior keys are never in {@code extra}.
      */
-    record Proxy(ProxyResponse proxy, Map<String, JsonValue> extra) implements Response {
+    record Proxy(ProxyResponse proxy, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
         public Proxy {
             Objects.requireNonNull(proxy, "proxy");
+            Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("proxy"), "proxy response");
+            JsonSupport.rejectModeledExtraKeys(extra, Set.of("proxy", "_behaviors", "behaviors", "repeat"), "proxy response");
             extra = JsonSupport.orderedCopy(extra);
+        }
+
+        /**
+         * A proxy response whose behaviors, if any, are still spelled as raw keys in {@code extra}
+         * — the only way to attach them before they were typed. They are lifted into {@link
+         * #behaviors()}, exactly as a parse would read them.
+         */
+        public Proxy(ProxyResponse proxy, Map<String, JsonValue> extra) {
+            this(proxy, liftBehaviors(extra), withoutBehaviorKeys(extra));
         }
 
         public Proxy(ProxyResponse proxy) {
-            this(proxy, Map.of());
+            this(proxy, Behaviors.EMPTY, Map.of());
         }
     }
 
-    /** An inject (script) response. {@code extra} preserves sibling top-level keys (see {@link Proxy}). */
-    record Inject(String script, Map<String, JsonValue> extra) implements Response {
+    /**
+     * An inject (script) response. {@code behaviors} run on the script's response (rift &ge; 0.18.0;
+     * a script that fails runs none). {@code extra} preserves other sibling top-level keys (see
+     * {@link Proxy}).
+     */
+    record Inject(String script, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
         public Inject {
             Objects.requireNonNull(script, "script");
+            Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("inject"), "inject response");
+            JsonSupport.rejectModeledExtraKeys(extra, Set.of("inject", "_behaviors", "behaviors", "repeat"), "inject response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
+        /** An inject response whose raw behavior keys in {@code extra} are lifted, as for {@link Proxy}. */
+        public Inject(String script, Map<String, JsonValue> extra) {
+            this(script, liftBehaviors(extra), withoutBehaviorKeys(extra));
+        }
+
         public Inject(String script) {
-            this(script, Map.of());
+            this(script, Behaviors.EMPTY, Map.of());
         }
     }
 
@@ -117,17 +139,21 @@ public sealed interface Response {
         if (obj.get("is") != null) {
             return new Is(
                     IsResponse.read(JsonSupport.requireObject(obj.get("is"), "is")),
-                    foldResponseLevelRepeat(readBehaviors(obj), obj),
+                    readAllBehaviors(obj),
                     readRift(obj),
                     JsonSupport.extraFields(obj, Set.of("is", "_behaviors", "behaviors", "_rift", "repeat")));
         }
         if (obj.get("proxy") != null) {
             return new Proxy(
                     ProxyResponse.read(JsonSupport.requireObject(obj.get("proxy"), "proxy")),
-                    JsonSupport.extraFields(obj, Set.of("proxy")));
+                    readAllBehaviors(obj),
+                    JsonSupport.extraFields(obj, Set.of("proxy", "_behaviors", "behaviors", "repeat")));
         }
         if (obj.get("inject") != null) {
-            return new Inject(JsonSupport.requireString(obj, "inject"), JsonSupport.extraFields(obj, Set.of("inject")));
+            return new Inject(
+                    JsonSupport.requireString(obj, "inject"),
+                    readAllBehaviors(obj),
+                    JsonSupport.extraFields(obj, Set.of("inject", "_behaviors", "behaviors", "repeat")));
         }
         if (obj.get("fault") != null) {
             return new Fault(JsonSupport.requireString(obj, "fault"), JsonSupport.extraFields(obj, Set.of("fault")));
@@ -148,7 +174,7 @@ public sealed interface Response {
         // are read separately and stripped from the is-content; any genuinely unknown is-key is still
         // preserved through IsResponse.extra. An object naming no known kind and no flat fields lands
         // here too, so its unknown keys are preserved via IsResponse.extra rather than dropped.
-        Behaviors behaviors = foldResponseLevelRepeat(readBehaviors(obj), obj);
+        Behaviors behaviors = readAllBehaviors(obj);
         JsonObject isContent = JsonSupport.withoutKeys(obj, "_behaviors", "behaviors", "_rift", "repeat");
         return new Is(IsResponse.read(isContent), behaviors, readRift(obj));
     }
@@ -215,6 +241,19 @@ public sealed interface Response {
         return new Behaviors(entries);
     }
 
+    /** The behaviors block in either shape, plus a response-level {@code repeat} beside it. */
+    private static Behaviors readAllBehaviors(JsonObject obj) {
+        return foldResponseLevelRepeat(readBehaviors(obj), obj);
+    }
+
+    private static Behaviors liftBehaviors(Map<String, JsonValue> extra) {
+        return readAllBehaviors(new JsonObject(extra));
+    }
+
+    private static Map<String, JsonValue> withoutBehaviorKeys(Map<String, JsonValue> extra) {
+        return JsonSupport.withoutKeys(new JsonObject(extra), "_behaviors", "behaviors", "repeat").fields();
+    }
+
     private static Optional<RiftResponseExtension> readRift(JsonObject obj) {
         JsonValue rift = obj.get("_rift");
         return Optional.ofNullable(rift).map(v -> RiftResponseExtension.read(JsonSupport.requireObject(v, "_rift")));
@@ -234,9 +273,11 @@ public sealed interface Response {
             is.extra().forEach(builder::put);
         } else if (this instanceof Proxy proxy) {
             builder.put("proxy", proxy.proxy().toJsonValue());
+            writeBehaviors(builder, proxy.behaviors());
             proxy.extra().forEach(builder::put);
         } else if (this instanceof Inject inject) {
             builder.put("inject", new JsonString(inject.script()));
+            writeBehaviors(builder, inject.behaviors());
             inject.extra().forEach(builder::put);
         } else if (this instanceof Fault fault) {
             builder.put("fault", new JsonString(fault.fault()));

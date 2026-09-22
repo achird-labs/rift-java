@@ -1,7 +1,6 @@
 package io.github.achirdlabs.rift.dsl;
 
 import io.github.achirdlabs.rift.codec.BodyCodecs;
-import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.Behavior;
@@ -16,7 +15,6 @@ import io.github.achirdlabs.rift.model.RiftLatencyFault;
 import io.github.achirdlabs.rift.model.RiftResponseExtension;
 
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,10 +24,9 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 /**
- * A literal ("is") response under construction: status code, headers, body, behaviors ({@code
- * wait}/{@code decorate}/{@code repeat}/{@code copy}/{@code lookup}/{@code shellTransform}), and the
- * opt-in {@code _rift} extensions ({@code fault}/{@code templated}). Created via
- * {@link RiftDsl#ok()} and its siblings.
+ * A literal ("is") response under construction: status code, headers, body, behaviors (the
+ * {@link BehaviorChain} chainers), and the opt-in {@code _rift} extensions ({@code
+ * fault}/{@code templated}). Created via {@link RiftDsl#ok()} and its siblings.
  *
  * <p>Instances are immutable: every chain method returns a new {@code IsSpec}. The terminal {@link
  * #build()} produces the {@link Response} model value.
@@ -40,7 +37,7 @@ import java.util.stream.Stream;
  * and applies only the last entry of a repeated key, so two {@code copy} behaviors take effect as
  * one until a later engine release. Mountebank runs both.
  */
-public final class IsSpec implements ResponseSpec {
+public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
 
     private final String statusCode;
     private final Map<String, List<String>> headers;
@@ -119,59 +116,68 @@ public final class IsSpec implements ResponseSpec {
         return new IsSpec(statusCode, headers, Optional.of(new JsonString(encoded)), ResponseMode.BINARY, behaviors, fault, templated);
     }
 
-    /** Delays the response by the given duration (a {@code wait} behavior with a fixed delay). */
+    // The behavior chainers live on BehaviorChain. These overrides only pin their IsSpec return type
+    // in the class file: a default method returning S erases to ResponseSpec, so without them code
+    // compiled against an earlier IsSpec (where these were declared here) fails with NoSuchMethodError.
+
+    @Override
     public IsSpec after(Duration duration) {
-        return waitMs(duration.toMillis());
+        return BehaviorChain.super.after(duration);
     }
 
-    /**
-     * Delays the response by a fixed number of milliseconds (a {@code wait} behavior).
-     *
-     * <p>Named {@code waitMs} rather than {@code wait}: {@code wait(long)} would silently attempt to
-     * override the {@code final} {@link Object#wait(long)} and fail to compile.
-     */
+    @Override
     public IsSpec waitMs(long milliseconds) {
-        return withBehavior(new Behavior.Wait(new io.github.achirdlabs.rift.model.WaitSpec.Fixed(milliseconds)));
+        return BehaviorChain.super.waitMs(milliseconds);
     }
 
-    /** Delays the response by a random duration in {@code [minMs, maxMs]} (a {@code wait} behavior with a range). */
+    @Override
     public IsSpec waitBetween(long minMs, long maxMs) {
-        return withBehavior(new Behavior.Wait(new io.github.achirdlabs.rift.model.WaitSpec.Range(minMs, maxMs)));
+        return BehaviorChain.super.waitBetween(minMs, maxMs);
     }
 
-    /**
-     * Delays the response by a duration computed by the given script (an {@code inject}ed {@code wait}
-     * value) — rift's object spelling, a superset not portable to Mountebank (rift#608).
-     *
-     * <p>A function wait is an injection surface in either spelling: the engine must run with
-     * {@code --allowInjection} or it rejects the imposter with a 400 ({@link
-     * io.github.achirdlabs.rift.error.InvalidDefinition}). {@link #waitMs} and {@link #waitBetween}
-     * are unaffected.
-     */
+    @Override
     public IsSpec waitInject(String script) {
-        return withBehavior(new Behavior.Wait(new io.github.achirdlabs.rift.model.WaitSpec.Inject(script)));
+        return BehaviorChain.super.waitInject(script);
     }
 
-    /**
-     * Delays the response by a bare-string {@code wait} (a function body / named latency), round-tripped
-     * verbatim — the Mountebank-compatible spelling of {@link #waitInject}, and equally an injection
-     * surface: it needs the engine's {@code --allowInjection} for the same reason (rift#610).
-     */
+    @Override
     public IsSpec waitScript(String source) {
-        return withBehavior(new Behavior.Wait(new io.github.achirdlabs.rift.model.WaitSpec.Script(source)));
+        return BehaviorChain.super.waitScript(source);
     }
 
-    /** Post-processes the response with the given decorator script (a {@code decorate} behavior). */
+    @Override
     public IsSpec decorate(String script) {
-        return withBehavior(new Behavior.Decorate(script));
+        return BehaviorChain.super.decorate(script);
     }
 
-    /**
-     * Serves this response only for the first {@code count} matches, after which the stub's next
-     * response takes over (a {@code repeat} behavior).
-     */
+    @Override
     public IsSpec repeat(int count) {
-        return withBehavior(new Behavior.Repeat(count));
+        return BehaviorChain.super.repeat(count);
+    }
+
+    @Override
+    public IsSpec copy(CopySpec... copies) {
+        return BehaviorChain.super.copy(copies);
+    }
+
+    @Override
+    public IsSpec copyObject(CopySpec copy) {
+        return BehaviorChain.super.copyObject(copy);
+    }
+
+    @Override
+    public IsSpec lookup(LookupSpec... lookups) {
+        return BehaviorChain.super.lookup(lookups);
+    }
+
+    @Override
+    public IsSpec lookupObject(LookupSpec lookup) {
+        return BehaviorChain.super.lookupObject(lookup);
+    }
+
+    @Override
+    public IsSpec shellTransform(String... commands) {
+        return BehaviorChain.super.shellTransform(commands);
     }
 
     /**
@@ -180,44 +186,6 @@ public final class IsSpec implements ResponseSpec {
      */
     public IsSpec templated() {
         return new IsSpec(statusCode, headers, body, mode, behaviors, fault, true);
-    }
-
-    /** Adds a {@code copy} behavior entry per {@link CopySpec} given (the array wire form). */
-    public IsSpec copy(CopySpec... copies) {
-        List<io.github.achirdlabs.rift.model.CopyEntry> entries =
-                Arrays.stream(copies).map(CopySpec::build).toList();
-        return withBehavior(new Behavior.Copy(entries));
-    }
-
-    /** Adds a single {@code copy} entry in the engine's object wire form (not wrapped in an array). */
-    public IsSpec copyObject(CopySpec copy) {
-        return withBehavior(new Behavior.Copy(List.of(copy.build()), true));
-    }
-
-    /**
-     * Adds a {@code lookup} behavior: an array of lookup entries, each keyed by a request extraction
-     * and resolved against a data source. There is no typed {@code Behavior.Lookup} — this rides
-     * {@link Behavior.Unknown} so it round-trips losslessly while still emitting the correct wire
-     * shape.
-     */
-    public IsSpec lookup(LookupSpec... lookups) {
-        JsonArray array = new JsonArray(Arrays.stream(lookups).map(LookupSpec::build).toList());
-        return withBehavior(new Behavior.Unknown("lookup", array));
-    }
-
-    /** Adds a single {@code lookup} entry in the engine's object wire form (not wrapped in an array). */
-    public IsSpec lookupObject(LookupSpec lookup) {
-        return withBehavior(new Behavior.Unknown("lookup", lookup.build()));
-    }
-
-    /**
-     * Adds a {@code shellTransform} behavior running each command in order. Rides {@link
-     * Behavior.Unknown} (as a JSON array of commands) rather than the single-command typed {@link
-     * Behavior.ShellTransform}, since the multi-command wire shape is an array.
-     */
-    public IsSpec shellTransform(String... commands) {
-        JsonArray array = new JsonArray(Arrays.stream(commands).<JsonValue>map(JsonString::new).toList());
-        return withBehavior(new Behavior.Unknown("shellTransform", array));
     }
 
     /** Injects a latency fault: {@code probability} of the time, delay the response by a fixed duration. */
@@ -283,7 +251,8 @@ public final class IsSpec implements ResponseSpec {
         return new IsSpec(statusCode, headers, body, mode, behaviors, Optional.of(mutator.apply(current)), templated);
     }
 
-    private IsSpec withBehavior(Behavior behavior) {
+    @Override
+    public IsSpec withBehavior(Behavior behavior) {
         List<Behavior> next = Stream.concat(behaviors.stream(), Stream.of(behavior)).toList();
         return new IsSpec(statusCode, headers, body, mode, next, fault, templated);
     }

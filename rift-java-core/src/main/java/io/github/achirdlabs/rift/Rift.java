@@ -49,9 +49,9 @@ public interface Rift extends AutoCloseable {
         Path binary = BinaryResolver.resolve(options);
         RiftProcess process = RiftProcess.launch(binary, options);
         RiftTransport transport = new RemoteTransport(process.adminUri(), Optional.empty(), Duration.ofSeconds(30));
-        ConnectOptions connectOptions = ConnectOptions.builder(process.adminUri())
-                .versionCheck(VersionCheck.OFF)
-                .build();
+        // The builder's default versionCheck applies: spawned() never runs the preflight (the version is
+        // pinned), but the per-feature engine gates on create still read it.
+        ConnectOptions connectOptions = ConnectOptions.builder(process.adminUri()).build();
         return RiftImpl.spawned(transport, connectOptions, () -> process.stop(options.shutdownTimeout()));
     }
 
