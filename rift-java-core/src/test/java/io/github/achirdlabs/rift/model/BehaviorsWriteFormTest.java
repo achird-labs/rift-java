@@ -180,9 +180,9 @@ class BehaviorsWriteFormTest {
     }
 
     /**
-     * A {@code repeat} is written as an array element, never hoisted to a response-level field: the
-     * pinned engine (0.17.0, the latest published release) has no response-level {@code repeat}
-     * field at all, so hoisting would silently drop it on the engine this SDK targets.
+     * A {@code repeat} is written as an array element, never hoisted to a response-level field: rift
+     * 0.17.0 and earlier have no response-level {@code repeat} field at all, so hoisting would
+     * silently drop it on an engine this SDK still supports.
      *
      * <p>A forward-looking guard on that decision, not coverage of the #217 fix: it passes against
      * the pre-fix code too, since nothing hoisted then either.
