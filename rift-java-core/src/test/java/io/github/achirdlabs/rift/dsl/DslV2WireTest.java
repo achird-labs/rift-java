@@ -151,6 +151,7 @@ class DslV2WireTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // pins the wire output of a deprecated, engine-ignored builder
     void imposterFlowStateAndMetrics() {
         ImposterDefinition def = imposter("svc")
                 .flowState(inMemoryFlowState().ttl(Duration.ofSeconds(120)))
@@ -251,6 +252,7 @@ class DslV2WireTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // pins the wire output of a deprecated, engine-ignored builder
     void imposterScriptEngineScriptsAndProxyPool() {
         ImposterDefinition def = imposter("svc")
                 .scriptEngine(ScriptEngine.RHAI, Duration.ofSeconds(5))

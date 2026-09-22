@@ -511,6 +511,7 @@ class DslConstructTest {
     // ------------------------------------------------------------------
 
     @Test
+    @SuppressWarnings("deprecation") // pins the wire output of a deprecated, engine-ignored builder
     void imposterBasicProperties() {
         ImposterDefinition imposter = imposter("My ImposterDefinition")
                 .port(9999)

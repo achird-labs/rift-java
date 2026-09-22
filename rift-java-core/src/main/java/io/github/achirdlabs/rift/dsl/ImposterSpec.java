@@ -137,7 +137,15 @@ public final class ImposterSpec {
                 flowState, metrics, proxyPool, scriptEngine, scripts);
     }
 
-    /** Enables recording of which stub matched each request (sets {@code recordMatches}). */
+    /**
+     * Sets {@code recordMatches}, which no rift engine acts on: the engine does not record which stub matched
+     * each request. Rift 0.18.0 and later report it as {@code config_key_ignored} in the imposter's
+     * {@code _rift.warnings}; earlier engines ignore it silently.
+     *
+     * @deprecated has no effect on the engine. Use {@link #record()} ({@code recordRequests}) and read the
+     *     imposter's recorded requests instead.
+     */
+    @Deprecated(since = "0.2.4")
     public ImposterSpec recordMatches() {
         return new ImposterSpec(name, port, protocol, recordRequests, true, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
@@ -193,7 +201,15 @@ public final class ImposterSpec {
                 Optional.of(spec), metrics, proxyPool, scriptEngine, scripts);
     }
 
-    /** Enables the metrics endpoint on the given port. */
+    /**
+     * Sets {@code _rift.metrics}, which no rift engine acts on: metrics are process-wide, served on the engine's
+     * {@code --metrics-port} (default 9090), and not configurable per imposter. Rift 0.18.0 and later report it
+     * as {@code config_key_ignored} in the imposter's {@code _rift.warnings}; earlier engines ignore it silently.
+     *
+     * @deprecated has no effect on the engine. Configure metrics on the engine process with
+     *     {@code --metrics-port}.
+     */
+    @Deprecated(since = "0.2.4")
     public ImposterSpec metrics(int port) {
         return new ImposterSpec(name, this.port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
@@ -230,7 +246,15 @@ public final class ImposterSpec {
                 flowState, metrics, proxyPool, scriptEngine, next);
     }
 
-    /** Configures the proxy upstream connection pool. */
+    /**
+     * Sets {@code _rift.proxy.connectionPool}, which no rift engine acts on: a proxy response's upstream is its
+     * own {@code proxy.to}, and connection pooling is not configurable per imposter. Rift 0.18.0 and later report
+     * {@code _rift.proxy} as {@code config_key_ignored} in the imposter's {@code _rift.warnings}; earlier engines
+     * ignore it silently.
+     *
+     * @deprecated has no effect on the engine; there is no replacement.
+     */
+    @Deprecated(since = "0.2.4")
     public ImposterSpec proxyPool(int maxIdlePerHost, Duration idleTimeout) {
         RiftConnectionPoolConfig pool = new RiftConnectionPoolConfig(maxIdlePerHost, idleTimeout.toSeconds());
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
