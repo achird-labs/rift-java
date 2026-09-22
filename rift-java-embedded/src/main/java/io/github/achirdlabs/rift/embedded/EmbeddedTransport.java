@@ -1,10 +1,14 @@
 package io.github.achirdlabs.rift.embedded;
 
 import io.github.achirdlabs.rift.EmbeddedOptions;
+import io.github.achirdlabs.rift.EngineInfo;
 import io.github.achirdlabs.rift.EventStream;
 import io.github.achirdlabs.rift.EventStreamOptions;
 import io.github.achirdlabs.rift.MatchClause;
+import io.github.achirdlabs.rift.UpstreamTrust;
 import io.github.achirdlabs.rift.error.EngineError;
+import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.json.JsonBool;
 import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
@@ -25,7 +29,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * {@link RiftTransport} over the in-process rift engine via the Panama FFM C-ABI v2. Every
@@ -333,14 +339,55 @@ public final class EmbeddedTransport implements RiftTransport {
      * one code path rather than one per combination of set fields.
      */
     static JsonObject serveOptions(EmbeddedOptions options) {
-        return JsonObject.builder()
+        JsonObject.Builder payload = JsonObject.builder()
                 .put("host", new JsonString(options.adminHost()))
                 .put("port", JsonNumber.of(options.adminPort()))
                 // Absent rather than null: the payload then says only what was actually configured.
                 // (An explicit null would also parse — serde maps it to None for an Option — so this
                 // is idiom, not a correctness requirement.)
-                .putIfPresent("apiKey", options.apiKey().map(JsonString::new))
-                .build();
+                .putIfPresent("apiKey", options.apiKey().map(JsonString::new));
+        options.upstreamTrust().ifPresent(trust -> payload.put(serveOptionKey(trust), serveOptionValue(trust)));
+        return payload.build();
+    }
+
+    /** The {@code rift_serve_admin} key each trust variant is sent under. */
+    private static String serveOptionKey(UpstreamTrust trust) {
+        if (trust instanceof UpstreamTrust.CaFile) {
+            return "upstreamCaFile";
+        } else if (trust instanceof UpstreamTrust.CaPem) {
+            return "upstreamCaPem";
+        } else {
+            return "upstreamTlsSkipVerify";
+        }
+    }
+
+    private static JsonValue serveOptionValue(UpstreamTrust trust) {
+        if (trust instanceof UpstreamTrust.CaFile file) {
+            return new JsonString(file.pem().toString());
+        } else if (trust instanceof UpstreamTrust.CaPem pem) {
+            return new JsonString(pem.pem());
+        } else {
+            return JsonBool.TRUE;
+        }
+    }
+
+    /**
+     * Refuses to send a trust option the engine does not advertise in {@code buildInfo().serveOptions}.
+     * Before rift 0.17.0 an unknown key is silently ignored, and 0.17.0 refuses it with an error that
+     * does not say what to do, so presence in that list is the signal; the version string is not (non-release
+     * builds report a placeholder). The engine is only asked when a trust option is set. Package-private
+     * so it can be pinned without an engine.
+     */
+    static void requireAdvertised(EmbeddedOptions options, Supplier<JsonValue> buildInfo) {
+        if (options.upstreamTrust().isEmpty()) {
+            return;
+        }
+        String key = serveOptionKey(options.upstreamTrust().get());
+        Set<String> advertised = EngineInfo.read(buildInfo.get()).serveOptions();
+        if (!advertised.contains(key)) {
+            throw new EngineUnavailable(key + " needs a rift engine >= 0.18.0; this engine advertises serveOptions "
+                    + advertised + ". Upgrade the engine, or drop EmbeddedOptions.upstreamTrust.");
+        }
     }
 
     /**
@@ -369,6 +416,19 @@ public final class EmbeddedTransport implements RiftTransport {
                 + " Set EmbeddedOptions.Builder#apiKey, or bind 127.0.0.1.");
     }
 
+    /**
+     * The warning to log when {@code options} turns upstream verification off. The engine logs one too,
+     * but through a tracing subscriber an embedder never installs.
+     */
+    static Optional<String> skipVerifyWarning(EmbeddedOptions options) {
+        if (!(options.upstreamTrust().orElse(null) instanceof UpstreamTrust.SkipVerify)) {
+            return Optional.empty();
+        }
+        return Optional.of("the embedded rift engine is accepting any upstream TLS certificate "
+                + "(UpstreamTrust.SkipVerify): proxy stubs can record a man-in-the-middle's traffic. "
+                + "Development only; prefer UpstreamTrust.CaFile or CaPem.");
+    }
+
     private RemoteTransport admin() {
         RemoteTransport a = admin;
         if (a != null) {
@@ -378,6 +438,8 @@ public final class EmbeddedTransport implements RiftTransport {
             a = admin;
             if (a == null) {
                 warnIfExposedWithoutAKey();
+                requireAdvertised(options, calls::buildInfo);
+                skipVerifyWarning(options).ifPresent(warning -> LOG.log(Level.WARNING, warning));
                 JsonValue result = calls.serveAdmin(serveOptions(options));
                 if (!(result instanceof JsonObject obj && obj.get("adminUrl") instanceof JsonString adminUrl)) {
                     throw new EngineError(EngineError.NO_HTTP_STATUS,

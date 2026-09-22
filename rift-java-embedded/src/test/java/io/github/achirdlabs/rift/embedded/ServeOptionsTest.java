@@ -1,10 +1,17 @@
 package io.github.achirdlabs.rift.embedded;
 
 import io.github.achirdlabs.rift.EmbeddedOptions;
+import io.github.achirdlabs.rift.UpstreamTrust;
+import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.json.JsonString;
+import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The {@code rift_serve_admin} options payload (#176). Pinned without an engine because the failure
@@ -62,5 +69,104 @@ class ServeOptionsTest {
 
         assertEquals("127.0.0.1", defaults.adminHost());
         assertEquals(0, defaults.adminPort());
+    }
+
+    // ---- outbound TLS trust (#209) ----
+
+    private static final String PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+
+    /** The eight keys rift 0.17.0 advertises: none of the trust options. */
+    private static final String V017_BUILD_INFO = """
+            {"version": "0.17.0", "serveOptions": ["host", "port", "apiKey", "metricsPort", "configFile",
+             "config", "allowInjection", "requireAdminAuth"]}
+            """;
+    private static final String V018_BUILD_INFO = """
+            {"version": "0.18.0", "serveOptions": ["host", "port", "apiKey", "metricsPort", "configFile", "noParse",
+             "config", "allowInjection", "requireAdminAuth", "upstreamCaFile", "upstreamCaPem", "upstreamTlsSkipVerify"]}
+            """;
+
+    @Test
+    void caFileIsSentAsUpstreamCaFile() {
+        Path ca = Path.of("/etc/corp-ca.pem").toAbsolutePath();
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaFile(ca)).build()).toJson();
+        assertEquals("{\"host\":\"127.0.0.1\",\"port\":0,\"upstreamCaFile\":"
+                + new JsonString(ca.toString()).toJson() + "}", json);
+    }
+
+    @Test
+    void aBackslashInTheCaPathIsEscaped() {
+        // A Windows path: the payload is JSON, so each backslash must reach the engine doubled.
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaFile(Path.of("certs\\corp-ca.pem"))).build()).toJson();
+        assertTrue(json.contains("certs\\\\corp-ca.pem"), json);
+    }
+
+    @Test
+    void theEngineIsNotAskedWhenNoTrustIsSet() {
+        EmbeddedTransport.requireAdvertised(EmbeddedOptions.builder().build(), () -> {
+            throw new AssertionError("buildInfo must not be read without an upstreamTrust");
+        });
+    }
+
+    @Test
+    void onlySkipVerifyWarns() {
+        assertTrue(EmbeddedTransport.skipVerifyWarning(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.SkipVerify()).build()).orElseThrow().contains("SkipVerify"));
+        assertTrue(EmbeddedTransport.skipVerifyWarning(EmbeddedOptions.builder().build()).isEmpty());
+        assertTrue(EmbeddedTransport.skipVerifyWarning(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaPem(PEM)).build()).isEmpty());
+    }
+
+    @Test
+    void caPemIsSentInline() {
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaPem(PEM)).build()).toJson();
+        assertEquals("{\"host\":\"127.0.0.1\",\"port\":0,\"upstreamCaPem\":"
+                + "\"-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----\\n\"}", json);
+    }
+
+    @Test
+    void skipVerifyIsSentAsTrue() {
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .upstreamTrust(new UpstreamTrust.SkipVerify()).build()).toJson();
+        assertEquals("{\"host\":\"127.0.0.1\",\"port\":0,\"upstreamTlsSkipVerify\":true}", json);
+    }
+
+    @Test
+    void anEngineThatDoesNotAdvertiseTheKeyIsRefused() {
+        EngineUnavailable e = assertThrows(EngineUnavailable.class, () -> EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().upstreamTrust(new UpstreamTrust.CaPem(PEM)).build(),
+                () -> JsonValue.parse(V017_BUILD_INFO)));
+        assertTrue(e.getMessage().contains("upstreamCaPem"), e.getMessage());
+        assertTrue(e.getMessage().contains("0.18.0"), e.getMessage());
+    }
+
+    @Test
+    void anEngineWithNoServeOptionsListIsRefused() {
+        // Before 0.17.0 the list did not exist at all; absence is not permission.
+        assertThrows(EngineUnavailable.class, () -> EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().upstreamTrust(new UpstreamTrust.SkipVerify()).build(),
+                () -> JsonValue.parse("{\"version\": \"0.16.0\"}")));
+    }
+
+    @Test
+    void eachVariantIsCheckedForItsOwnKey() {
+        String onlyFile = "{\"version\": \"0.1.0\", \"serveOptions\": [\"host\", \"upstreamCaFile\"]}";
+        EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().upstreamTrust(new UpstreamTrust.CaFile(Path.of("/ca.pem"))).build(),
+                () -> JsonValue.parse(onlyFile));
+        assertThrows(EngineUnavailable.class, () -> EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().upstreamTrust(new UpstreamTrust.SkipVerify()).build(),
+                () -> JsonValue.parse(onlyFile)));
+    }
+
+    @Test
+    void anEngineThatAdvertisesTheKeyPasses() {
+        for (UpstreamTrust trust : new UpstreamTrust[] {
+                new UpstreamTrust.CaFile(Path.of("/ca.pem")), new UpstreamTrust.CaPem(PEM), new UpstreamTrust.SkipVerify()}) {
+            EmbeddedTransport.requireAdvertised(EmbeddedOptions.builder().upstreamTrust(trust).build(),
+                    () -> JsonValue.parse(V018_BUILD_INFO));
+        }
     }
 }

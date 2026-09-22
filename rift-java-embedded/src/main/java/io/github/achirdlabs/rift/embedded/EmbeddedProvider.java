@@ -24,7 +24,9 @@ public final class EmbeddedProvider implements EmbeddedEngineProvider {
     public EmbeddedEngine start(EmbeddedOptions options) {
         NativeLibraryResolver.ResolvedLibrary resolved = NativeLibraryResolver.resolve(options);
         EmbeddedTransport transport = EmbeddedTransport.open(resolved.path(), options);
-        if (options.serveAdminEagerly()) {
+        // Trust is applied when the admin plane is served, and an imposter keeps the outbound client
+        // it was created with — so the plane must be up before the first imposter can exist.
+        if (options.serveAdminEagerly() || options.upstreamTrust().isPresent()) {
             try {
                 transport.adminUri();
             } catch (RuntimeException e) {

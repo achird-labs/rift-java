@@ -1,12 +1,14 @@
 package io.github.achirdlabs.rift.spawn;
 
 import io.github.achirdlabs.rift.SpawnOptions;
+import io.github.achirdlabs.rift.UpstreamTrust;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -39,5 +41,45 @@ class RiftProcessTest {
             assertTrue(at < start, () -> option + " must precede the start subcommand");
         }
         assertEquals("2525", cmd.get(cmd.indexOf("--port") + 1), "--port carries the admin port");
+    }
+
+    @Test
+    void upstreamCaFileIsPassedAsAGlobalOption() {
+        SpawnOptions opts = SpawnOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaFile(Path.of("/etc/corp-ca.pem")))
+                .build();
+        List<String> cmd = RiftProcess.buildCommand(Path.of("/usr/bin/rift"), opts, 2525, Path.of("/tmp/rift.pid"));
+
+        int at = cmd.indexOf("--upstream-ca-file");
+        assertTrue(at >= 0 && at < cmd.indexOf("start"), "precedes start: " + cmd);
+        assertEquals(Path.of("/etc/corp-ca.pem").toAbsolutePath().toString(), cmd.get(at + 1));
+        assertFalse(cmd.contains("--upstream-tls-skip-verify"));
+    }
+
+    @Test
+    void skipVerifyIsAFlag() {
+        SpawnOptions opts = SpawnOptions.builder().upstreamTrust(new UpstreamTrust.SkipVerify()).build();
+        List<String> cmd = RiftProcess.buildCommand(Path.of("/usr/bin/rift"), opts, 2525, Path.of("/tmp/rift.pid"));
+
+        int at = cmd.indexOf("--upstream-tls-skip-verify");
+        assertTrue(at >= 0 && at < cmd.indexOf("start"), "precedes start: " + cmd);
+        assertFalse(cmd.contains("--upstream-ca-file"));
+    }
+
+    @Test
+    void noTrustAddsNoTrustFlags() {
+        List<String> cmd = RiftProcess.buildCommand(
+                Path.of("/usr/bin/rift"), SpawnOptions.builder().build(), 2525, Path.of("/tmp/rift.pid"));
+        assertFalse(cmd.contains("--upstream-ca-file"));
+        assertFalse(cmd.contains("--upstream-tls-skip-verify"));
+    }
+
+    @Test
+    void onlySkipVerifyWarns() {
+        assertTrue(RiftProcess.skipVerifyWarning(SpawnOptions.builder()
+                .upstreamTrust(new UpstreamTrust.SkipVerify()).build()).orElseThrow().contains("skip-verify"));
+        assertTrue(RiftProcess.skipVerifyWarning(SpawnOptions.builder().build()).isEmpty());
+        assertTrue(RiftProcess.skipVerifyWarning(SpawnOptions.builder()
+                .upstreamTrust(new UpstreamTrust.CaFile(Path.of("/ca.pem"))).build()).isEmpty());
     }
 }
