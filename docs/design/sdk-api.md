@@ -428,6 +428,12 @@ IsSpec waitScript(String source)                         // _behaviors.wait as a
 // object form is kept whenever no key repeats, so existing output is byte-unchanged. Carrying a
 // repeated key is not running it: rift 0.17.0 merges that array on parse and applies only the last
 // entry; Mountebank runs both.
+// `repeat` has two wire spellings: inside the block, and as a response-level field beside `is`
+// (Mountebank's canonical one, and what its save writes). Both are read as `Behavior.Repeat` and
+// written back in the spelling they arrived in, never moved (#216) — the two are not
+// interchangeable, since rift 0.17.0 honours only the block one. When both are present both are
+// kept; `Behaviors.effectiveRepeat()` reports which applies. The DSL's `repeat(int)` emits the
+// block spelling.
 IsSpec templated()                                       // rename of template(); _rift.templated
 // probabilistic _rift faults (chainable, composable):
 IsSpec withLatencyFault(double probability, Duration min, Duration max)

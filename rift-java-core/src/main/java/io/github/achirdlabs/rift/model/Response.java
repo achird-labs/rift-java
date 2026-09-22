@@ -4,6 +4,8 @@ import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,7 +39,7 @@ public sealed interface Response {
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(rift, "rift");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("is", "_behaviors", "behaviors", "_rift"), "is response");
+            JsonSupport.rejectModeledExtraKeys(extra, Set.of("is", "_behaviors", "behaviors", "_rift", "repeat"), "is response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -115,9 +117,9 @@ public sealed interface Response {
         if (obj.get("is") != null) {
             return new Is(
                     IsResponse.read(JsonSupport.requireObject(obj.get("is"), "is")),
-                    readBehaviors(obj),
+                    foldResponseLevelRepeat(readBehaviors(obj), obj),
                     readRift(obj),
-                    JsonSupport.extraFields(obj, Set.of("is", "_behaviors", "behaviors", "_rift")));
+                    JsonSupport.extraFields(obj, Set.of("is", "_behaviors", "behaviors", "_rift", "repeat")));
         }
         if (obj.get("proxy") != null) {
             return new Proxy(
@@ -146,8 +148,8 @@ public sealed interface Response {
         // are read separately and stripped from the is-content; any genuinely unknown is-key is still
         // preserved through IsResponse.extra. An object naming no known kind and no flat fields lands
         // here too, so its unknown keys are preserved via IsResponse.extra rather than dropped.
-        Behaviors behaviors = readBehaviors(obj);
-        JsonObject isContent = JsonSupport.withoutKeys(obj, "_behaviors", "behaviors", "_rift");
+        Behaviors behaviors = foldResponseLevelRepeat(readBehaviors(obj), obj);
+        JsonObject isContent = JsonSupport.withoutKeys(obj, "_behaviors", "behaviors", "_rift", "repeat");
         return new Is(IsResponse.read(isContent), behaviors, readRift(obj));
     }
 
@@ -171,19 +173,46 @@ public sealed interface Response {
     /**
      * Writes the behaviors block under the key whose shape preserves every entry: {@code behaviors}
      * (the array form) when a key repeats, else the {@code _behaviors} object every fixture uses.
-     * A {@code repeat} stays an element of that array rather than being hoisted to a response-level
-     * field — the engine this SDK pins reads a {@code repeat} element, and ignores the
-     * response-level spelling the engine's own save format moved to.
+     *
+     * <p>Each {@code repeat} is written back in the spelling it arrived in — a response-level one
+     * beside {@code is}, a block one inside the block — so a read followed by a write never moves
+     * it. That matters because the two spellings are not interchangeable across engine versions:
+     * the pinned 0.17.0 honours only the block one and silently ignores a response-level field.
      */
     private static void writeBehaviors(JsonObject.Builder builder, Behaviors behaviors) {
-        if (behaviors.isEmpty()) {
+        behaviors.responseLevelRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
+        Behaviors block = behaviors.withoutResponseLevelRepeat();
+        if (block.isEmpty()) {
             return;
         }
-        if (behaviors.requiresArrayForm()) {
-            builder.put("behaviors", behaviors.toJsonArray());
+        if (block.requiresArrayForm()) {
+            builder.put("behaviors", block.toJsonArray());
         } else {
-            builder.put("_behaviors", behaviors.toJsonValue());
+            builder.put("_behaviors", block.toJsonValue());
         }
+    }
+
+    /**
+     * Folds a response-level {@code repeat} into the typed behaviors. It is Mountebank's canonical
+     * spelling and the one the engine's save format writes, but it used to land in {@code extra} —
+     * round-tripped, yet invisible to anything reading the behaviors (issue #216).
+     *
+     * <p>A {@code repeat} already inside the block is <em>kept</em>, not replaced. Which one applies
+     * depends on the engine — the response-level one wins where it is honoured, and the pinned
+     * 0.17.0 ignores it and honours the block one — so discarding either here would change how the
+     * imposter behaves after nothing more than a read and a write. {@link Behaviors#effectiveRepeat()}
+     * reports precedence instead.
+     */
+    private static Behaviors foldResponseLevelRepeat(Behaviors behaviors, JsonObject obj) {
+        JsonValue value = obj.get("repeat");
+        if (value == null) {
+            return behaviors;
+        }
+        // Read through Behavior.read so a non-numeric value fails exactly as the block spelling does.
+        int count = ((Behavior.Repeat) Behavior.read("repeat", value)).count();
+        List<Behavior> entries = new ArrayList<>(behaviors.entries());
+        entries.add(new Behavior.Repeat(count, true));
+        return new Behaviors(entries);
     }
 
     private static Optional<RiftResponseExtension> readRift(JsonObject obj) {

@@ -7,6 +7,7 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -31,6 +32,10 @@ public record Behaviors(List<Behavior> entries) {
 
     public Behaviors {
         entries = List.copyOf(entries);
+        if (entries.stream().filter(e -> e instanceof Behavior.Repeat r && r.responseLevel()).count() > 1) {
+            throw new IllegalArgumentException(
+                    "a response has at most one response-level repeat, got " + entries);
+        }
     }
 
     public static final Behaviors EMPTY = new Behaviors(List.of());
@@ -77,6 +82,45 @@ public record Behaviors(List<Behavior> entries) {
             }
         }
         return false;
+    }
+
+    /**
+     * The {@code repeat} that takes effect, honouring the response-level spelling over a block one
+     * as a current engine does. Both are kept in {@link #entries()} so neither is lost on a write;
+     * this reports which of them wins.
+     *
+     * <p>Engine caveat: rift 0.17.0 has no response-level {@code repeat} field and honours the block
+     * one instead, so against that release the effective value is the block entry.
+     */
+    public Optional<Behavior.Repeat> effectiveRepeat() {
+        return responseLevelRepeat().or(() -> entries.stream()
+                .filter(Behavior.Repeat.class::isInstance)
+                .map(Behavior.Repeat.class::cast)
+                .findFirst());
+    }
+
+    /**
+     * The entry that arrived as a response-level {@code repeat}, if any — it is written back beside
+     * {@code is} rather than inside the block.
+     */
+    Optional<Behavior.Repeat> responseLevelRepeat() {
+        return entries.stream()
+                .filter(Behavior.Repeat.class::isInstance)
+                .map(Behavior.Repeat.class::cast)
+                .filter(Behavior.Repeat::responseLevel)
+                .findFirst();
+    }
+
+    /**
+     * These entries minus any response-level {@code repeat}: what the block itself holds. The
+     * object-versus-array choice is made over this, so a lone response-level {@code repeat} never
+     * drags the block into the array form.
+     */
+    Behaviors withoutResponseLevelRepeat() {
+        List<Behavior> block = entries.stream()
+                .filter(entry -> !(entry instanceof Behavior.Repeat repeat && repeat.responseLevel()))
+                .toList();
+        return block.size() == entries.size() ? this : new Behaviors(block);
     }
 
     /** The array form: one single-key element per entry, in entry order. Never lossy. */
