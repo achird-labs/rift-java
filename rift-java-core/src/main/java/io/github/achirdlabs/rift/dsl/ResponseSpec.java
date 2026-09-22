@@ -8,9 +8,12 @@ import io.github.achirdlabs.rift.model.Response;
  * fault ({@link FaultSpec}), an inline-JavaScript response ({@link InjectSpec}), or a {@code _rift}
  * script-only response ({@link ScriptSpec}).
  *
- * <p>Only {@link IsSpec} (and, for its own knobs, {@link ProxySpec}) carries chain methods — the
- * type system enforces that a terminal fault/inject/script response cannot be asked for a header, a
- * body, or a behavior, rather than that being a runtime {@code IllegalStateException}.
+ * <p>Chain methods follow what the engine does with each shape, so an unsupported request is a
+ * compile error rather than a runtime {@code IllegalStateException}. Only {@link IsSpec} has a
+ * status, headers and a body. Behaviors ({@link BehaviorChain}) are legal on {@link IsSpec}, {@link
+ * ProxySpec} and {@link InjectSpec} — the engine runs them on all three (on {@code proxy}/{@code
+ * inject} from rift 0.18.0). {@link ProxySpec} also has its own proxy knobs. A {@link FaultSpec} or
+ * {@link ScriptSpec} is terminal.
  */
 public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, InjectSpec, ScriptSpec {
 

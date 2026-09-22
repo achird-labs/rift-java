@@ -234,29 +234,29 @@ class ResponseLevelRepeatTest {
     }
 
     /**
-     * Out of scope until #215 types behaviors on these shapes: a {@code repeat} beside {@code proxy}
-     * stays an opaque {@code extra} entry and must still be written back untouched.
+     * Since #215 a {@code repeat} beside {@code proxy}/{@code inject} is typed like the one beside
+     * {@code is}, and written back beside the response rather than moved into the block.
      *
      * <p>No full round-trip assertion here: {@code ProxyResponse.toJsonValue} always writes
      * {@code mode} and {@code predicateGenerators}, so a bare {@code proxy} has never round-tripped
      * byte-faithfully. That is unrelated to {@code repeat}, so this checks the key itself.
      */
     @Test
-    void nonIsResponsesKeepRepeatInExtra() {
-        Response response = Stub.fromJson(PROXY_WITH_REPEAT).responses().get(0);
-        Response.Proxy proxy = assertInstanceOf(Response.Proxy.class, response);
-        assertEquals(JsonNumber.of(2), proxy.extra().get("repeat"), "untyped, but preserved");
+    void proxyAndInjectTypeResponseLevelRepeat() {
+        Response.Proxy proxy = assertInstanceOf(Response.Proxy.class, Stub.fromJson(PROXY_WITH_REPEAT).responses().get(0));
+        assertEquals(new Behavior.Repeat(2, true), only(proxy.behaviors().entries()));
+        assertFalse(proxy.extra().containsKey("repeat"), "typed, so not also carried in extra");
         assertEquals(JsonNumber.of(2), writtenResponse(PROXY_WITH_REPEAT).get("repeat"),
                 "and written back beside proxy");
-    }
 
-    @Test
-    void injectAndFaultAlsoKeepRepeatInExtra() {
         Response.Inject inject = assertInstanceOf(Response.Inject.class, Stub.fromJson("""
                 {"predicates": [], "responses": [{"inject": "function(){}", "repeat": 2}]}
                 """).responses().get(0));
-        assertEquals(JsonNumber.of(2), inject.extra().get("repeat"));
+        assertEquals(new Behavior.Repeat(2, true), only(inject.behaviors().entries()));
+    }
 
+    @Test
+    void faultStillKeepsRepeatInExtra() {
         Response.Fault fault = assertInstanceOf(Response.Fault.class, Stub.fromJson("""
                 {"predicates": [], "responses": [{"fault": "CONNECTION_RESET_BY_PEER", "repeat": 2}]}
                 """).responses().get(0));

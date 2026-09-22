@@ -6,8 +6,10 @@ import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -96,38 +98,40 @@ class ResponseFieldPreservationTest {
 
     @Test
     void proxyPreservesSiblingKeys() {
-        // #62: a proxy response with co-present top-level keys (_behaviors, unknown/future) must not
-        // drop them — they round-trip via Response.Proxy.extra.
+        // #62: a proxy response with co-present top-level keys (unknown/future) must not drop them —
+        // they round-trip via Response.Proxy.extra. _behaviors is typed since #215, not extra.
         Stub stub = Stub.fromJson("""
                 {"predicates": [], "responses": [
                   {"proxy": {"to": "http://up"}, "_behaviors": {"wait": 100}, "someFutureKey": "value"}]}
                 """);
         Response.Proxy proxy = assertInstanceOf(Response.Proxy.class, stub.responses().get(0));
         assertEquals("http://up", proxy.proxy().to());
-        assertTrue(proxy.extra().containsKey("_behaviors"));
+        assertEquals(List.of(new Behavior.Wait(new WaitSpec.Fixed(100))), proxy.behaviors().entries());
+        assertEquals(Set.of("someFutureKey"), proxy.extra().keySet());
         assertEquals("value", ((JsonString) proxy.extra().get("someFutureKey")).value());
 
         Response.Proxy reparsed = assertInstanceOf(Response.Proxy.class,
                 Stub.fromJson(stub.toJson()).responses().get(0));
-        assertTrue(reparsed.extra().containsKey("_behaviors"));
+        assertEquals(proxy.behaviors(), reparsed.behaviors());
         assertEquals("value", ((JsonString) reparsed.extra().get("someFutureKey")).value());
     }
 
     @Test
     void injectPreservesSiblingKeys() {
-        // #62: an inject response with a co-present unknown key must not drop it.
+        // #62: an inject response with a co-present unknown key must not drop it. repeat is typed
+        // since #215, so the unknown key here is a genuinely unmodeled one.
         Stub stub = Stub.fromJson("""
                 {"predicates": [], "responses": [
-                  {"inject": "function(){}", "repeat": 3}]}
+                  {"inject": "function(){}", "someFutureKey": 3}]}
                 """);
         Response.Inject inject = assertInstanceOf(Response.Inject.class, stub.responses().get(0));
         assertEquals("function(){}", inject.script());
-        assertTrue(inject.extra().containsKey("repeat"));
+        assertTrue(inject.extra().containsKey("someFutureKey"));
 
         Response.Inject reparsed = assertInstanceOf(Response.Inject.class,
                 Stub.fromJson(stub.toJson()).responses().get(0));
         assertEquals("function(){}", reparsed.script());
-        assertTrue(reparsed.extra().containsKey("repeat"));
+        assertTrue(reparsed.extra().containsKey("someFutureKey"));
     }
 
     @Test
