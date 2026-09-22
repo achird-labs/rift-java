@@ -1,12 +1,15 @@
 package io.github.achirdlabs.rift.spawn;
 
 import io.github.achirdlabs.rift.SpawnOptions;
+import io.github.achirdlabs.rift.UpstreamTrust;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -21,6 +24,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -31,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class RiftProcess {
 
+    private static final Logger LOG = System.getLogger(RiftProcess.class.getName());
     private static final int LOG_TAIL_LINES = 50;
     private static final Duration HEALTH_POLL_INTERVAL = Duration.ofMillis(100);
     private static final Duration HEALTH_REQUEST_TIMEOUT = Duration.ofMillis(500);
@@ -53,6 +58,7 @@ public final class RiftProcess {
         URI adminUri = URI.create("http://" + opts.host() + ":" + port);
         Path pidFile = createPidFile();
         List<String> command = buildCommand(binary, opts, port, pidFile);
+        skipVerifyWarning(opts).ifPresent(warning -> LOG.log(Level.WARNING, warning));
 
         ProcessBuilder builder = new ProcessBuilder(command);
         opts.workingDir().ifPresent(dir -> builder.directory(dir.toFile()));
@@ -163,6 +169,19 @@ public final class RiftProcess {
         }
     }
 
+    /**
+     * The warning to log when {@code opts} turns upstream verification off. The engine logs one too,
+     * but into the output this SDK drains and only surfaces when the process fails to start.
+     */
+    static Optional<String> skipVerifyWarning(SpawnOptions opts) {
+        if (!(opts.upstreamTrust().orElse(null) instanceof UpstreamTrust.SkipVerify)) {
+            return Optional.empty();
+        }
+        return Optional.of("spawning rift with --upstream-tls-skip-verify: proxy stubs accept any upstream "
+                + "certificate, so a recording can capture a man-in-the-middle's traffic. "
+                + "Development only; prefer UpstreamTrust.CaFile.");
+    }
+
     // Package-private (not private) so RiftProcessTest can pin the argument order: the rift CLI
     // rejects the admin options unless they precede the `start` subcommand.
     static List<String> buildCommand(Path binary, SpawnOptions opts, int port, Path pidFile) {
@@ -186,6 +205,15 @@ public final class RiftProcess {
         cmd.add("--nologfile");
         cmd.add("--pidfile");
         cmd.add(pidFile.toString());
+        // SpawnOptions.build() has already rejected CaPem (the CLI has no inline form).
+        opts.upstreamTrust().ifPresent(trust -> {
+            if (trust instanceof UpstreamTrust.CaFile file) {
+                cmd.add("--upstream-ca-file");
+                cmd.add(file.pem().toString());
+            } else if (trust instanceof UpstreamTrust.SkipVerify) {
+                cmd.add("--upstream-tls-skip-verify");
+            }
+        });
         cmd.add("start");
         return cmd;
     }

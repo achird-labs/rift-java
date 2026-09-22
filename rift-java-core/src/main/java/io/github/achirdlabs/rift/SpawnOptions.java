@@ -15,6 +15,9 @@ import java.util.Optional;
  */
 public final class SpawnOptions {
 
+    /** The first engine release with outbound TLS trust options. */
+    private static final String UPSTREAM_TRUST_SINCE = "0.18.0";
+
     private final Optional<Path> binaryPath;
     private final String version;
     private final String host;
@@ -28,6 +31,7 @@ public final class SpawnOptions {
     private final Duration startupTimeout;
     private final Duration shutdownTimeout;
     private final boolean inheritLog;
+    private final Optional<UpstreamTrust> upstreamTrust;
 
     private SpawnOptions(Builder b) {
         this.binaryPath = b.binaryPath;
@@ -43,6 +47,7 @@ public final class SpawnOptions {
         this.startupTimeout = b.startupTimeout;
         this.shutdownTimeout = b.shutdownTimeout;
         this.inheritLog = b.inheritLog;
+        this.upstreamTrust = b.upstreamTrust;
     }
 
     public static Builder builder() {
@@ -101,6 +106,11 @@ public final class SpawnOptions {
         return inheritLog;
     }
 
+    /** The engine's outbound TLS trust, if set; see {@link Builder#upstreamTrust(UpstreamTrust)}. */
+    public Optional<UpstreamTrust> upstreamTrust() {
+        return upstreamTrust;
+    }
+
     public static final class Builder {
 
         private Optional<Path> binaryPath = Optional.empty();
@@ -116,6 +126,7 @@ public final class SpawnOptions {
         private Duration startupTimeout = Duration.ofSeconds(15);
         private Duration shutdownTimeout = Duration.ofSeconds(5);
         private boolean inheritLog = false;
+        private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
 
         private Builder() {
         }
@@ -193,7 +204,40 @@ public final class SpawnOptions {
             return this;
         }
 
+        /**
+         * What the engine trusts when a {@code proxy} stub (or the intercept listener) dials a real
+         * origin over TLS — for recording an origin behind a private or corporate CA. Unset by
+         * default: the OS trust store. {@link UpstreamTrust.CaFile} is passed as
+         * {@code --upstream-ca-file}, {@link UpstreamTrust.SkipVerify} as
+         * {@code --upstream-tls-skip-verify}. A later call replaces an earlier one.
+         *
+         * <p>Requires a rift engine &ge; 0.18.0, checked against {@link #version(String)} at
+         * {@link #build()}. With {@link #binaryPath(Path)} that check is only as good as the
+         * declared version; an older binary instead fails to start on the unknown flag.
+         * {@link UpstreamTrust.CaPem} is rejected at build: the CLI has no inline form, so write the
+         * PEM to a file and use {@link UpstreamTrust.CaFile}.
+         */
+        public Builder upstreamTrust(UpstreamTrust upstreamTrust) {
+            this.upstreamTrust = Optional.of(Objects.requireNonNull(upstreamTrust, "upstreamTrust"));
+            return this;
+        }
+
+        /**
+         * @throws IllegalArgumentException if {@link #upstreamTrust(UpstreamTrust)} is an inline PEM,
+         *                                  or is set for an engine {@link #version(String)} older
+         *                                  than 0.18.0
+         */
         public SpawnOptions build() {
+            if (upstreamTrust.isPresent()) {
+                if (upstreamTrust.get() instanceof UpstreamTrust.CaPem) {
+                    throw new IllegalArgumentException("a spawned engine cannot take an inline CA PEM (the rift CLI "
+                            + "has no flag for it); write it to a file and use UpstreamTrust.CaFile");
+                }
+                if (!EngineVersion.atLeast(version, UPSTREAM_TRUST_SINCE)) {
+                    throw new IllegalArgumentException("upstreamTrust needs a rift engine >= " + UPSTREAM_TRUST_SINCE
+                            + ", but version is " + version + " (the older CLI has no --upstream-ca-file flag)");
+                }
+            }
             return new SpawnOptions(this);
         }
     }

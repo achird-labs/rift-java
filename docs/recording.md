@@ -58,3 +58,40 @@ Imposter replayed = rift.create(Files.readString(file));
 rift-java has no `configFile` option of its own: the engine's `--configfile` (and its `noParse`
 switch) is for the CLI, where the file may carry EJS templates. Config the SDK loads is never
 run through EJS, so a literal `<%` in a recorded body is safe as-is.
+
+## Recording an origin behind a private CA
+
+The engine verifies an origin's certificate against the OS trust store. An origin issued by a
+private or corporate CA fails with `invalid peer certificate: UnknownIssuer` unless the engine is
+told to trust that CA. Set `upstreamTrust` on the options for the engine you start (rift ≥ 0.18.0):
+
+```java
+// Embedded: a PEM file, or the same certificate inline
+Rift rift = Rift.embedded(EmbeddedOptions.builder()
+        .upstreamTrust(new UpstreamTrust.CaFile(Path.of("/etc/pki/corp-ca.pem")))
+        .build());
+
+// Spawned: a PEM file (the rift CLI has no inline form, so UpstreamTrust.CaPem is rejected)
+Rift rift = Rift.spawn(SpawnOptions.builder()
+        .upstreamTrust(new UpstreamTrust.CaFile(Path.of("/etc/pki/corp-ca.pem")))
+        .build());
+```
+
+| `UpstreamTrust` | Engine option | Transports |
+|---|---|---|
+| `CaFile(Path)` | `upstreamCaFile` / `--upstream-ca-file` | embedded, spawn |
+| `CaPem(String)` | `upstreamCaPem` | embedded |
+| `SkipVerify()` | `upstreamTlsSkipVerify` / `--upstream-tls-skip-verify` | embedded, spawn |
+
+- **The CA is appended to the OS trust store**, so public origins keep working. Don't reach for
+  `SSL_CERT_FILE` instead: the engine honours it, but it *replaces* the trust store, so pointing it
+  at a lone private CA quietly breaks every public origin.
+- **`SkipVerify` is for development only.** A recording proxy that accepts any certificate will
+  faithfully record a man-in-the-middle's traffic. The SDK logs a warning whenever it is used.
+- **One engine, one policy.** Trust is process-wide for that engine, and it covers `proxy` stubs and
+  the intercept listener's origin leg.
+- **Older engines are refused, not ignored.** An embedded engine must advertise the option in its
+  `serveOptions` (`Rift.info().serveOptions()`), or `Rift.embedded` fails with `EngineUnavailable`.
+  A spawned engine is checked against `SpawnOptions.version` when the options are built.
+- **A connected engine** (`Rift.connect`) is configured by whoever started it: pass
+  `--upstream-ca-file` to `rift` there.

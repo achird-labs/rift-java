@@ -10,6 +10,9 @@ import java.util.function.IntFunction;
  * Immutable configuration for {@link Rift#connect(ConnectOptions)}: where the admin API lives,
  * how to authenticate against it, and how a live imposter's own network address is derived from
  * its port.
+ *
+ * <p>There is no outbound TLS trust setting here ({@link UpstreamTrust}): a connected engine was
+ * configured by whoever started it, so pass {@code --upstream-ca-file} to {@code rift} there.
  */
 public final class ConnectOptions {
 

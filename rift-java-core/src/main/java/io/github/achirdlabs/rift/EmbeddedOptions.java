@@ -22,6 +22,7 @@ public final class EmbeddedOptions {
     private final String adminHost;
     private final int adminPort;
     private final Optional<String> apiKey;
+    private final Optional<UpstreamTrust> upstreamTrust;
 
     private EmbeddedOptions(
             Optional<Path> libraryPath,
@@ -29,13 +30,15 @@ public final class EmbeddedOptions {
             boolean serveAdminEagerly,
             String adminHost,
             int adminPort,
-            Optional<String> apiKey) {
+            Optional<String> apiKey,
+            Optional<UpstreamTrust> upstreamTrust) {
         this.libraryPath = libraryPath;
         this.versionCheck = versionCheck;
         this.serveAdminEagerly = serveAdminEagerly;
         this.adminHost = adminHost;
         this.adminPort = adminPort;
         this.apiKey = apiKey;
+        this.upstreamTrust = upstreamTrust;
     }
 
     public static Builder builder() {
@@ -68,6 +71,11 @@ public final class EmbeddedOptions {
         return apiKey;
     }
 
+    /** The engine's outbound TLS trust, if set; see {@link Builder#upstreamTrust(UpstreamTrust)}. */
+    public Optional<UpstreamTrust> upstreamTrust() {
+        return upstreamTrust;
+    }
+
     public static final class Builder {
 
         private Optional<Path> libraryPath = Optional.empty();
@@ -76,6 +84,7 @@ public final class EmbeddedOptions {
         private String adminHost = "127.0.0.1";
         private int adminPort = 0;
         private Optional<String> apiKey = Optional.empty();
+        private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
 
         private Builder() {
         }
@@ -168,8 +177,29 @@ public final class EmbeddedOptions {
             return this;
         }
 
+        /**
+         * What the engine trusts when a {@code proxy} stub (or the intercept listener) dials a real
+         * origin over TLS — for recording an origin behind a private or corporate CA. Unset by
+         * default: the OS trust store. A later call replaces an earlier one.
+         *
+         * <p>Requires a rift engine &ge; 0.18.0: the engine must advertise the option in its
+         * {@code serveOptions}, or starting fails with {@link
+         * io.github.achirdlabs.rift.error.EngineUnavailable} — an engine too old to know the option
+         * would otherwise ignore it without a word.
+         *
+         * <p>Setting it starts the in-process admin server when the engine starts, as {@link
+         * #serveAdminEagerly(boolean)} does: the engine applies the policy there, and an imposter
+         * keeps the outbound client it was created with, so one created before the policy was
+         * applied would never see it.
+         */
+        public Builder upstreamTrust(UpstreamTrust upstreamTrust) {
+            this.upstreamTrust = Optional.of(Objects.requireNonNull(upstreamTrust, "upstreamTrust"));
+            return this;
+        }
+
         public EmbeddedOptions build() {
-            return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey);
+            return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey,
+                    upstreamTrust);
         }
     }
 }
