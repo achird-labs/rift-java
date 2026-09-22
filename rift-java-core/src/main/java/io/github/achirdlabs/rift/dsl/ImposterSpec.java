@@ -200,7 +200,20 @@ public final class ImposterSpec {
                 flowState, Optional.of(new RiftMetricsConfig(true, port)), proxyPool, scriptEngine, scripts);
     }
 
-    /** Sets the default scripting engine and per-invocation timeout for {@code _rift} scripts. */
+    /**
+     * Sets the default scripting engine and per-invocation timeout for {@code _rift} scripts.
+     *
+     * <p>The default engine ({@code _rift.scriptEngine.defaultEngine}) is honoured by rift 0.18.0 and later.
+     * Rift 0.17.0 and earlier parse it and ignore it: a script that does not name its engine runs as Rhai.
+     * On an engine that honours it, a script's engine is resolved in this order: the script's own
+     * {@code engine}, then its {@code file} extension ({@code .rhai} or {@code .js}), then this default,
+     * then Rhai. A {@link Script#ref(String) reference} takes the engine of the script it names.
+     *
+     * <p>The {@link Script} factories ({@link Script#rhai}, {@link Script#js}, {@link Script#rhaiFile},
+     * {@link Script#jsFile}) always name their engine, so the default only decides scripts that
+     * reach the engine without one, such as {@code _rift.script} entries in raw JSON configuration.
+     * There is no capability flag for this behaviour; check the engine version.
+     */
     public ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout) {
         RiftScriptEngineConfig config = new RiftScriptEngineConfig(engine.wire(), timeout.toMillis());
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,

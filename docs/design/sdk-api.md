@@ -478,7 +478,7 @@ ImposterSpec serviceInfo(JsonValue info)
 ImposterSpec allowCors()                                 // exists
 ImposterSpec flowState(FlowStateSpec spec)               // _rift.flowState
 ImposterSpec metrics(int port)                           // _rift.metrics
-ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout)   // _rift.scriptEngine
+ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout)   // _rift.scriptEngine (defaultEngine honoured by engine >= 0.18.0)
 ImposterSpec script(String name, Script script)          // _rift.scripts named registry
 ImposterSpec proxyPool(int maxIdlePerHost, Duration idleTimeout)   // _rift.proxy.connectionPool
 
