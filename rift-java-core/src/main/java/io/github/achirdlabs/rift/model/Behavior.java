@@ -40,7 +40,14 @@ public sealed interface Behavior {
         public String key() { return "copy"; }
     }
 
-    record Repeat(int count) implements Behavior {
+    /**
+     * A {@code repeat}. Two spellings reach it: a response-level field beside {@code is} —
+     * Mountebank's canonical one, and what its {@code save} writes — and a {@code repeat} inside
+     * the behaviors block. {@code responseLevel} records which arrived so the write puts it back
+     * where it came from; a response-level one wins over a block one, as it does in the engine.
+     */
+    record Repeat(int count, boolean responseLevel) implements Behavior {
+        public Repeat(int count) { this(count, false); }
         public String key() { return "repeat"; }
     }
 

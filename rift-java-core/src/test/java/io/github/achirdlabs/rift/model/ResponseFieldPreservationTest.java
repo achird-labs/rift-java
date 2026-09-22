@@ -52,13 +52,16 @@ class ResponseFieldPreservationTest {
                   {"repeat": 3, "someFutureKey": "value"}]}
                 """);
         Response.Is is = assertInstanceOf(Response.Is.class, stub.responses().get(0));
-        assertTrue(is.is().extra().containsKey("repeat"));
+        // `repeat` is modeled since #216, so it is typed rather than an unknown riding extra;
+        // `someFutureKey` is the genuinely unknown key this test is about.
+        assertFalse(is.is().extra().containsKey("repeat"));
+        assertEquals(3, ((Behavior.Repeat) is.behaviors().entries().get(0)).count());
         assertEquals("value", ((JsonString) is.is().extra().get("someFutureKey")).value());
 
-        // The unknown keys survive a full parse -> serialize -> parse cycle.
+        // Both survive a full parse -> serialize -> parse cycle.
         Response.Is reparsed = assertInstanceOf(Response.Is.class,
                 Stub.fromJson(stub.toJson()).responses().get(0));
-        assertTrue(reparsed.is().extra().containsKey("repeat"));
+        assertEquals(3, ((Behavior.Repeat) reparsed.behaviors().entries().get(0)).count());
         assertEquals("value", ((JsonString) reparsed.is().extra().get("someFutureKey")).value());
     }
 
