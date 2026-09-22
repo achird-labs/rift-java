@@ -33,6 +33,12 @@ import java.util.stream.Stream;
  *
  * <p>Instances are immutable: every chain method returns a new {@code IsSpec}. The terminal {@link
  * #build()} produces the {@link Response} model value.
+ *
+ * <p>Calling the same behavior chainer twice appends two entries, and both are written — as a
+ * {@code behaviors} array, the only wire shape that can carry a repeated key (see {@link
+ * Behaviors}). Note what the engine then does with it: rift 0.17.0 merges that array as it parses
+ * and applies only the last entry of a repeated key, so two {@code copy} behaviors take effect as
+ * one until a later engine release. Mountebank runs both.
  */
 public final class IsSpec implements ResponseSpec {
 

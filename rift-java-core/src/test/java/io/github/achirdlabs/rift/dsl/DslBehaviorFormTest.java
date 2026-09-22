@@ -2,6 +2,8 @@ package io.github.achirdlabs.rift.dsl;
 
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonObject;
+import io.github.achirdlabs.rift.json.JsonString;
+import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.Behavior;
 import io.github.achirdlabs.rift.model.CopyEntry;
 import io.github.achirdlabs.rift.model.Response;
@@ -17,6 +19,7 @@ import static io.github.achirdlabs.rift.dsl.RiftDsl.lookupKey;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.regex;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.status;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -80,5 +83,44 @@ class DslBehaviorFormTest {
                 copyFrom("body").into("${b}").using(regex("b")))).get(0);
         assertThrows(IllegalArgumentException.class, () -> new Behavior.Copy(two.entries(), true),
                 "object-form copy must have exactly one entry");
+    }
+
+    /**
+     * Issue #217: calling a behavior chainer twice appends two entries sharing a key, which the
+     * {@code _behaviors} object form cannot hold — so the write switches to the array form rather
+     * than dropping the first.
+     */
+    @Test
+    void repeatedCopyChainerWritesBothEntriesAsAnArray() {
+        JsonObject written = status(200)
+                .copyObject(copyFrom("path").into("${first}").using(regex("/(.*)")))
+                .copyObject(copyFromQuery("q").into("${second}").using(regex("(.*)")))
+                .build()
+                .toJsonValue();
+
+        assertNull(written.get("_behaviors"), "two copy entries cannot use the object form");
+        JsonArray behaviors = (JsonArray) written.get("behaviors");
+        assertEquals(2, behaviors.items().size());
+        assertEquals("${first}", intoOfCopyElement(behaviors.items().get(0)));
+        assertEquals("${second}", intoOfCopyElement(behaviors.items().get(1)));
+    }
+
+    @Test
+    void oneCopyChainerStillKeepsTheObjectForm() {
+        JsonObject written = status(200).copy(
+                        copyFrom("path").into("${a}").using(regex("a")),
+                        copyFrom("body").into("${b}").using(regex("b")))
+                .build()
+                .toJsonValue();
+
+        assertNull(written.get("behaviors"), "one entry never needs the array form");
+        JsonObject block = (JsonObject) written.get("_behaviors");
+        assertEquals(2, ((JsonArray) block.get("copy")).items().size(),
+                "a single copy entry holding two specs stays one array-valued key");
+    }
+
+    private static String intoOfCopyElement(JsonValue element) {
+        JsonObject copy = (JsonObject) ((JsonObject) element).get("copy");
+        return ((JsonString) copy.get("into")).value();
     }
 }

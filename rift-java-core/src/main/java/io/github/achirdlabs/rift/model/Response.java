@@ -168,6 +168,24 @@ public sealed interface Response {
         return Behaviors.EMPTY;
     }
 
+    /**
+     * Writes the behaviors block under the key whose shape preserves every entry: {@code behaviors}
+     * (the array form) when a key repeats, else the {@code _behaviors} object every fixture uses.
+     * A {@code repeat} stays an element of that array rather than being hoisted to a response-level
+     * field — the engine this SDK pins reads a {@code repeat} element, and ignores the
+     * response-level spelling the engine's own save format moved to.
+     */
+    private static void writeBehaviors(JsonObject.Builder builder, Behaviors behaviors) {
+        if (behaviors.isEmpty()) {
+            return;
+        }
+        if (behaviors.requiresArrayForm()) {
+            builder.put("behaviors", behaviors.toJsonArray());
+        } else {
+            builder.put("_behaviors", behaviors.toJsonValue());
+        }
+    }
+
     private static Optional<RiftResponseExtension> readRift(JsonObject obj) {
         JsonValue rift = obj.get("_rift");
         return Optional.ofNullable(rift).map(v -> RiftResponseExtension.read(JsonSupport.requireObject(v, "_rift")));
@@ -182,9 +200,7 @@ public sealed interface Response {
         JsonObject.Builder builder = JsonObject.builder();
         if (this instanceof Is is) {
             builder.put("is", is.is().toJsonValue());
-            if (!is.behaviors().isEmpty()) {
-                builder.put("_behaviors", is.behaviors().toJsonValue());
-            }
+            writeBehaviors(builder, is.behaviors());
             is.rift().ifPresent(v -> builder.put("_rift", v.toJsonValue()));
             is.extra().forEach(builder::put);
         } else if (this instanceof Proxy proxy) {
