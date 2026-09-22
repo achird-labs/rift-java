@@ -108,8 +108,8 @@ class ResponseLevelRepeatTest {
 
     /**
      * The response-level value wins where the engine honours it — but the block one is NOT
-     * discarded. Which spelling applies is engine-dependent (the pinned 0.17.0 ignores the
-     * response-level field and honours the block one), so dropping either at parse time would
+     * discarded. Which spelling applies is engine-dependent (rift 0.17.0 and earlier ignore the
+     * response-level field and honour the block one), so dropping either at parse time would
      * change how the imposter behaves after nothing but a read and a write.
      */
     @Test

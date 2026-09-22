@@ -177,7 +177,7 @@ public sealed interface Response {
      * <p>Each {@code repeat} is written back in the spelling it arrived in — a response-level one
      * beside {@code is}, a block one inside the block — so a read followed by a write never moves
      * it. That matters because the two spellings are not interchangeable across engine versions:
-     * the pinned 0.17.0 honours only the block one and silently ignores a response-level field.
+     * rift 0.17.0 and earlier honour only the block one and silently ignore a response-level field.
      */
     private static void writeBehaviors(JsonObject.Builder builder, Behaviors behaviors) {
         behaviors.responseLevelRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
@@ -198,8 +198,8 @@ public sealed interface Response {
      * round-tripped, yet invisible to anything reading the behaviors (issue #216).
      *
      * <p>A {@code repeat} already inside the block is <em>kept</em>, not replaced. Which one applies
-     * depends on the engine — the response-level one wins where it is honoured, and the pinned
-     * 0.17.0 ignores it and honours the block one — so discarding either here would change how the
+     * depends on the engine — the response-level one wins where it is honoured, and rift
+     * 0.17.0 and earlier ignore it and honour the block one — so discarding either here would change how the
      * imposter behaves after nothing more than a read and a write. {@link Behaviors#effectiveRepeat()}
      * reports precedence instead.
      */
