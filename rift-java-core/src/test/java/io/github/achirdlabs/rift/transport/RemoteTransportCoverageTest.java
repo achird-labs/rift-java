@@ -7,6 +7,7 @@ import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.Scenarios;
 import io.github.achirdlabs.rift.VersionCheck;
+import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +20,7 @@ import static io.github.achirdlabs.rift.dsl.RiftDsl.ok;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.onGet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Exercises the transport surface beyond the error-mapping gate: stubs, scenarios, spaces, flow-state
@@ -148,6 +150,38 @@ class RemoteTransportCoverageTest {
             }
             assertTrue(hit(s, "PUT", "/admin/imposters/4545/flow-state/flow-1/token"));
             assertTrue(hit(s, "DELETE", "/admin/imposters/4545/flow-state/flow-1/token"));
+        }
+    }
+
+    @Test
+    void flowStateGetReturnsTheStoredValueNotTheEnvelope() {
+        // The engine answers {"flowId","key","value"} (#236); get() must return the value alone, as
+        // the embedded transport already does.
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /admin/imposters/4545/flow-state/flow-1/token", 200,
+                    "{\"flowId\":\"flow-1\",\"key\":\"token\",\"value\":{\"a\":1}}");
+            s.respond("GET /admin/imposters/4545/flow-state/flow-1/hits", 200,
+                    "{\"flowId\":\"flow-1\",\"key\":\"hits\",\"value\":2}");
+            s.respond("GET /admin/imposters/4545/flow-state/flow-1/nothing", 200,
+                    "{\"flowId\":\"flow-1\",\"key\":\"nothing\",\"value\":null}");
+            try (Rift rift = connect(s)) {
+                Imposter imp = created(s, rift);
+                assertEquals(Optional.of(JsonValue.parse("{\"a\":1}")), imp.flowState("flow-1").get("token"));
+                assertEquals(Optional.of(JsonValue.parse("2")), imp.flowState("flow-1").get("hits"));
+                assertEquals(Optional.of(JsonValue.parse("null")), imp.flowState("flow-1").get("nothing"));
+            }
+        }
+    }
+
+    @Test
+    void flowStateGetRejectsASuccessBodyWithoutAValue() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /admin/imposters/4545/flow-state/flow-1/token", 200, "{\"flowId\":\"flow-1\"}");
+            try (Rift rift = connect(s)) {
+                Imposter imp = created(s, rift);
+                CommunicationError e = assertThrows(CommunicationError.class, () -> imp.flowState("flow-1").get("token"));
+                assertTrue(e.getMessage().contains("flow-state/flow-1/token"), e.getMessage());
+            }
         }
     }
 

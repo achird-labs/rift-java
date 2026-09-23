@@ -312,7 +312,13 @@ public final class RemoteTransport implements RiftTransport {
             return Optional.empty();
         }
         if (isSuccess(response.statusCode())) {
-            return Optional.of(parseJsonBody(response, "GET " + path));
+            // The engine answers {"flowId", "key", "value"}; the stored value is the one field wanted.
+            JsonValue body = parseJsonBody(response, "GET " + path);
+            if (body instanceof JsonObject envelope && envelope.has("value")) {
+                return Optional.of(envelope.get("value"));
+            }
+            throw new CommunicationError("rift admin API answered GET " + path
+                    + " without the stored 'value': " + body.toJson());
         }
         throw mapError(response, OptionalInt.of(port));
     }
