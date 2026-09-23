@@ -282,6 +282,9 @@ final class InterceptImpl implements Intercept {
             if (rift.templated()) {
                 undeliverable.add("_rift.templated (templated)");
             }
+            if (!rift.stateOps().isEmpty()) {
+                undeliverable.add("_rift.stateOps (setState/incrementState/deleteState/clearFlowState)");
+            }
             rift.extra().keySet().forEach(key -> undeliverable.add("_rift." + key));
         });
         IsResponse ir = is.is();

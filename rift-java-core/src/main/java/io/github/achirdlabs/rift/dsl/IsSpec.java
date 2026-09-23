@@ -13,12 +13,14 @@ import io.github.achirdlabs.rift.model.RiftTcpFault;
 import io.github.achirdlabs.rift.model.RiftFaultConfig;
 import io.github.achirdlabs.rift.model.RiftLatencyFault;
 import io.github.achirdlabs.rift.model.RiftResponseExtension;
+import io.github.achirdlabs.rift.model.StateOp;
 
 import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
@@ -46,6 +48,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     private final List<Behavior> behaviors;
     private final Optional<RiftFaultConfig> fault;
     private final boolean templated;
+    private final List<StateOp> stateOps;
 
     private IsSpec(
             String statusCode,
@@ -54,7 +57,8 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
             ResponseMode mode,
             List<Behavior> behaviors,
             Optional<RiftFaultConfig> fault,
-            boolean templated) {
+            boolean templated,
+            List<StateOp> stateOps) {
         this.statusCode = statusCode;
         this.headers = headers;
         this.body = body;
@@ -62,13 +66,14 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
         this.behaviors = behaviors;
         this.fault = fault;
         this.templated = templated;
+        this.stateOps = stateOps;
     }
 
     /** A fresh "is" response builder at the given status code, with no headers/body/behaviors yet. */
     static IsSpec is(String statusCode) {
         return new IsSpec(
                 statusCode, Map.of(), Optional.empty(), ResponseMode.TEXT, List.of(),
-                Optional.empty(), false);
+                Optional.empty(), false, List.of());
     }
 
     /**
@@ -78,12 +83,12 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     public IsSpec withHeader(String name, String... values) {
         Map<String, List<String>> next = new LinkedHashMap<>(headers);
         next.put(name, List.of(values));
-        return new IsSpec(statusCode, next, body, mode, behaviors, fault, templated);
+        return new IsSpec(statusCode, next, body, mode, behaviors, fault, templated, stateOps);
     }
 
     /** Sets the response body to the given JSON value directly. */
     public IsSpec withJsonBody(JsonValue value) {
-        return new IsSpec(statusCode, headers, Optional.of(value), mode, behaviors, fault, templated);
+        return new IsSpec(statusCode, headers, Optional.of(value), mode, behaviors, fault, templated, stateOps);
     }
 
     /** Sets the response body by parsing {@code jsonText} as JSON. */
@@ -104,7 +109,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      * Mountebank's text-mode body convention).
      */
     public IsSpec withTextBody(String text) {
-        return new IsSpec(statusCode, headers, Optional.of(new JsonString(text)), mode, behaviors, fault, templated);
+        return new IsSpec(statusCode, headers, Optional.of(new JsonString(text)), mode, behaviors, fault, templated, stateOps);
     }
 
     /**
@@ -113,7 +118,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      */
     public IsSpec withBinaryBody(byte[] bytes) {
         String encoded = Base64.getEncoder().encodeToString(bytes);
-        return new IsSpec(statusCode, headers, Optional.of(new JsonString(encoded)), ResponseMode.BINARY, behaviors, fault, templated);
+        return new IsSpec(statusCode, headers, Optional.of(new JsonString(encoded)), ResponseMode.BINARY, behaviors, fault, templated, stateOps);
     }
 
     // The behavior chainers live on BehaviorChain. These overrides only pin their IsSpec return type
@@ -185,7 +190,57 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      * engine resolves against the request (sets {@code _rift.templated}).
      */
     public IsSpec templated() {
-        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, true);
+        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, true, stateOps);
+    }
+
+    /**
+     * After this response is built, stores {@code valueTemplate} under {@code key} in the request's
+     * flow. The value is rendered as a template against the request (for example {@code {{
+     * request.query.id }}}) whether or not the response is {@link #templated()}; a rendering that is
+     * a canonical integer is stored as a number.
+     *
+     * <p>Flow-state writes ({@code _rift.stateOps}) run after templating and behaviors, in the
+     * order they are chained, so a templated body reading {@code {{ state.key }}} sees the value from
+     * before this response's writes. Without {@link FlowStateSpec#flowIdFromHeader} every caller
+     * shares one flow, keyed by the imposter's port. An imposter created with writes and no
+     * flow-state configuration gets an in-memory store; the engine decides this when the imposter is
+     * created, so a stub with writes added later to an imposter without a store has nowhere to write.
+     * The writes do not run when a {@code _rift} fault fires. Requires a rift engine &ge; 0.18.0; on
+     * {@code create} and {@code replaceAll} the SDK refuses to send them to an older engine, which
+     * would drop them silently. Not carried by a default response ({@link
+     * ImposterSpec#defaultResponse}).
+     */
+    public IsSpec setState(String key, String valueTemplate) {
+        return withStateOp(new StateOp.Set(key, valueTemplate));
+    }
+
+    /** After this response, adds 1 to the integer under {@code key}; see {@link #setState}. */
+    public IsSpec incrementState(String key) {
+        return withStateOp(new StateOp.Increment(key));
+    }
+
+    /**
+     * After this response, adds {@code by} (which may be negative) to the integer under {@code key};
+     * see {@link #setState}.
+     */
+    public IsSpec incrementState(String key, long by) {
+        return withStateOp(new StateOp.Increment(key, by));
+    }
+
+    /** After this response, removes {@code key} from the flow; see {@link #setState}. */
+    public IsSpec deleteState(String key) {
+        return withStateOp(new StateOp.Delete(key));
+    }
+
+    /** After this response, removes every key in the flow; see {@link #setState}. */
+    public IsSpec clearFlowState() {
+        return withStateOp(new StateOp.ClearFlow());
+    }
+
+    private IsSpec withStateOp(StateOp op) {
+        Objects.requireNonNull(op, "op");
+        List<StateOp> next = Stream.concat(stateOps.stream(), Stream.of(op)).toList();
+        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, templated, next);
     }
 
     /** Injects a latency fault: {@code probability} of the time, delay the response by a fixed duration. */
@@ -248,13 +303,13 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
 
     private IsSpec withFault(UnaryOperator<RiftFaultConfig> mutator) {
         RiftFaultConfig current = fault.orElse(new RiftFaultConfig(Optional.empty(), Optional.empty(), Optional.empty()));
-        return new IsSpec(statusCode, headers, body, mode, behaviors, Optional.of(mutator.apply(current)), templated);
+        return new IsSpec(statusCode, headers, body, mode, behaviors, Optional.of(mutator.apply(current)), templated, stateOps);
     }
 
     @Override
     public IsSpec withBehavior(Behavior behavior) {
         List<Behavior> next = Stream.concat(behaviors.stream(), Stream.of(behavior)).toList();
-        return new IsSpec(statusCode, headers, body, mode, next, fault, templated);
+        return new IsSpec(statusCode, headers, body, mode, next, fault, templated, stateOps);
     }
 
     /** Builds the immutable {@link Response} this spec represents. */
@@ -269,9 +324,9 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     }
 
     private Optional<RiftResponseExtension> riftExtension() {
-        if (fault.isEmpty() && !templated) {
+        if (fault.isEmpty() && !templated && stateOps.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new RiftResponseExtension(fault, Optional.empty(), templated));
+        return Optional.of(new RiftResponseExtension(fault, Optional.empty(), templated, stateOps, Map.of()));
     }
 }

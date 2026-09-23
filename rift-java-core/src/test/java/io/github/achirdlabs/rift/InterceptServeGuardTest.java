@@ -95,6 +95,12 @@ class InterceptServeGuardTest {
     }
 
     @Test
+    void rejectsStateOps() {
+        assertTrue(rejected(status(200).withTextBody("b").incrementState("hits"))
+                .getMessage().contains("_rift.stateOps (setState/incrementState/deleteState/clearFlowState)"));
+    }
+
+    @Test
     void rejectsWaitBehavior() {
         assertTrue(rejected(status(200).withTextBody("b").after(Duration.ofMillis(50)))
                 .getMessage().contains("_behaviors.wait"));
@@ -213,13 +219,13 @@ class InterceptServeGuardTest {
         assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withResponseExtra))
                 .getMessage().contains("response key '_futureSibling'"));
 
-        // An unmodeled _rift key (rift 0.18.0's stateOps, #226) read back from an engine.
+        // An unmodeled _rift key (rift 0.18.0's dataset, #226) read back from an engine.
         Response.Is withRiftExtra = new Response.Is(
                 new IsResponse("200", Map.of(), Optional.of(new JsonString("b")), ResponseMode.TEXT),
                 Behaviors.EMPTY,
-                Optional.of(RiftResponseExtension.EMPTY.withExtra("stateOps", new JsonString("x"))));
+                Optional.of(RiftResponseExtension.EMPTY.withExtra("dataset", new JsonString("x"))));
         assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withRiftExtra))
-                .getMessage().contains("_rift.stateOps"));
+                .getMessage().contains("_rift.dataset"));
     }
 
     /**
@@ -234,7 +240,7 @@ class InterceptServeGuardTest {
     void guardCoversEveryComponentOfTheModelItInspects() {
         assertComponents(Response.Is.class, "is", "behaviors", "rift", "extra");
         assertComponents(IsResponse.class, "statusCode", "headers", "body", "mode", "extra");
-        assertComponents(RiftResponseExtension.class, "fault", "script", "templated", "extra");
+        assertComponents(RiftResponseExtension.class, "fault", "script", "templated", "stateOps", "extra");
         assertComponents(RiftFaultConfig.class, "latency", "error", "tcp");
         assertComponents(Behaviors.class, "entries");
         // The guard tests `mode() == BINARY`, so a third mode would pass through as if it were text.

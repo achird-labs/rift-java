@@ -30,7 +30,8 @@ public final class FlowStateSupport {
 
     /**
      * The engine will provision a real (non-NoOp) flow store: the def has an explicit {@code
-     * _rift.flowState}, a scenario-naming stub, or a {@code _rift.script} stub.
+     * _rift.flowState}, a scenario-naming stub, a {@code _rift.script} stub, or an {@code is}
+     * response with {@code _rift.stateOps}.
      */
     public static boolean hasStoreTrigger(ImposterDefinition def) {
         boolean explicitFlowState = def.rift().flatMap(RiftConfig::flowState).isPresent();
@@ -41,7 +42,13 @@ public final class FlowStateSupport {
         boolean namesScenario = stub.scenarioName().isPresent()
                 || stub.requiredScenarioState().isPresent()
                 || stub.newScenarioState().isPresent();
-        return namesScenario || stub.responses().stream().anyMatch(FlowStateSupport::hasScript);
+        return namesScenario || stub.responses().stream()
+                .anyMatch(r -> hasScript(r) || hasStateOps(r));
+    }
+
+    private static boolean hasStateOps(Response response) {
+        return response instanceof Response.Is is
+                && is.rift().map(rift -> !rift.stateOps().isEmpty()).orElse(false);
     }
 
     private static boolean hasScript(Response response) {
