@@ -11,6 +11,7 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.FlowStateSupport;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Stub;
+import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 import io.github.achirdlabs.rift.transport.StubAddress;
 import io.github.achirdlabs.rift.verify.PredicateEvaluator;
@@ -39,10 +40,27 @@ final class ImposterImpl implements Imposter {
     private boolean spaceConfigChecked;
     private boolean flowStateConfigChecked;
 
+    /** The host the imposter is bound to, when the engine runs locally and that host is concrete. */
+    private final Optional<String> boundHost;
+
     ImposterImpl(int port, RiftTransport transport, ConnectOptions options) {
+        this(port, transport, options, Optional.empty());
+    }
+
+    ImposterImpl(int port, RiftTransport transport, ConnectOptions options, Optional<String> boundHost) {
         this.port = port;
         this.transport = transport;
         this.options = options;
+        this.boundHost = boundHost.filter(host -> !isWildcard(host));
+    }
+
+    /** The any-address in any spelling ({@code 0.0.0.0}, {@code ::}, {@code [0:0:0:0:0:0:0:0]}, ...). */
+    private static boolean isWildcard(String host) {
+        String bare = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        if (bare.equals("0.0.0.0")) {
+            return true;
+        }
+        return bare.indexOf(':') >= 0 && bare.chars().allMatch(c -> c == ':' || c == '0');
     }
 
     @Override
@@ -52,7 +70,8 @@ final class ImposterImpl implements Imposter {
 
     @Override
     public URI uri() {
-        return options.hostResolver().apply(port);
+        return boundHost.map(host -> HostAuthority.httpUri(host, port))
+                .orElseGet(() -> options.hostResolver().apply(port));
     }
 
     @Override

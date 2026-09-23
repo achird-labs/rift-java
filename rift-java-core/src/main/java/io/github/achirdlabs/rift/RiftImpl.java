@@ -49,6 +49,11 @@ final class RiftImpl implements Rift {
     private final RiftTransport transport;
     private final ConnectOptions options;
     private final Runnable onClose;
+    /**
+     * Whether the SDK runs this engine itself (spawn, embedded), so an imposter's own bind host is
+     * an address this client can reach. For a connected engine it is an address on another machine.
+     */
+    private final boolean localEngine;
     private final AtomicBoolean interceptStarted = new AtomicBoolean(false);
     /**
      * The engine's reported version: seeded by the preflight when it ran, else read on first need, then
@@ -57,10 +62,12 @@ final class RiftImpl implements Rift {
      */
     private volatile String engineVersion;
 
-    private RiftImpl(RiftTransport transport, ConnectOptions options, Runnable onClose, String engineVersion) {
+    private RiftImpl(RiftTransport transport, ConnectOptions options, Runnable onClose, String engineVersion,
+            boolean localEngine) {
         this.transport = transport;
         this.options = options;
         this.onClose = onClose;
+        this.localEngine = localEngine;
         this.engineVersion = engineVersion;
     }
 
@@ -69,7 +76,7 @@ final class RiftImpl implements Rift {
         String version = options.versionCheck() != VersionCheck.OFF
                 ? preflight(transport, options.versionCheck(), false)
                 : null;
-        return new RiftImpl(transport, options, () -> { }, version);
+        return new RiftImpl(transport, options, () -> { }, version, false);
     }
 
     /**
@@ -79,7 +86,7 @@ final class RiftImpl implements Rift {
      * process it launched.
      */
     static Rift spawned(RiftTransport transport, ConnectOptions options, Runnable onClose) {
-        return new RiftImpl(transport, options, onClose, null);
+        return new RiftImpl(transport, options, onClose, null, true);
     }
 
     /**
@@ -113,7 +120,7 @@ final class RiftImpl implements Rift {
                 .versionCheck(options.versionCheck())
                 .hostResolver(port -> HostAuthority.httpUri(options.adminHost(), port));
         options.apiKey().ifPresent(builder::apiKey);
-        return new RiftImpl(transport, builder.build(), onClose, version);
+        return new RiftImpl(transport, builder.build(), onClose, version, true);
     }
 
     /** The outcome of comparing a reported engine version against the floor. Package-private for testing. */
@@ -310,7 +317,8 @@ final class RiftImpl implements Rift {
     @Override
     public Imposter create(JsonValue json) {
         JsonValue created = transport.createImposter(json);
-        return new ImposterImpl(extractPort(created), transport, options);
+        // The host comes from what was posted: the engine's create response does not echo it.
+        return imposterAt(extractPort(created), json);
     }
 
     @Override
@@ -321,8 +329,16 @@ final class RiftImpl implements Rift {
     @Override
     public Optional<Imposter> imposter(int port) {
         try {
+            if (localEngine) {
+                // Only the replayable list carries an imposter's host (a single GET never does), and
+                // only a local engine's host is an address this client can use.
+                return listedConfigs(true).stream()
+                        .filter(v -> extractPort(v) == port)
+                        .findFirst()
+                        .map(v -> imposterAt(port, v));
+            }
             transport.getImposter(port);
-            return Optional.of(new ImposterImpl(port, transport, options));
+            return Optional.of(imposterAt(port, JsonObject.of()));
         } catch (ImposterNotFound e) {
             return Optional.empty();
         }
@@ -330,14 +346,27 @@ final class RiftImpl implements Rift {
 
     @Override
     public List<Imposter> imposters() {
-        JsonValue result = transport.listImposters(false, false);
-        List<Imposter> out = new ArrayList<>();
+        return listedConfigs(localEngine).stream().<Imposter>map(v -> imposterAt(extractPort(v), v)).toList();
+    }
+
+    /**
+     * Every imposter the engine lists. The replayable shape is the only one carrying each
+     * imposter's host, so a local engine asks for it; a connected one has no use for the host.
+     */
+    private List<JsonValue> listedConfigs(boolean replayable) {
+        JsonValue result = transport.listImposters(replayable, false);
         if (result instanceof JsonObject obj && obj.get("imposters") instanceof JsonArray arr) {
-            for (JsonValue v : arr.items()) {
-                out.add(new ImposterImpl(extractPort(v), transport, options));
-            }
+            return arr.items();
         }
-        return List.copyOf(out);
+        return List.of();
+    }
+
+    /** An imposter handle, told the host it is bound to when that is an address this client can use. */
+    private ImposterImpl imposterAt(int port, JsonValue definition) {
+        Optional<String> host = localEngine && definition instanceof JsonObject obj && obj.get("host") instanceof JsonString h
+                ? Optional.of(h.value())
+                : Optional.empty();
+        return new ImposterImpl(port, transport, options, host);
     }
 
     @Override

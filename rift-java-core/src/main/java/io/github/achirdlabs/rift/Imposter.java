@@ -18,7 +18,14 @@ public interface Imposter {
 
     int port();
 
-    /** This imposter's own network address, derived from its port via {@code ConnectOptions.hostResolver}. */
+    /**
+     * This imposter's own network address. On an engine the SDK runs itself (spawned or embedded;
+     * not testcontainers, which connects), an imposter bound to a concrete host ({@code
+     * ImposterSpec.host}) is reached there; otherwise, and
+     * for any connected engine, the address comes from {@code ConnectOptions.hostResolver}, which
+     * by default reuses the admin host. The engine binds an imposter with no host on {@code
+     * 0.0.0.0}, IPv4 only, so with an IPv6 admin host set {@code ImposterSpec.host("::1")} too.
+     */
     URI uri();
 
     Optional<String> name();

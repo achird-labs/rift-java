@@ -139,6 +139,18 @@ class RemoteTransportCoverageTest {
     }
 
     @Test
+    void aConnectedEngineKeepsItsResolverWhateverTheImposterHost() {
+        // The imposter's host is an address on the remote machine, not one this client can use (#243).
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("POST /imposters", 201, "{\"port\":4545,\"host\":\"127.0.0.2\"}");
+            try (Rift rift = connect(s)) {
+                Imposter imp = rift.create(imposter("x").port(4545).host("127.0.0.2"));
+                assertEquals(s.baseUri().getHost(), imp.uri().getHost());
+            }
+        }
+    }
+
+    @Test
     void flowStatePutAndDelete() {
         try (FakeAdminServer s = new FakeAdminServer()) {
             s.respond("PUT /admin/imposters/4545/flow-state/flow-1/token", 200, "{}");

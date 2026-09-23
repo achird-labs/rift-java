@@ -54,12 +54,26 @@ class Ipv6HostIT {
         });
     }
 
+    @TestFactory
+    Stream<DynamicTest> anImposterOnItsOwnHostIsReachedThere() {
+        return gatedTo(ConformanceTransport.SPAWN, "one local-engine lane is enough for the uri() rule",
+                "an imposter bound to ::1 on a default engine reports ::1 in its uri()", () -> {
+            assumeTrue(ipv6LoopbackAvailable(), "no IPv6 loopback here");
+            try (Rift rift = Rift.spawn(SpawnOptions.builder().build())) {
+                assertEquals("127.0.0.1", rift.adminUri().getHost());
+                assertServes(rift);
+            }
+        });
+    }
+
     private static void assertServes(Rift rift) throws Exception {
-        // The engine binds an imposter on 0.0.0.0 unless the imposter names its own host, whatever
-        // the admin host is, so bind this one to ::1 too: uri() reports the admin host (#243).
+        // The engine binds an imposter on 0.0.0.0 (IPv4) unless the imposter names its own host,
+        // whatever the admin host is, so bind this one to ::1 too; uri() then reports it (#243).
         Imposter imposter = rift.create(imposter("v6").protocol("http").host("::1")
                 .stub(onGet("/").willReturn(status(200).withTextBody("v6"))));
         assertEquals("[::1]", imposter.uri().getHost());
+        assertEquals("[::1]", rift.imposter(imposter.port()).orElseThrow().uri().getHost(), "a looked-up handle too");
+        assertEquals("[::1]", rift.imposters().get(0).uri().getHost(), "and a listed one");
         HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(imposter.uri().resolve("/")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertEquals("v6", response.body());
