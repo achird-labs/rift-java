@@ -79,7 +79,8 @@ class BehaviorChainTest {
                 new Behavior.Wait(new WaitSpec.Script("function () { return 2; }")),
                 new Behavior.Decorate("d"),
                 new Behavior.Repeat(4),
-                new Behavior.Unknown("shellTransform", JsonValue.parse("[\"a\", \"b\"]")));
+                new Behavior.ShellTransform("a"),
+                new Behavior.ShellTransform("b"));
 
         Response.Proxy proxy = assertInstanceOf(Response.Proxy.class, proxyTo("http://up")
                 .waitMs(7).after(Duration.ofSeconds(1)).waitBetween(1, 2)

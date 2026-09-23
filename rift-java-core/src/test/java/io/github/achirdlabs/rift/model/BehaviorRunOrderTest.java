@@ -78,9 +78,9 @@ class BehaviorRunOrderTest {
 
     @Test
     void theDslChainOrderIsTheWrittenOrder() {
-        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"behaviors\":[{\"decorate\":\"d\"},{\"shellTransform\":[\"cat\"]}]}",
+        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"behaviors\":[{\"decorate\":\"d\"},{\"shellTransform\":\"cat\"}]}",
                 status(200).decorate("d").shellTransform("cat").build().toJsonValue().toJson());
-        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"_behaviors\":{\"shellTransform\":[\"cat\"],\"decorate\":\"d\"}}",
+        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"_behaviors\":{\"shellTransform\":\"cat\",\"decorate\":\"d\"}}",
                 status(200).shellTransform("cat").decorate("d").build().toJsonValue().toJson());
         assertEquals("{\"is\":{\"statusCode\":\"200\"},\"_behaviors\":{\"copy\":[{\"from\":\"path\",\"into\":\"${a}\","
                         + "\"using\":{\"method\":\"regex\",\"selector\":\"a\"}}],\"decorate\":\"d\"}}",

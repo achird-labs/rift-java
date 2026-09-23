@@ -1,8 +1,6 @@
 package io.github.achirdlabs.rift.dsl;
 
 import io.github.achirdlabs.rift.json.JsonArray;
-import io.github.achirdlabs.rift.json.JsonString;
-import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.Behavior;
 import io.github.achirdlabs.rift.model.Behaviors;
 import io.github.achirdlabs.rift.model.CopyEntry;
@@ -10,6 +8,7 @@ import io.github.achirdlabs.rift.model.WaitSpec;
 
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.List;
 
 /**
@@ -129,13 +128,22 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
     }
 
     /**
-     * Adds a {@code shellTransform} behavior running each command in order. Rides {@link
-     * Behavior.Unknown} (as a JSON array of commands) rather than the single-command typed {@link
-     * Behavior.ShellTransform}, since the multi-command wire shape is an array. An injection surface:
-     * the engine must run with {@code --allowInjection}.
+     * Adds a {@code shellTransform} step per command, run in order, each receiving the previous
+     * one's output. One command is written as {@code "shellTransform": "cmd"}; several are written
+     * as one {@code behaviors} array element per command, the shape the engine itself echoes. An
+     * injection surface: the engine must run with {@code --allowInjection}.
+     *
+     * @throws IllegalArgumentException if no command is given
      */
     default S shellTransform(String... commands) {
-        JsonArray array = new JsonArray(Arrays.stream(commands).<JsonValue>map(JsonString::new).toList());
-        return withBehavior(new Behavior.Unknown("shellTransform", array));
+        if (commands.length == 0) {
+            throw new IllegalArgumentException("shellTransform needs at least one command");
+        }
+        S next = null;
+        for (String command : commands) {
+            Behavior step = new Behavior.ShellTransform(Objects.requireNonNull(command, "command"));
+            next = next == null ? withBehavior(step) : next.withBehavior(step);
+        }
+        return next;
     }
 }
