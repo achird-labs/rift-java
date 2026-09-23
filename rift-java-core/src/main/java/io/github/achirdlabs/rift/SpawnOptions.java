@@ -147,6 +147,13 @@ public final class SpawnOptions {
             return this;
         }
 
+        /**
+         * The interface the engine's admin API binds ({@code --host}), default {@code 127.0.0.1}: an
+         * IP literal, including IPv6 {@code ::1} bare or bracketed (a bare one needs rift &ge;
+         * 0.18.0). The admin URI is built from it, bracketed when it is IPv6. {@link
+         * #localOnly(boolean)} is on by default and makes the engine bind loopback whatever this
+         * says, so turn it off for this to take effect.
+         */
         public Builder host(String host) {
             this.host = Objects.requireNonNull(host, "host");
             return this;

@@ -106,10 +106,10 @@ public final class EmbeddedOptions {
 
         /**
          * The interface the in-process admin server binds, default {@code 127.0.0.1} — an IP
-         * literal such as {@code 127.0.0.1}, {@code 0.0.0.0} or {@code ::1}, <b>not</b> a hostname:
-         * the engine parses {@code host:port} as a socket address, so {@code "localhost"} is a
-         * bind error rather than loopback. It is also the host imposters report in their own
-         * {@code uri()}.
+         * literal such as {@code 127.0.0.1}, {@code 0.0.0.0}, or IPv6 {@code ::1} (bare or
+         * bracketed; a bare one needs rift &ge; 0.18.0), <b>not</b> a hostname: the engine parses it
+         * as an IP address, so {@code "localhost"} is a bind error rather than loopback. It is also
+         * the host imposters report in their own {@code uri()}, bracketed when it is IPv6.
          *
          * <p>Loopback is the default deliberately: this server exposes the full admin API of an
          * engine running inside your own process. Binding it wider is honoured, but pair it with

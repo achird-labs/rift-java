@@ -101,6 +101,7 @@ public final class ConnectOptions {
         /** {@code scheme://adminHost:port} — the admin host reused as the imposter's host. */
         private static IntFunction<URI> defaultHostResolver(URI adminUri) {
             String scheme = adminUri.getScheme();
+            // getHost() keeps an IPv6 literal's brackets, so this needs no HostAuthority.
             String host = adminUri.getHost();
             return port -> URI.create(scheme + "://" + host + ":" + port);
         }

@@ -4,6 +4,7 @@ import io.github.achirdlabs.rift.ConnectOptions;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.RiftVersion;
+import io.github.achirdlabs.rift.transport.HostAuthority;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
@@ -124,7 +125,7 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
 
     /** The mapped admin API URI. Valid only once the container is started. */
     public URI adminUri() {
-        return URI.create("http://" + getHost() + ":" + getMappedPort(ADMIN_PORT));
+        return HostAuthority.httpUri(getHost(), getMappedPort(ADMIN_PORT));
     }
 
     /**
@@ -139,7 +140,7 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
         apiKey.ifPresent(options::apiKey);
         options.hostResolver(gateway
                 ? port -> URI.create(admin + "/__rift/" + port)
-                : port -> URI.create("http://" + getHost() + ":" + getMappedPort(port)));
+                : port -> HostAuthority.httpUri(getHost(), getMappedPort(port)));
         return Rift.connect(options.build());
     }
 
