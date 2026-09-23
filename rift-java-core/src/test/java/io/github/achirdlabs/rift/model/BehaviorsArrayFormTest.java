@@ -10,8 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code GET /imposters}) must parse into the same {@link Behaviors} as the {@code _behaviors}
  * object form every fixture uses — confirming it is not silently dropped.
  *
- * <p>Not a round-trip (G2/G3) test: with no repeated key — as here — {@link Behaviors} serializes
- * back using the object form, so an array-form input's key name necessarily changes on write. That
+ * <p>Not a round-trip (G2/G3) test: with no repeated key and the transforming behaviors in
+ * canonical order — as here — {@link Behaviors} serializes back using the object form, so an
+ * array-form input's key name necessarily changes on write. That
  * is documented, intended engine-compat behavior; it is pinned on the write side by {@code
  * BehaviorsWriteFormTest.arrayFormWithNoRepeatedKeysNormalisesToObjectForm}, not here. A key that
  * repeats keeps the array form instead, since the object form cannot represent it.
