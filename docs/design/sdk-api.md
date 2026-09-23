@@ -194,7 +194,12 @@ public final class EmbeddedOptions {
 
 public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)
   record CaFile(Path path) …; record CaPem(String pem) …; record SkipVerify() …;
+  String MIN_ENGINE_VERSION = "0.18.0";
+  static boolean supportedBy(String engineVersion);   // the up-front gate spawn and RiftContainer share
 }
+// RiftContainer.withUpstreamTrust(UpstreamTrust) (#248): all three variants; the PEM (file or
+//   inline) is copied into the container and named via RIFT_UPSTREAM_CA_FILE, SkipVerify sets
+//   RIFT_UPSTREAM_TLS_SKIP_VERIFY; an image tag that is a version below 0.18.0 is refused.
 ```
 
 Every `http://host:port` URI the SDK builds goes through `transport.HostAuthority`
