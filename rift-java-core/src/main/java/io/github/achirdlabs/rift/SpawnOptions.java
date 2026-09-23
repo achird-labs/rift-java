@@ -15,9 +15,6 @@ import java.util.Optional;
  */
 public final class SpawnOptions {
 
-    /** The first engine release with outbound TLS trust options. */
-    private static final String UPSTREAM_TRUST_SINCE = "0.18.0";
-
     private final Optional<Path> binaryPath;
     private final String version;
     private final String host;
@@ -240,8 +237,8 @@ public final class SpawnOptions {
                     throw new IllegalArgumentException("a spawned engine cannot take an inline CA PEM (the rift CLI "
                             + "has no flag for it); write it to a file and use UpstreamTrust.CaFile");
                 }
-                if (!EngineVersion.atLeast(version, UPSTREAM_TRUST_SINCE)) {
-                    throw new IllegalArgumentException("upstreamTrust needs a rift engine >= " + UPSTREAM_TRUST_SINCE
+                if (!UpstreamTrust.supportedBy(version)) {
+                    throw new IllegalArgumentException("upstreamTrust needs a rift engine >= " + UpstreamTrust.MIN_ENGINE_VERSION
                             + ", but version is " + version + " (the older CLI has no --upstream-ca-file flag)");
                 }
             }

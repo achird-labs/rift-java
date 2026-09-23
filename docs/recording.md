@@ -75,13 +75,17 @@ Rift rift = Rift.embedded(EmbeddedOptions.builder()
 Rift rift = Rift.spawn(SpawnOptions.builder()
         .upstreamTrust(new UpstreamTrust.CaFile(Path.of("/etc/pki/corp-ca.pem")))
         .build());
+
+// Testcontainers: a PEM file or an inline PEM, written into the container by the transport
+RiftContainer rift = new RiftContainer()
+        .withUpstreamTrust(new UpstreamTrust.CaPem(corpCaPem));
 ```
 
 | `UpstreamTrust` | Engine option | Transports |
 |---|---|---|
-| `CaFile(Path)` | `upstreamCaFile` / `--upstream-ca-file` | embedded, spawn |
-| `CaPem(String)` | `upstreamCaPem` | embedded |
-| `SkipVerify()` | `upstreamTlsSkipVerify` / `--upstream-tls-skip-verify` | embedded, spawn |
+| `CaFile(Path)` | `upstreamCaFile` / `--upstream-ca-file` (`RIFT_UPSTREAM_CA_FILE`) | embedded, spawn, testcontainers |
+| `CaPem(String)` | `upstreamCaPem`; in a container, a file the transport writes | embedded, testcontainers |
+| `SkipVerify()` | `upstreamTlsSkipVerify` / `--upstream-tls-skip-verify` (`RIFT_UPSTREAM_TLS_SKIP_VERIFY`) | embedded, spawn, testcontainers |
 
 - **The CA is appended to the OS trust store**, so public origins keep working. Don't reach for
   `SSL_CERT_FILE` instead: the engine honours it, but it *replaces* the trust store, so pointing it
@@ -92,6 +96,11 @@ Rift rift = Rift.spawn(SpawnOptions.builder()
   the intercept listener's origin leg.
 - **Older engines are refused, not ignored.** An embedded engine must advertise the option in its
   `serveOptions` (`Rift.info().serveOptions()`), or `Rift.embedded` fails with `EngineUnavailable`.
-  A spawned engine is checked against `SpawnOptions.version` when the options are built.
+  A spawned engine is checked against `SpawnOptions.version` when the options are built, and a
+  container against its image tag when `withUpstreamTrust` is called (a tag that is not a version,
+  such as `latest`, cannot be checked).
+- **In a container, the CA is read when the container starts**, copied to
+  `/etc/rift/upstream-ca.pem`, and named to the engine through its environment; an unreadable
+  `CaFile` fails the start.
 - **A connected engine** (`Rift.connect`) is configured by whoever started it: pass
   `--upstream-ca-file` to `rift` there.

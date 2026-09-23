@@ -6,8 +6,9 @@ import java.util.Objects;
 /**
  * Which certificates the engine trusts when it dials a real origin over TLS — a {@code proxy}
  * stub's upstream, and the intercept listener's origin leg. By default that is the OS trust store;
- * this adds to it, or turns verification off. Set it on {@link EmbeddedOptions.Builder#upstreamTrust}
- * or {@link SpawnOptions.Builder#upstreamTrust}; one engine has one policy.
+ * this adds to it, or turns verification off. Set it on {@link EmbeddedOptions.Builder#upstreamTrust},
+ * {@link SpawnOptions.Builder#upstreamTrust}, or {@code RiftContainer.withUpstreamTrust} in
+ * rift-java-testcontainers; one engine has one policy.
  *
  * <p>Requires a rift engine &ge; 0.18.0. A {@link Rift#connect(java.net.URI) connected} engine is
  * configured by whoever started it ({@code --upstream-ca-file}), so there is nothing to set there.
@@ -17,6 +18,19 @@ import java.util.Objects;
  * public root. {@link CaFile} and {@link CaPem} append.
  */
 public sealed interface UpstreamTrust permits UpstreamTrust.CaFile, UpstreamTrust.CaPem, UpstreamTrust.SkipVerify {
+
+    /** The first rift engine release with outbound TLS trust options. */
+    String MIN_ENGINE_VERSION = "0.18.0";
+
+    /**
+     * Whether an engine of {@code engineVersion} ({@code 0.18.0}, {@code v0.18.0}, {@code 0.19.0-rc.1})
+     * takes an outbound trust policy, that is, is {@link #MIN_ENGINE_VERSION} or newer. For transports
+     * that know the version before the engine starts (a spawn's declared version, a container's image
+     * tag) and so can refuse up front.
+     */
+    static boolean supportedBy(String engineVersion) {
+        return EngineVersion.atLeast(Objects.requireNonNull(engineVersion, "engineVersion"), MIN_ENGINE_VERSION);
+    }
 
     /**
      * Extra CA certificate(s), read by the engine from a PEM file and appended to the OS trust store.
@@ -33,8 +47,9 @@ public sealed interface UpstreamTrust permits UpstreamTrust.CaFile, UpstreamTrus
     }
 
     /**
-     * The same anchor as {@link CaFile}, supplied inline. Embedded engines only: the {@code rift} CLI
-     * has no flag for an inline certificate, so {@link SpawnOptions} rejects this variant.
+     * The same anchor as {@link CaFile}, supplied inline. Embedded engines and containers only: the
+     * {@code rift} CLI has no flag for an inline certificate, so {@link SpawnOptions} rejects this
+     * variant (a container takes it because its transport writes the file into the container).
      */
     record CaPem(String pem) implements UpstreamTrust {
         public CaPem {

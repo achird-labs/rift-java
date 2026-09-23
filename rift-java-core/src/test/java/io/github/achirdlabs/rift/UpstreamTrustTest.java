@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -79,6 +80,17 @@ class UpstreamTrustTest {
         assertTrue(e.getMessage().contains("0.18.0"), e.getMessage());
         SpawnOptions.builder().version("0.17.0").build();
         SpawnOptions.builder().version("v0.18.0").upstreamTrust(new UpstreamTrust.SkipVerify()).build();
+    }
+
+    @Test
+    void theEngineGateIsSharedByEveryTransportThatKnowsItsVersionUpFront() {
+        // SpawnOptions and RiftContainer both check a declared version against this one floor.
+        assertEquals("0.18.0", UpstreamTrust.MIN_ENGINE_VERSION);
+        assertTrue(UpstreamTrust.supportedBy("0.18.0"));
+        assertTrue(UpstreamTrust.supportedBy("v0.18.0"));
+        assertTrue(UpstreamTrust.supportedBy("0.19.0-rc.1"));
+        assertFalse(UpstreamTrust.supportedBy("0.17.9"));
+        assertFalse(UpstreamTrust.supportedBy("v0.17.0-static"));
     }
 
     @Test

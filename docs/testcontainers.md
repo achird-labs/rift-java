@@ -81,6 +81,23 @@ void mocksAnHttpsDependency() throws Exception {
 
 See [docs/intercept.md](intercept.md) for rules, trust material, and shared-CA setups.
 
+## Outbound TLS trust (proxying an origin behind a private CA)
+
+`withUpstreamTrust(...)` sets what the engine trusts when a `proxy` stub, or the intercept
+listener's origin leg, dials a real HTTPS origin (rift ≥ 0.18.0). A `CaFile` or an inline `CaPem`
+is written into the container and named to the engine (`RIFT_UPSTREAM_CA_FILE`); `SkipVerify` sets
+`RIFT_UPSTREAM_TLS_SKIP_VERIFY` and logs a warning:
+
+```java
+@Container
+static RiftContainer rift = new RiftContainer()
+        .withImposterPorts(4545)
+        .withUpstreamTrust(new UpstreamTrust.CaFile(Path.of("/etc/pki/corp-ca.pem")));
+```
+
+An image tagged with a version older than 0.18.0 is refused when `withUpstreamTrust` is called.
+See [docs/recording.md](recording.md#recording-an-origin-behind-a-private-ca) for the details.
+
 ## Using it with the Spring module
 
 Publish the container's admin URI as a property and point `@EnableRift(transport = CONNECT)` at it:
