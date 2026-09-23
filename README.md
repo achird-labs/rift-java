@@ -5,7 +5,7 @@ Mountebank-compatible HTTP/HTTPS mock server written in Rust.
 
 📖 **Documentation site: [achird-labs.github.io/rift-java](https://achird-labs.github.io/rift-java/)**
 
-> **Available on Maven Central.** The current release is **0.3.0**. From **0.1.3** onward rift-java
+> **Available on Maven Central.** The current release is **0.3.1**. From **0.1.3** onward rift-java
 > publishes under the `io.github.achird-labs` group ID; **0.1.2 and earlier are under
 > `io.github.etacassiopeia`** — see [Moving off the old group ID](#moving-off-the-old-group-id).
 > The public API is documented on the
@@ -59,7 +59,7 @@ rift-java is published under the `io.github.achird-labs` group ID (since 0.1.3 �
 
 | Channel | Repository | Version form | Use for |
 |---|---|---|---|
-| **Stable release** | Maven Central — the default, no config needed | `X.Y.Z` (e.g. `0.3.0`) | CI / regular test suites |
+| **Stable release** | Maven Central — the default, no config needed | `X.Y.Z` (e.g. `0.3.1`) | CI / regular test suites |
 | **Snapshot** | [Central Portal snapshots](https://central.sonatype.com/repository/maven-snapshots/) — must be added | `X.Y.Z-SNAPSHOT` (e.g. `0.1.3-SNAPSHOT`) | trying the latest `master` |
 
 The recommended entry point is the **BOM** (`rift-java-bom`): import it once and every module is
@@ -77,7 +77,7 @@ per-module `<version>`:
     <dependency>
       <groupId>io.github.achird-labs</groupId>
       <artifactId>rift-java-bom</artifactId>
-      <version>0.3.0</version> <!-- or X.Y.Z-SNAPSHOT for the latest master -->
+      <version>0.3.1</version> <!-- or X.Y.Z-SNAPSHOT for the latest master -->
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -126,7 +126,7 @@ repositories {
 }
 
 dependencies {
-    testImplementation(platform("io.github.achird-labs:rift-java-bom:0.3.0")) // or X.Y.Z-SNAPSHOT for the latest master
+    testImplementation(platform("io.github.achird-labs:rift-java-bom:0.3.1")) // or X.Y.Z-SNAPSHOT for the latest master
     testImplementation("io.github.achird-labs:rift-java-core")
     testImplementation("io.github.achird-labs:rift-java-junit5")
 }
