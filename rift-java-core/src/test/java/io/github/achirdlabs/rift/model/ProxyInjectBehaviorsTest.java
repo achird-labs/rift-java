@@ -86,12 +86,14 @@ class ProxyInjectBehaviorsTest {
     }
 
     @Test
-    void faultKeepsBehaviorsUntyped() {
-        // The engine runs only repeat on a fault response, and the model has never typed it there.
+    void faultTypesItsBehaviorsBlock() {
+        // The engine runs only repeat on a fault response, but keeps the whole block (#229); the
+        // model types it the same way, so a wait there round-trips instead of hiding in extra.
         Response.Fault fault = assertInstanceOf(Response.Fault.class, first("""
                 {"fault": "CONNECTION_RESET_BY_PEER", "_behaviors": {"wait": 1}}
                 """));
-        assertTrue(fault.extra().containsKey("_behaviors"));
+        assertEquals(List.of(new Behavior.Wait(new WaitSpec.Fixed(1))), fault.behaviors().entries());
+        assertEquals(Map.of(), fault.extra());
     }
 
     @Test
