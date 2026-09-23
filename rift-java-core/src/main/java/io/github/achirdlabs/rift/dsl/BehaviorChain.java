@@ -30,6 +30,11 @@ import java.util.List;
  * <p>Calling the same chainer twice appends two entries, and both are written — as a {@code
  * behaviors} array, the only wire shape that can carry a repeated key (see {@link Behaviors}).
  *
+ * <p>Chain order is run order on rift &ge; 0.18.0 and on Mountebank: when {@code lookup}, {@code
+ * copy}, {@code shellTransform} and {@code decorate} are chained out of the engine's fixed object
+ * order, the SDK writes the {@code behaviors} array, which runs in the order written. rift 0.17.0
+ * runs its own fixed order whatever the form.
+ *
  * @param <S> the spec kind each chainer returns
  */
 public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>

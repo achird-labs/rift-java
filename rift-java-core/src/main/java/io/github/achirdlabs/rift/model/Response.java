@@ -197,8 +197,9 @@ public sealed interface Response {
     }
 
     /**
-     * Writes the behaviors block under the key whose shape preserves every entry: {@code behaviors}
-     * (the array form) when a key repeats, else the {@code _behaviors} object every fixture uses.
+     * Writes the behaviors block under the key whose shape preserves every entry and its run order:
+     * {@code behaviors} (the array form) when a key repeats or the transforming behaviors are out of
+     * the engine's fixed object order, else the {@code _behaviors} object every fixture uses.
      *
      * <p>Each {@code repeat} is written back in the spelling it arrived in — a response-level one
      * beside {@code is}, a block one inside the block — so a read followed by a write never moves

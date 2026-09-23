@@ -441,10 +441,15 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // both wait spellings are one injection capability: the engine must run with --allowInjection or it
 // rejects the imposter with 400 (rift#610). Fixed/{min,max} waits are unaffected.
 // Calling one chainer twice appends two entries. The `_behaviors` object cannot hold a repeated
-// key, so the write switches to the `behaviors` array form, one element per entry (#217) — the
-// object form is kept whenever no key repeats, so existing output is byte-unchanged. Carrying a
+// key, so the write switches to the `behaviors` array form, one element per entry (#217). The array
+// form is also written when lookup/copy/shellTransform/decorate are chained out of the engine's
+// fixed object order (wait, lookup, copy, shellTransform, decorate): rift >= 0.18.0 and Mountebank
+// run an array in the order written but an object in that fixed order, so chain order is run order
+// (#230). An object read from the wire is normalised to the order it runs in, so it writes back as
+// the equivalent canonical object. Otherwise the object form is kept, so existing output is
+// byte-unchanged. Carrying a
 // repeated key is not running it: rift 0.17.0 merges that array on parse and applies only the last
-// entry; Mountebank runs both.
+// entry, in its own fixed order; Mountebank runs both.
 // `repeat` has two wire spellings: inside the block, and as a response-level field beside `is`
 // (Mountebank's canonical one, and what its save writes). Both are read as `Behavior.Repeat` and
 // written back in the spelling they arrived in, never moved (#216) — the two are not
