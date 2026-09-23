@@ -282,6 +282,7 @@ final class InterceptImpl implements Intercept {
             if (rift.templated()) {
                 undeliverable.add("_rift.templated (templated)");
             }
+            rift.extra().keySet().forEach(key -> undeliverable.add("_rift." + key));
         });
         IsResponse ir = is.is();
         if (ir.mode() == ResponseMode.BINARY) {

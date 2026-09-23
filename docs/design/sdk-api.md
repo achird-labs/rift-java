@@ -949,6 +949,11 @@ Implementation contract (so the implementer has zero decisions):
   re-emitted (insertion order) on write — mirroring `Behavior.Unknown`. This is required for
   corpus replay of real engine output (issues #7/#14) and future-proofs against engine
   additions.
+- The same `extra` carrier sits on both `_rift` blocks and on `_rift.flowState`
+  (`RiftResponseExtension`, `RiftConfig`, `RiftFlowStateConfig`; #226). rift 0.18.0 added
+  `stateOps`/`dataset` to the response-level block and `sequencing` to the imposter-level one;
+  flowState carries provider-store options. The DSL never fills these maps, so its output is
+  unchanged; a modeled key placed in `extra` is rejected at construction.
 - Lenient reads already handled (statusCode string/number, `behaviors` alias, `allowCors`).
   Add: flat/recorded response form (top-level statusCode/headers/body without `is` wrapper,
   engine issue #304) — read as `Is`, write canonical.
