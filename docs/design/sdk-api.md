@@ -488,6 +488,13 @@ StubSpec willSetScenarioState(String state)
 ```java
 ImposterSpec host(String bindHost)
 ImposterSpec https(String certPem, String keyPem)        // both-or-neither, validated at build
+ImposterSpec requireClientCertificate()                  // mutualAuth: any client certificate (#210)
+ImposterSpec requireClientCertificate(String... caPems)  // mutualAuth + rejectUnauthorized + ca: chain to one of these
+// The two client-auth states rift accepts; every other combination is a 400 there, so the DSL cannot
+// build one (https-only, checked at build; >= 1 PEM holding a certificate, checked at the call).
+// ImposterDefinition models mutualAuth / rejectUnauthorized / ca (CaCertificates keeps the string
+// vs array spelling) without validating, so any engine output parses. Rift.create/replaceAll refuse
+// mutualAuth on an engine older than 0.18.0, which drops it and accepts every client.
 ImposterSpec defaultForward(String upstreamUrl)
 ImposterSpec strictBehaviors()
 ImposterSpec serviceName(String name)

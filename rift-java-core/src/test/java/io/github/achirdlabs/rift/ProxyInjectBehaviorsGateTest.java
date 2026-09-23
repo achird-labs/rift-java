@@ -44,6 +44,9 @@ class ProxyInjectBehaviorsGateTest {
                 () -> rift(VersionCheck.FAIL, "0.17.0").create(PROXY_WITH_BEHAVIORS));
         assertTrue(e.getMessage().contains("0.18.0"), e.getMessage());
         assertTrue(e.getMessage().contains("0.17.0"), "names the running engine: " + e.getMessage());
+        assertTrue(e.getMessage().startsWith("behaviors on a proxy/inject response: needs rift >= 0.18.0"),
+                e.getMessage());
+        assertTrue(e.getMessage().contains("remove the behaviors"), e.getMessage());
         assertTrue(posted.isEmpty(), "nothing reaches the engine");
     }
 
