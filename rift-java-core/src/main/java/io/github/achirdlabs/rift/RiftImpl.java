@@ -37,6 +37,9 @@ final class RiftImpl implements Rift {
     /** The first engine release that runs {@code _rift.stateOps} (older ones drop the block). */
     static final String STATE_OPS_SINCE = "0.18.0";
 
+    /** The first engine release that honours {@code repeat} on a fault or {@code _rift}-only response. */
+    static final String FAULT_SCRIPT_REPEAT_SINCE = "0.18.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;
@@ -225,11 +228,23 @@ final class RiftImpl implements Rift {
                     "client-certificate authentication (mutualAuth / rejectUnauthorized / ca)",
                     "ignores it and would accept every client", "remove requireClientCertificate"));
         }
+        if (hasFaultOrScriptBehaviors(def)) {
+            requirements.add(new EngineRequirement(FAULT_SCRIPT_REPEAT_SINCE, "repeat on a fault/script response",
+                    "accepts it and drops it silently", "remove the repeat"));
+        }
         if (hasStateOps(def)) {
             requirements.add(new EngineRequirement(STATE_OPS_SINCE, "stateOps on an is response",
                     "drops them silently", "replace them with a script"));
         }
         return requirements;
+    }
+
+    private static boolean hasFaultOrScriptBehaviors(ImposterDefinition def) {
+        return def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                // Only repeat acts on these responses, on every engine, so only a repeat is at stake.
+                .anyMatch(r -> (r instanceof Response.Fault f && f.behaviors().effectiveRepeat().isPresent())
+                        || (r instanceof Response.RiftScript s && s.behaviors().effectiveRepeat().isPresent()));
     }
 
     private static boolean hasStateOps(ImposterDefinition def) {

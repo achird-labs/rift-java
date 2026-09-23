@@ -256,11 +256,12 @@ class ResponseLevelRepeatTest {
     }
 
     @Test
-    void faultStillKeepsRepeatInExtra() {
+    void faultTypesResponseLevelRepeat() {
         Response.Fault fault = assertInstanceOf(Response.Fault.class, Stub.fromJson("""
                 {"predicates": [], "responses": [{"fault": "CONNECTION_RESET_BY_PEER", "repeat": 2}]}
                 """).responses().get(0));
-        assertEquals(JsonNumber.of(2), fault.extra().get("repeat"));
+        assertEquals(new Behavior.Repeat(2, true), only(fault.behaviors().entries()));
+        assertFalse(fault.extra().containsKey("repeat"), "typed, so not also carried in extra");
     }
 
     private static Response.Is isOf(String stubJson) {

@@ -400,8 +400,11 @@ public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, Injec
   type carrying status/body/header chain methods.
 - Behavior chainers live on `BehaviorChain<S>` (§7.3), implemented by `IsSpec`, `ProxySpec` and
   `InjectSpec` — the three shapes the engine runs behaviors on (proxy/inject from rift 0.18.0, #215).
-- `fault(Fault)` → `FaultSpec`, `script(Script)` → `ScriptSpec` (terminal: no chain methods exist to
-  call); `inject(js)` → `InjectSpec` (behavior chainers only).
+- `fault(Fault)` → `FaultSpec`, `script(Script)` → `ScriptSpec`: their one chain method is
+  `repeat(int)`, the only behavior the engine runs on them (rift >= 0.18.0, engine-version gated
+  at create/replaceAll; #229). `Response.Fault`/`Response.RiftScript` carry the whole behaviors
+  block typed, so any other key round-trips unchanged. `inject(js)` → `InjectSpec` (behavior
+  chainers only).
 - `willReturn(ResponseSpec...)` accepts them all. `ImposterSpec.defaultResponse(IsSpec)` is
   typed to the engine's actual constraint (defaultResponse is an `is` response, no behaviors).
 - `Fault` becomes a plain 4-value enum mirroring the engine (and WireMock) exactly:

@@ -87,12 +87,13 @@ class ResponseFieldPreservationTest {
                   {"_rift": {"templated": true}, "_behaviors": {"wait": 100}, "someFutureKey": "value"}]}
                 """);
         Response.RiftScript rift = assertInstanceOf(Response.RiftScript.class, stub.responses().get(0));
-        assertTrue(rift.extra().containsKey("_behaviors"));
-        assertEquals("value", ((JsonString) rift.extra().get("someFutureKey")).value());
+        assertEquals(List.of("wait"), rift.behaviors().entries().stream().map(Behavior::key).toList(),
+                "the behaviors block is typed (#229), not carried in extra");
+        assertEquals(List.of("someFutureKey"), List.copyOf(rift.extra().keySet()));
 
         Response.RiftScript reparsed = assertInstanceOf(Response.RiftScript.class,
                 Stub.fromJson(stub.toJson()).responses().get(0));
-        assertTrue(reparsed.extra().containsKey("_behaviors"));
+        assertEquals(rift.behaviors(), reparsed.behaviors());
         assertEquals("value", ((JsonString) reparsed.extra().get("someFutureKey")).value());
     }
 
