@@ -1,9 +1,10 @@
 # rift-java API Design (v1)
 
-Status: **accepted design** — this document pins down the public API so implementation issues
-carry no open design decisions. Canonical location: `docs/design/sdk-api.md`; mirrored as
+Status: **accepted design, amended as the API evolved** — it pinned down the public API so
+implementation issues carried no open design decisions, and is kept in step with the shipped API
+(current as of rift-java 0.3.0). Canonical location: `docs/design/sdk-api.md`; mirrored as
 issue #19. Sources: the rift engine (`achird-labs/rift`) — this document tracks the pinned
-`<rift.engine.version>`, currently 0.15.0, and states a per-feature version floor wherever one
+`<rift.engine.version>`, currently 0.18.0, and states a per-feature version floor wherever one
 applies rather than pinning the whole document to a single release — C-ABI v2
 (`librift_ffi`, `include/rift_ffi.h`), the rift-conformance corpus + Plane-B SPI, rift-node
 0.12.x (reference SDK), the rift-scala design issues (consumer of this SDK), and a DX benchmark
@@ -43,28 +44,36 @@ of WireMock 3 / MockServer / Hoverfly / Testcontainers / wiremock-spring-boot.
 | `rift-java-embedded` | 22 | FFM bridge for C-ABI v2, `EmbeddedEngineProvider` |
 | `rift-java-embedded-jdk21` | 21 (preview) | same sources, preview FFM |
 | `rift-java-natives` | — | per-platform classifier jars (`native/<os>-<arch>/librift_ffi.<ext>`) |
-| `rift-java-junit5` | 17 | `@RiftTest`, `RiftExtension`, parameter injection |
+| `rift-java-junit5` | 17 | `@RiftTest`, `RiftTestExtension`, parameter injection, `@RiftGolden` |
 | `rift-java-jackson` | 17 | `RiftBodyCodec` implementation over `jackson-databind` |
 | `rift-java-spring` | 17 | **new** — Spring Boot test integration (`@EnableRift`, `@ConfigureImposter`, `@InjectImposter`) |
+| `rift-java-testcontainers` | 17 | `RiftContainer` — a Dockerized engine with a connected client and intercept attach |
 | `rift-java-bom` | — | **new** — BOM aligning all modules + natives classifiers |
 
-Backlog modules (issues filed, not v1-blocking): `rift-java-testcontainers`
-(`RiftContainer`), record/playback golden-file sugar.
+Record/playback (`Imposter.startRecording`, `@RiftGolden`) and `RiftContainer`, once backlog,
+have shipped.
 
 ## 3. Package map (final)
 
 ```
-io.github.achirdlabs.rift            Rift, Imposter, Space, FlowState, Scenarios, StubRef,
-                                        RecordedRequest, EngineInfo, VerificationTimes,
+io.github.achirdlabs.rift            Rift, RiftAsync, Imposter, Space, FlowState, Scenarios, StubRef,
+                                        RecordedRequest, RecordedPage, MatchClause, ApplyResult,
+                                        EngineInfo, VersionCheck, UpstreamTrust,
                                         ConnectOptions, SpawnOptions, EmbeddedOptions,
-                                        Intercept, InterceptOptions, InterceptTrust
-io.github.achirdlabs.rift.error      RiftException (sealed) + 5 leaves, WireFormatException
-io.github.achirdlabs.rift.verify     VerificationException, RequestMatch, PredicateEvaluator
-io.github.achirdlabs.rift.model      wire records (ImposterDefinition, Stub, Predicate, …)
+                                        Recording, RecordSpec, RecordMode,
+                                        EventStream, EventStreamOptions, RiftEvent,
+                                        Intercept, InterceptOptions, InterceptTrust,
+                                        InterceptRule, InterceptRuleBuilder, TruststoreFormat
+io.github.achirdlabs.rift.error      RiftException (sealed) + 5 leaves
+io.github.achirdlabs.rift.verify     VerificationException, VerificationTimes, RequestMatch,
+                                        PredicateEvaluator
+io.github.achirdlabs.rift.model      wire records (ImposterDefinition, Stub, Predicate, …),
+                                        WireFormatException
 io.github.achirdlabs.rift.json       JsonValue + codec (unchanged)
 io.github.achirdlabs.rift.dsl        RiftDsl + spec builders (unchanged home)
 io.github.achirdlabs.rift.codec      RiftBodyCodec SPI
-io.github.achirdlabs.rift.transport  internal SPI (RiftTransport, EmbeddedEngineProvider)
+io.github.achirdlabs.rift.transport  internal SPI (RiftTransport, EmbeddedEngineProvider,
+                                        EmbeddedEngine, StubAddress), HostAuthority
 ```
 
 ### 3.1 Naming decision: handle vs. definition
@@ -82,7 +91,7 @@ returns the record, closing the loop.
 ```java
 package io.github.achirdlabs.rift.error;
 
-public sealed class RiftException extends RuntimeException
+public abstract sealed class RiftException extends RuntimeException
     permits InvalidDefinition, EngineUnavailable, CommunicationError,
             ImposterNotFound, EngineError { … }
 
@@ -136,7 +145,7 @@ public interface Rift extends AutoCloseable {
   Intercept intercept(InterceptOptions options);
 
   // -- async facade (secondary surface) --
-  RiftAsync async();                         // CompletableFuture mirrors of create/deleteAll/imposters
+  RiftAsync async();                         // createAsync(ImposterSpec), deleteAllAsync(), impostersAsync()
 
   @Override void close();                    // idempotent; never throws checked
 }
@@ -151,27 +160,46 @@ virtual threads (documented: embedded downcalls block a carrier only for the cal
 public final class ConnectOptions {
   static Builder builder(URI adminUri);
   // adminUri (required), apiKey (→ Authorization), requestTimeout (default 30s),
-  // versionCheck: FAIL | WARN | OFF (default FAIL, engine >= minEngineVersion via GET /config),
+  // versionCheck: FAIL | WARN | OFF — default from -Drift.versionCheck, then RIFT_VERSION_CHECK,
+  //   then FAIL; checks the engine's version via GET /config against the SDK's floor
+  //   (RiftImpl.MIN_ENGINE_VERSION, 0.13.1) and against per-feature floors at create/replaceAll.
   // hostResolver: IntFunction<URI>  — maps an imposter port to the base URI the SUT should use.
   //   Default: adminUri.host + imposter port. Needed for Docker/remapped-port setups
-  //   (the conformance "hostFor seam").
+  //   (the conformance "hostFor seam"). No upstreamTrust here: a connected engine's outbound
+  //   trust is set where that engine was started.
 }
 
 public final class SpawnOptions {
   // binaryPath (Path), version (String, default = SDK's pinned engine version),
-  // host (default 127.0.0.1), adminPort (0 = ephemeral), allowInjection (default true),
+  // host (default 127.0.0.1; an IP literal, IPv6 bare ::1 or bracketed [::1] — a bare one needs
+  //   rift >= 0.18.0; localOnly(true) makes the engine bind loopback whatever this says),
+  // adminPort (0 = ephemeral), allowInjection (default true),
   // localOnly (default true), logLevel, env (Map), workingDir, mirrorUrl,
-  // startupTimeout (default 15s), shutdownTimeout (default 5s), inheritLog (bool)
+  // startupTimeout (default 15s), shutdownTimeout (default 5s), inheritLog (bool),
+  // upstreamTrust (UpstreamTrust, rift >= 0.18.0 — CaFile or SkipVerify; CaPem and a declared
+  //   version below 0.18.0 are refused at build())
   // Binary resolution order: binaryPath → $RIFT_BINARY_PATH → PATH (rift) →
   //   version cache (~/.cache/rift-java/binaries/rift-<ver>/) → download via release
   //   ffi-manifest.json (SHA-256 verified; RIFT_OFFLINE/RIFT_SKIP_BINARY_DOWNLOAD → fail).
 }
 
 public final class EmbeddedOptions {
-  // libraryPath (Path — overrides resolution), minEngineVersion, versionCheck FAIL|WARN|OFF,
-  // serveAdminEagerly (bool, default false), adminHost/adminPort/apiKey (for rift_serve_admin)
+  // libraryPath (Path — overrides resolution), versionCheck FAIL|WARN|OFF,
+  // serveAdminEagerly (bool, default false), adminHost/adminPort/apiKey (for rift_serve_admin;
+  //   adminHost is an IP literal, IPv6 bare or bracketed, and is also the host imposters
+  //   report in uri()), upstreamTrust (UpstreamTrust, rift >= 0.18.0 — needs the engine to
+  //   advertise the option in EngineInfo.serveOptions, else EngineUnavailable; serves the
+  //   admin API eagerly)
+}
+
+public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)
+  record CaFile(Path path) …; record CaPem(String pem) …; record SkipVerify() …;
 }
 ```
+
+Every `http://host:port` URI the SDK builds goes through `transport.HostAuthority`
+(`bracketed(host)`, `httpUri(host, port)`), which brackets a bare IPv6 literal as the engine's own
+URLs do (#232).
 
 ### 5.2 `Rift.embedded()` lives in core, implementation in `rift-java-embedded`
 
@@ -181,7 +209,8 @@ Core defines:
 package io.github.achirdlabs.rift.transport;
 public interface EmbeddedEngineProvider {
   boolean isAvailable();                       // native lib resolvable for this OS/arch
-  Rift start(EmbeddedOptions options);
+  EmbeddedEngine start(EmbeddedOptions options); // record EmbeddedEngine(RiftTransport transport,
+                                                 //                      Runnable onClose)
 }
 ```
 
@@ -197,18 +226,23 @@ package io.github.achirdlabs.rift.transport;
 public interface RiftTransport extends AutoCloseable {
   JsonValue createImposter(JsonValue definition);          // returns created definition (with port)
   JsonValue getImposter(int port);                         // ImposterNotFound on 404
+  JsonValue getImposter(int port, boolean replayable, boolean removeProxies);
   void deleteImposter(int port);
   void deleteAll();
   JsonValue listImposters(boolean replayable, boolean removeProxies);
   void replaceAllImposters(JsonValue impostersDoc);
   JsonValue applyConfig(JsonValue config);
   void addStub(int port, JsonValue stub);
+  default void addStub(int port, JsonValue stub, int index);
   void replaceStubs(int port, JsonValue stubs);
   void replaceStub(int port, StubAddress address, JsonValue stub);   // index- or id-addressed
   void deleteStub(int port, StubAddress address);
   JsonValue getStub(int port, StubAddress address);        // default: UnsupportedOperationException
   JsonValue recorded(int port);                            // savedRequests
+  default RecordedSlice recordedSince(int port, OptionalLong since, List<MatchClause> match);
   void clearRecorded(int port);
+  default void clearRecorded(int port, List<MatchClause> match);
+  void clearProxyResponses(int port);
   void enable(int port);  void disable(int port);
   // scenarios
   JsonValue scenarios(int port, Optional<String> flowId);
@@ -228,7 +262,8 @@ public interface RiftTransport extends AutoCloseable {
   void interceptAddRules(JsonValue rules);
   JsonValue interceptListRules(); void interceptClearRules();
   String interceptCaPem();
-  void interceptExportTruststore(String format, String password, Path out);
+  // events
+  default EventStream events(EventStreamOptions options);
   // engine
   JsonValue buildInfo(); URI adminUri();
   JsonValue verify(int port, JsonValue body);              // default: UnsupportedOperationException
@@ -236,7 +271,8 @@ public interface RiftTransport extends AutoCloseable {
 }
 ```
 
-`getStub`, `verify`, and `stubWarnings` are `default` methods (throwing `UnsupportedOperationException`
+`getStub`, `verify`, `stubWarnings`, the indexed `addStub`, `recordedSince`, the filtered
+`clearRecorded` and `events` are `default` methods (throwing `UnsupportedOperationException`
 unless overridden) so existing `RiftTransport` implementations and test fakes keep compiling.
 
 Implementations: `RemoteTransport` (`java.net.http`, admin HTTP), `EmbeddedTransport`
@@ -268,7 +304,9 @@ for graceful degradation) is encapsulated once in the bridge (issue #8).
 ```java
 public interface Imposter {
   int port();
-  URI uri();                                  // via ConnectOptions.hostResolver seam
+  URI uri();                                  // spawn/embedded: the imposter's own bind host when concrete
+                                              // (#243); otherwise, and always for connect/testcontainers,
+                                              // ConnectOptions.hostResolver. IPv6 bracketed (HostAuthority).
   Optional<String> name();
   ImposterDefinition definition();            // live GET (includes recorded state if requested)
 
@@ -281,10 +319,8 @@ public interface Imposter {
   StubRef addStubFirst(JsonValue stub);       // escape hatch
   void replaceStubs(List<StubSpec> specs);
   void replaceStubs(JsonValue stubs);         // escape hatch; JsonArray (List<JsonValue> would erase to the line above)
-  void replaceStubs(ScenarioSpec scenario);   // convenience: scenario → stub list
   StubRef stub(String id);                    // id-addressed handle; ImposterNotFound-style miss → EngineError
   List<Stub> stubs();
-  List<StubWarning> stubWarnings();           // rift_stub_warnings / overlap lint
 
   // -- recorded requests + verification (§8) --
   List<RecordedRequest> recorded();
@@ -302,6 +338,10 @@ public interface Imposter {
   VerificationResult verifyResult(RequestMatch match, VerificationTimes times, VerifyDetail... details);
   void verifyNoInteractions();
 
+  // -- record / playback --
+  Recording startRecording(String originUrl);                 // proxy the origin, capture stubs
+  Recording startRecording(String originUrl, RecordSpec spec); // RecordMode, predicate generators, …
+
   // -- scenarios (FSM) --
   Scenarios scenarios();
 
@@ -312,6 +352,12 @@ public interface Imposter {
   // -- lifecycle --
   void enable(); void disable();
   void delete();                              // DELETE /imposters/:port; handle unusable after
+}
+
+public interface Recording extends AutoCloseable {
+  List<Stub> stop();                          // stop proxying, return the captured stubs
+  List<Stub> snapshot();                      // captured so far, still recording
+  void persist(Path path);                    // replayable JSON (Rift.create(String) reads it back)
 }
 
 public interface StubRef {
@@ -338,6 +384,8 @@ public interface Space {
   List<Stub> stubs();
   List<RecordedRequest> recorded();
   List<RecordedRequest> recorded(RequestMatch match);
+  RecordedPage recordedPage(MatchClause... filters);       // flow-scoped cursor reads (§8.1)
+  RecordedPage recordedSince(long cursor, MatchClause... filters);
   void verify(RequestMatch match);            // same semantics as Imposter.verify, space-scoped
   VerificationResult verifyResult(RequestMatch match, VerifyDetail... details);                       // space-scoped (flowId)
   VerificationResult verifyResult(RequestMatch match, VerificationTimes times, VerifyDetail... details);
@@ -346,7 +394,7 @@ public interface Space {
 }
 
 public interface FlowState {
-  Optional<JsonValue> get(String key);
+  Optional<JsonValue> get(String key);        // the stored value itself, on every transport (#236)
   void put(String key, JsonValue value);
   void put(String key, String value);
   void delete(String key);
@@ -358,8 +406,9 @@ caching, every call hits the engine (test code wants truth, not staleness).
 
 **Flow-state / spaces configuration (uniform across transports).** The engine backs the flow-state
 and per-space APIs with a real store only when the def declares one — an explicit `_rift.flowState`,
-a scenario stub (`scenarioName`/`requiredScenarioState`/`newScenarioState`), or a `_rift.script`
-stub; otherwise it uses a silent no-op store (reads return empty). Separately, a per-space stub only
+a scenario stub (`scenarioName`/`requiredScenarioState`/`newScenarioState`), a `_rift.script`
+stub, or an `is` response with `_rift.stateOps` (§7.3; the engine checks this when the imposter is
+created); otherwise it uses a silent no-op store (reads return empty). Separately, a per-space stub only
 matches when a header-form `flowIdSource` is configured (`flowIdFromHeader(...)`), because the
 engine's flow-id source defaults to the imposter port. The SDK does **not** auto-inject a flow store
 (a transport is a faithful wire mapping — it never rewrites user input); instead it fails fast and
@@ -405,7 +454,7 @@ public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, Injec
   at create/replaceAll; #229). `Response.Fault`/`Response.RiftScript` carry the whole behaviors
   block typed, so any other key round-trips unchanged. `inject(js)` → `InjectSpec` (behavior
   chainers only).
-- `willReturn(ResponseSpec...)` accepts them all. `ImposterSpec.defaultResponse(IsSpec)` is
+- `willReturn(ResponseSpec)` accepts them all; call it again per response for response cycling. `ImposterSpec.defaultResponse(IsSpec)` is
   typed to the engine's actual constraint (defaultResponse is an `is` response, no behaviors).
 - `Fault` becomes a plain 4-value enum mirroring the engine (and WireMock) exactly:
   `CONNECTION_RESET_BY_PEER, EMPTY_RESPONSE, RANDOM_DATA_THEN_CLOSE, MALFORMED_RESPONSE_CHUNK`.
@@ -431,7 +480,9 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
     S copyObject(CopySpec copy)                          // _behaviors.copy (single-object wire form)
     S lookup(LookupSpec... lookups)                      // _behaviors.lookup (array wire form)
     S lookupObject(LookupSpec lookup)                    // _behaviors.lookup (single-object wire form)
-    S shellTransform(String... commands)                 // _behaviors.shellTransform
+    S shellTransform(String... commands)                 // one typed step per command: one is
+                                                         // "shellTransform": "cmd", several go out as
+                                                         // one behaviors-array element each (#234)
     S waitInject(String script)                          // _behaviors.wait as {"inject": ...}; a rift superset, not portable to Mountebank (rift#608)
     S waitScript(String source)                          // _behaviors.wait as a bare function string (the Mountebank-compatible spelling)
 }
@@ -439,8 +490,9 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // and Response.Proxy/Response.Inject carry typed Behaviors. rift < 0.18.0 accepts the block there
 // and drops it silently, so Rift.create(ImposterDefinition) and replaceAll refuse such a definition
 // with InvalidDefinition when the engine reports 0.13.1 <= version < 0.18.0 (VersionCheck.OFF skips
-// the check; a below-floor placeholder version is not treated as old; the raw-JSON create overloads
-// are not inspected).
+// the check; a below-floor placeholder version is not treated as old, nor, in WARN mode, an
+// unreadable one; the raw-JSON create overloads, addStub, replaceStubs, StubRef.replace and
+// applyConfig are not inspected). Every per-feature floor below works the same way.
 // both wait spellings are one injection capability: the engine must run with --allowInjection or it
 // rejects the imposter with 400 (rift#610). Fixed/{min,max} waits are unaffected.
 // Calling one chainer twice appends two entries. The `_behaviors` object cannot hold a repeated
@@ -448,7 +500,7 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // form is also written when lookup/copy/shellTransform/decorate are chained out of the engine's
 // fixed object order (wait, lookup, copy, shellTransform, decorate): rift >= 0.18.0 and Mountebank
 // run an array in the order written but an object in that fixed order, so chain order is run order
-// (#230). An object read from the wire is normalised to the order it runs in, so it writes back as
+// (#230). wait, repeat and unknown keys do not count towards order. An object read from the wire is normalised to the order it runs in, so it writes back as
 // the equivalent canonical object. Otherwise the object form is kept, so existing output is
 // byte-unchanged. Carrying a
 // repeated key is not running it: rift 0.17.0 merges that array on parse and applies only the last
@@ -471,7 +523,8 @@ IsSpec clearFlowState()                                  // {"op":"clearFlow"}
 IsSpec withLatencyFault(double probability, Duration min, Duration max)
 IsSpec withLatencyFault(double probability, Duration fixed)
 IsSpec withErrorFault(double probability, int status)
-IsSpec withErrorFault(double probability, int status, JsonValue body)
+IsSpec withErrorFault(double probability, int status, String body)
+IsSpec withErrorFault(double probability, int status, String body, Map<String, String> headers)
 IsSpec withTcpFault(Fault kind)                          // always fires (bare wire form)
 IsSpec withTcpFault(double probability, Fault kind)      // probabilistic object form; requires rift >= 0.13.2 (rift#531)
 
@@ -509,7 +562,8 @@ ImposterSpec requireClientCertificate(String... caPems)  // mutualAuth + rejectU
 // build one (https-only, checked at build; >= 1 PEM holding a certificate, checked at the call).
 // ImposterDefinition models mutualAuth / rejectUnauthorized / ca (CaCertificates keeps the string
 // vs array spelling) without validating, so any engine output parses. Rift.create/replaceAll refuse
-// mutualAuth on an engine older than 0.18.0, which drops it and accepts every client.
+// any of mutualAuth / rejectUnauthorized / ca on an engine older than 0.18.0, which drops them and
+// accepts every client (same OFF / placeholder / WARN-unreadable exceptions as above).
 ImposterSpec defaultForward(String upstreamUrl)
 ImposterSpec strictBehaviors()
 ImposterSpec serviceName(String name)
@@ -520,6 +574,7 @@ ImposterSpec metrics(int port)                           // _rift.metrics — @D
 ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout)   // _rift.scriptEngine (defaultEngine honoured by engine >= 0.18.0)
 ImposterSpec script(String name, Script script)          // _rift.scripts named registry
 ImposterSpec proxyPool(int maxIdlePerHost, Duration idleTimeout)   // _rift.proxy.connectionPool — @Deprecated(since 0.2.4): engine ignores it
+ImposterSpec recordMatches()                             // recordMatches — @Deprecated(since 0.2.4): engine ignores it; use record()
 
 // factories:
 static FlowStateSpec inMemoryFlowState()                 // .ttl(Duration).flowIdFromHeader(name)
@@ -589,27 +644,27 @@ public final class VerificationTimes {                    // factories re-export
 }
 ```
 
-Matching runs **client-side** over `recorded()` via a `PredicateEvaluator` in core that
-implements Mountebank predicate semantics against `RecordedRequest` (all field ops +
-`and/or/not` + `caseSensitive/keyCaseSensitive/except` + `jsonpath` (subset evaluator over our
-own `JsonValue`) + `xpath` via the JDK's `javax.xml.xpath` — still zero external deps).
-`inject` predicates are not evaluable client-side → `verify` throws `InvalidDefinition` with
-that exact explanation.
+`verify` is evaluated by the engine (above). Core's `PredicateEvaluator` implements Mountebank
+predicate semantics against `RecordedRequest` (all field ops + `and/or/not` +
+`caseSensitive/keyCaseSensitive/except` + `jsonpath` + `xpath` via the JDK — zero external deps),
+but it backs only the client-side `recorded(match)` filter.
 
-On failure, `VerificationException extends AssertionError` renders the WireMock-grade report:
+On failure, `VerificationException extends AssertionError` renders the engine's verdict, with its
+closest non-matching request when it reports one:
 
 ```
 Verification failed for imposter :4545 ("users")
 Expected: GET /api/users/1  —  exactly 1 time, but was 0.
 
-3 recorded requests, closest match first:
-  ✗ GET /api/users/2         path: expected "/api/users/1" (equals), got "/api/users/2"
-  ✗ POST /api/users/1        method: expected "GET" (equals), got "POST"
-  ✗ GET /health              path: expected "/api/users/1" (equals), got "/health"
+3 recorded requests.
+Closest miss:
+  ✗ GET /api/users/2 → 404 in 3 ms
+      failed {"equals":{"path":"/api/users/1"}}  —  actual {"path":"/api/users/2"}
 ```
 
-Near-miss ranking = number of satisfied clauses, descending; each line names the first failing
-clause. `recordRequests` must be on for verification — `verify` on a non-recording imposter
+Each request line is `RecordedRequest.summary()`; the outcome (`→ 404 in 3 ms`) appears on rift ≥
+0.18.0. `verifyNoInteractions` lists up to 10 of the recorded requests instead ("…, most recent
+first:"). `recordRequests` must be on for verification — `verify` on a non-recording imposter
 throws `InvalidDefinition("imposter :4545 does not record requests — add .record()")`.
 
 ## 8. `RecordedRequest` (typed, lossless)
@@ -627,10 +682,12 @@ public record RecordedRequest(
     JsonValue raw) {                           // lossless escape hatch
   public OptionalInt status();                 // rift >= 0.18.0: status it was answered with (#228)
   public OptionalLong latencyMs();             // rift >= 0.18.0: ms to answer; absent while in flight
-  public String summary();                     // "METHOD path → status in N ms"; verify + dump lines
+  public String summary();                     // "METHOD path → status in N ms", or "METHOD path"
+                                               // without an outcome; empty method "?", path "/"
+  public static RecordedRequest read(JsonValue value);   // lenient: never throws
   public Optional<JsonValue> bodyAsJson();     // empty if not parseable
-  public Optional<String> header(String name);        // case-insensitive, first value
-  public Optional<String> queryParam(String name);
+  public <T> T bodyAs(Class<T> type);          // via the registered RiftBodyCodec (§10)
+  public Optional<String> header(String name); // first value; case-sensitive, matching the wire key
 }
 ```
 
@@ -820,6 +877,7 @@ public interface Intercept extends AutoCloseable {
   InterceptRuleBuilder rule();                       // predicate-scoped + optional-host: rule().host(h).when(match).serve/forward/redirectTo
   List<InterceptRule> rules(); void clearRules();
   InterceptTrust trust();
+  Optional<CaMaterial> caMaterial();                 // generateCa() only: record CaMaterial(certPem, keyPem)
   @Override void close();                            // clears rules; stops listener where supported
 }
 
@@ -840,11 +898,18 @@ public final class InterceptOptions {                // builder
 }
 ```
 
+`serve` projects the `IsSpec` onto the engine's serve action: a numeric status, headers and a text
+body. A repeated header goes out as one line per value, which needs rift ≥ 0.18.0; on an older
+engine it is refused with `InvalidDefinition` unless the version check is off (#231). Anything
+else — behaviors, any `_rift` extension (templating, script, faults, `stateOps`), a binary body —
+is rejected with `InvalidDefinition` rather than silently dropped (#207).
+
 Remote transport maps to `/intercept/*` admin endpoints (rift ≥ 0.13.3 `POST /intercept` starts a
 listener at runtime, #493); embedded maps to `rift_start_intercept` / `rift_intercept_*`.
 `InterceptOptions.attach(host, port)` binds to a listener the engine started at launch
 (`--intercept-port` / `RIFT_INTERCEPT_PORT`) instead of starting one — used by
-`RiftContainer.withInterceptPort(...)` + `interceptOptions()`. Bind host must be an IP literal.
+`RiftContainer.withInterceptPort(...)` + `interceptOptions()`. A started listener's bind host must be
+an IP literal; an attach host may be any reachable host, and an IPv6 one is bracketed in `uri()`.
 Target ergonomics: the rift-java-demo ~30-line hand-rolled flow becomes ~8 lines (issue #12's goal).
 
 ## 10. Body codec SPI (`rift-java-jackson` becomes real)
@@ -876,8 +941,9 @@ class UserApiTest {
       .stub(onGet("/api/users/1").willReturn(okJson("{\"id\":1}")));
 
   @Test
-  void findsUser(Imposter users, Rift rift) {        // parameter injection: by type; multiple
-    // point SUT at users.uri() …                    // imposters disambiguated by parameter name
+  void findsUser(@InjectImposter("users") Imposter users,   // injection is explicit: @InjectImposter,
+                 @InjectRift Rift rift) {                   // @InjectRift, @InjectIntercept (fields too)
+    // point SUT at users.uri() …
     users.verify(onGet("/api/users/1"), times(1));
   }
 }
@@ -887,33 +953,34 @@ class UserApiTest {
 @RiftTest(transport = Transport.EMBEDDED,            // EMBEDDED | SPAWN | CONNECT | AUTO
           reset = Reset.PER_TEST,                    // PER_TEST (default) | PER_CLASS | NONE
           adminUri = "…",                            // CONNECT only; property-resolvable
-          dumpRecordedOnFailure = true)              // default true: failed test → recorded dump
+          dumpRecordedOnFailure = true)              // default false: failed test → recorded dump
 ```
 
-- `Transport.AUTO` (default): embedded if `Rift.isEmbeddedAvailable()` → spawn if binary
-  resolvable → fail with a message naming both fixes.
+- `Transport.AUTO` (default): embedded if `Rift.isEmbeddedAvailable()`, otherwise spawn; a spawn that
+  cannot start fails with its own `EngineUnavailable`.
 - **Intercept**: `@RiftIntercept` (class) starts a listener for the class; `@RiftInterceptRules`
   (a `static void` method, params `Intercept`/`@InjectRift`/`@InjectImposter`) declares rules, applied
   on start and re-applied after each per-test rules reset; `@InjectIntercept` injects the live handle.
   CA (`caCert`/`caKey`) and `exportTruststore` attributes cover the shared-CA / containerized-SUT flows.
 - One `Rift` engine per test class (static) — per-method engine via instance-field
   `@RegisterExtension`.
-- `Reset.PER_TEST`: between tests, recorded requests + scenario states + flow state cleared,
-  `@RiftImposter` stubs restored to their spec (imposters are NOT recreated — ports stay
-  stable for the class lifetime).
+- `Reset.PER_TEST`: between tests, recorded requests, scenario state and recorded proxy responses
+  are cleared (imposters are NOT recreated — ports stay stable for the class lifetime). Flow state
+  is not cleared, and stubs a test added are not removed.
 - Programmatic tier:
 
 ```java
 @RegisterExtension
-static RiftExtension rift = RiftExtension.newInstance()
-    .transport(Transport.SPAWN).options(SpawnOptions.builder()…)
-    .imposter("users", imposter("users")…)
+static RiftTestExtension rift = RiftTestExtension.newInstance()
+    .transport(Transport.SPAWN).spawnOptions(SpawnOptions.builder()…build())  // or embeddedOptions /
+    .imposter(imposter("users")…)                                            //    connectOptions
     .reset(Reset.PER_TEST)
     .build();
 ```
 
-- On test failure with `dumpRecordedOnFailure`, the extension publishes the recorded-request
-  dump via `TestReporter` and appends it to the failure message.
+- On test failure with `dumpRecordedOnFailure`, the extension publishes each imposter's recorded
+  requests as a JUnit report entry keyed `rift.recorded.<name>`, one `RecordedRequest.summary()` per
+  line. The failure message itself is unchanged.
 
 ## 12. Spring Boot (`rift-java-spring`, new module)
 
@@ -962,16 +1029,18 @@ Implementation contract (so the implementer has zero decisions):
 
 ## 13. Wire-model fidelity additions
 
-- Every aggregate record (`ImposterDefinition`, `Stub`, `IsResponse`, `ProxyResponse`) gains a
+- Every aggregate record (`ImposterDefinition`, `Stub`, `IsResponse`, `ProxyResponse`, and each
+  `Response` variant — `Is`, `Proxy`, `Inject`, `Fault`, `RiftScript`) gains a
   trailing `Map<String, JsonValue> extra` component: unknown keys are preserved on read and
   re-emitted (insertion order) on write — mirroring `Behavior.Unknown`. This is required for
   corpus replay of real engine output (issues #7/#14) and future-proofs against engine
   additions.
 - The same `extra` carrier sits on both `_rift` blocks and on `_rift.flowState`
   (`RiftResponseExtension`, `RiftConfig`, `RiftFlowStateConfig`; #226). rift 0.18.0 added
-  `stateOps`/`dataset` to the response-level block and `sequencing` to the imposter-level one;
-  flowState carries provider-store options. The DSL never fills these maps, so its output is
-  unchanged; a modeled key placed in `extra` is rejected at construction.
+  `dataset` to the response-level block (its `stateOps` is modelled — `List<StateOp>`, §7.3, #227)
+  and `sequencing` to the imposter-level one; flowState carries provider-store options. The DSL
+  never fills these maps, so its output is unchanged; a modeled key placed in `extra` is rejected
+  at construction.
 - Lenient reads already handled (statusCode string/number, `behaviors` alias, `allowCors`).
   Add: flat/recorded response form (top-level statusCode/headers/body without `is` wrapper,
   engine issue #304) — read as `Is`, write canonical.
@@ -980,13 +1049,15 @@ Implementation contract (so the implementer has zero decisions):
 
 ## 14. Versioning, BOM, capability negotiation
 
-- `rift-java-bom` pins all modules + the natives classifier jars. Natives version == engine
-  version; SDK minor tracks the engine line (as rift-node does: SDK 0.12.x ↔ engine 0.12.x).
-- `EngineInfo { String version(); String commit(); Set<String> features(); }` — from
-  `GET /config` / `rift_build_info`. `features` powers honest capability negotiation for the
-  conformance harness (Plane-B `require(caps…)`).
-- Version preflight: `versionCheck FAIL|WARN|OFF` against `minEngineVersion` (constant in core,
-  bumped with each SDK release), uniform across the three transports.
+- `rift-java-bom` pins all modules + the natives classifier jars. The natives are versioned with
+  the SDK (0.3.x) and bundle the pinned engine's `librift_ffi` (`rift.engine.version`, 0.18.0).
+- `record EngineInfo(String version, String commit, Set<String> features, Set<String>
+  serveOptions)` — from `GET /config` / `rift_build_info`. `features` powers honest capability
+  negotiation for the conformance harness (Plane-B `require(caps…)`); `serveOptions` gates embedded
+  `upstreamTrust`.
+- Version preflight: `versionCheck FAIL|WARN|OFF` against `RiftImpl.MIN_ENGINE_VERSION` (0.13.1, the
+  C-ABI v2 floor; not bumped per release), uniform across the three transports. Newer features carry
+  their own floors, checked at `create`/`replaceAll` (§7.3).
 
 ## 15. What is deliberately NOT in v1
 
@@ -995,9 +1066,6 @@ Implementation contract (so the implementer has zero decisions):
   The streaming *sugar* stays downstream (rift-scala's `ZStream`/fs2 tails wrap `events()`'s
   iterator); this SDK ships the connection, not the effect system's stream type.
 - OpenAPI → imposter import (differentiator; backlog).
-- Record/playback golden-file sugar (`startRecording(origin)` / auto-capture annotation flow —
-  Hoverfly's best idea; backlog issue filed).
-- Testcontainers module (`RiftContainer`); backlog issue filed.
 - TCP/SMTP protocols — the engine itself is HTTP/HTTPS only.
 
 ## 16. Issue mapping
@@ -1018,5 +1086,5 @@ Implementation contract (so the implementer has zero decisions):
 | Body codec SPI + Jackson | #22 |
 | Spring Boot module | #23 |
 | BOM | #24 |
-| Backlog: record/playback sugar | #25 |
-| Backlog: Testcontainers module | #26 |
+| Record/playback sugar (`startRecording`, `@RiftGolden`) | #25 (shipped) |
+| Testcontainers module | #26 (shipped) |

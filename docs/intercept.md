@@ -10,8 +10,9 @@ Intercept intercept = rift.intercept();               // default options
 Intercept intercept = rift.intercept(InterceptOptions.builder().port(8443).build());
 ```
 
-At most one intercept listener is allowed per engine: a second `rift.intercept()` call on the
-same `Rift` (or a different `Rift` bound to the same engine) throws `IllegalStateException`. A
+At most one intercept listener is allowed per engine. A second `rift.intercept()` call on the
+same `Rift` throws `IllegalStateException` before touching the engine; a different `Rift` handle
+to the same engine is refused by the engine itself (HTTP 409, surfaced as an `EngineError`). A
 call that fails to start (e.g. a bad committed CA — see below) leaves intercept available to
 retry; it does not poison the engine.
 
@@ -30,7 +31,8 @@ Intercept intercept = rift.intercept(InterceptOptions.attach(host, port));
 ```
 
 `attach` binds to that endpoint (probing it, not starting), so `host`/`port` are the reachable
-address — a mapped Docker port, say. With `rift-java-testcontainers` this is one call:
+address — a mapped Docker port, say. An IPv6 host may be given bare (`::1`) or bracketed
+(`[::1]`); `intercept.uri()` brackets it either way. With `rift-java-testcontainers` this is one call:
 
 ```java
 RiftContainer rift = new RiftContainer().withInterceptPort(8888);   // engine launches the listener
@@ -65,8 +67,9 @@ A response using anything beyond that is **rejected** with an `InvalidDefinition
 not registered:
 
 - any behavior — `after`/`waitMs`, `decorate`, `repeat`, `copy`, `lookup`, `shellTransform`;
-- any `_rift` extension — `templated()`, a script, or a fault (`withLatencyFault`,
-  `withErrorFault`, `withTcpFault`);
+- any `_rift` extension — `templated()`, a script, a fault (`withLatencyFault`,
+  `withErrorFault`, `withTcpFault`), or flow-state writes (`setState`, `incrementState`,
+  `deleteState`, `clearFlowState`);
 - a binary body (`withBinaryBody`), which the serve action can only carry as its base64 text.
 
 ```java

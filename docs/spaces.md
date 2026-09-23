@@ -39,6 +39,10 @@ acme.verify(onGet("/orders"), times(1));                             // only acm
 acme.delete();                                                       // drop this flow's state
 ```
 
+Each `RecordedRequest` also carries the outcome the engine recorded for it on rift ≥ 0.18.0 —
+`status()` and `latencyMs()` — and `summary()` renders it as `GET /orders → 200 in 3 ms`. Both are
+empty for a request still in flight when the journal was read, and on older engines.
+
 Everything on a `Space` — stubs, recorded requests, verification — is confined to that flow. A stub
 added to the default view still serves every flow; a stub added to a space serves only its own.
 
@@ -74,6 +78,36 @@ state.put("cartId", "c-123");
 Optional<JsonValue> cartId = state.get("cartId");
 state.delete("cartId");
 ```
+
+`get` returns the stored JSON value itself, the same on every transport.
+
+### Writing flow state from a response
+
+A stub can update flow state itself, without a script, by declaring writes on its `is` response
+(`_rift.stateOps`, rift ≥ 0.18.0):
+
+```java
+Imposter cart = rift.create(imposter("cart")
+        .stub(onGet("/cart/add").willReturn(ok()
+                .templated()
+                .withTextBody("items before this one: {{ state.items }}")
+                .incrementState("items")                             // add 1 (or incrementState(key, by))
+                .setState("lastSku", "{{ request.query.sku }}")))    // value rendered as a template
+        .stub(onPost("/cart/clear").willReturn(ok().clearFlowState()))); // or deleteState(key)
+```
+
+- The writes run **after** the response is built — after templating and behaviors — in the order
+  they are chained. So a templated body reading `{{ state.items }}` sees the value from *before*
+  this response's writes.
+- They apply to the request's flow: the header named by `flowIdFromHeader`, or, without one, a
+  single flow shared by every caller and keyed by the imposter's port.
+- An imposter **created** with such a stub and no `flowState(...)` gets an in-memory store. The
+  engine decides this when the imposter is created, so to add stubs with writes later, declare
+  `flowState(inMemoryFlowState())` up front.
+- They run on `is` responses only, and not when a `_rift` fault fires. An intercept `serve` rule
+  rejects them.
+- `create` and `replaceAll` refuse them on an engine older than 0.18.0, which would drop them
+  silently.
 
 ## Cursor reads over the journal
 
@@ -142,8 +176,8 @@ with the entries you asked to exclude; widening a filter is never the fallback.
 ## Flow ids are never blank
 
 Every flow-scoped call rejects a blank flow id with `IllegalArgumentException` — `space("")`,
-`flowState("  ")`, `scenarios().setState(name, state, "")`, `scenarios().list("")`, and
-`MatchClause.flowId("")` alike.
+`flowState("  ")`, `scenarios().setState(name, state, "")`, `scenarios().list("")`,
+`MatchClause.flowId("")` and `.inSpace("")` alike.
 
 A blank id is not "the default flow". It is a distinct, silently-wrong partition: stubs written there
 never match real traffic, reads come back mysteriously empty, and on the flow-state delete path it

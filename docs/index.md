@@ -28,6 +28,9 @@ try (Rift rift = Rift.embedded()) {
 - **[JUnit 5](junit5.md)** — `@RiftTest`, imposter and intercept injection, reset semantics.
 - **[Testcontainers](testcontainers.md)** — `RiftContainer` for a Dockerized engine.
 - **[Record & replay](recording.md)** — capture live traffic into replayable stubs.
+- **[Spaces & flow state](spaces.md)** — per-flow stub overlays, flow-scoped reads, and flow state,
+  including declarative writes from a response.
+- **[Event stream](events.md)** — follow requests and imposter changes as they happen.
 
 ## Reference
 
