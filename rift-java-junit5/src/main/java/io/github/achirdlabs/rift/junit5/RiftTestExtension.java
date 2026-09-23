@@ -251,7 +251,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
     }
 
     /**
-     * Formats a compact per-imposter dump, one {@code METHOD path} per line, capped at {@value
+     * Formats a compact per-imposter dump, one {@link RecordedRequest#summary()} per line, capped at {@value
      * #MAX_DUMP} with a trailing count of the requests omitted. Package-private for direct testing.
      */
     static String formatRecordedDump(List<RecordedRequest> recorded) {
@@ -265,7 +265,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
         sb.append(':');
         for (int i = 0; i < shown; i++) {
             RecordedRequest request = recorded.get(i);
-            sb.append('\n').append(request.method()).append(' ').append(request.path());
+            sb.append('\n').append(request.summary());
         }
         if (total > shown) {
             sb.append("\n… ").append(total - shown).append(" more");

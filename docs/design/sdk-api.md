@@ -617,6 +617,9 @@ public record RecordedRequest(
     Optional<String> flowId,
     Map<String, String> pathParams,            // when routePattern matched
     JsonValue raw) {                           // lossless escape hatch
+  public OptionalInt status();                 // rift >= 0.18.0: status it was answered with (#228)
+  public OptionalLong latencyMs();             // rift >= 0.18.0: ms to answer; absent while in flight
+  public String summary();                     // "METHOD path → status in N ms"; verify + dump lines
   public Optional<JsonValue> bodyAsJson();     // empty if not parseable
   public Optional<String> header(String name);        // case-insensitive, first value
   public Optional<String> queryParam(String name);

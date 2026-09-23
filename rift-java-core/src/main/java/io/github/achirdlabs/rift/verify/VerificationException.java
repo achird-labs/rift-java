@@ -95,9 +95,7 @@ public final class VerificationException extends AssertionError {
     }
 
     private static String requestLine(RecordedRequest request) {
-        String method = request.method().isEmpty() ? "?" : request.method();
-        String path = request.path().isEmpty() ? "/" : request.path();
-        return method + " " + path;
+        return request.summary();
     }
 
     private static String buildMessage(

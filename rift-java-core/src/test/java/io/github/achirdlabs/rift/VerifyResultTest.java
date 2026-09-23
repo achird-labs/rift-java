@@ -231,6 +231,21 @@ class VerifyResultTest {
                 "the message renders the engine's closest miss: " + e.getMessage());
     }
 
+    @Test
+    void closestMissLineShowsTheOutcomeTheEngineRecorded() {
+        String envelope = "{\"matched\":1,\"total\":3,"
+                + "\"closest\":{\"request\":{\"method\":\"GET\",\"path\":\"/api/users/2\",\"status\":404,\"latencyMs\":7},"
+                + "\"failedPredicates\":[]}}";
+        VerificationException e = assertThrows(VerificationException.class,
+                () -> imposter(new FakeTransport(RECORDING_DEF, envelope)).verify(onGet("/api/users/1"), VerificationTimes.times(2)));
+        assertTrue(e.getMessage().contains("✗ GET /api/users/2 → 404 in 7 ms"), e.getMessage());
+
+        // FULL_ENVELOPE's closest request carries no outcome (an older engine): the line is unchanged.
+        VerificationException old = assertThrows(VerificationException.class,
+                () -> imposter(new FakeTransport(RECORDING_DEF, FULL_ENVELOPE)).verify(onGet("/api/users/1"), VerificationTimes.times(2)));
+        assertTrue(old.getMessage().contains("✗ GET /api/users/2\n"), old.getMessage());
+    }
+
     // --- AC11: the recordRequests guard ---
 
     @Test
