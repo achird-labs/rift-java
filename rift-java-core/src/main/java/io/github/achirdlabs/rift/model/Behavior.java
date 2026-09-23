@@ -57,6 +57,20 @@ public sealed interface Behavior {
 
     record Unknown(String key, JsonValue raw) implements Behavior {}
 
+    /**
+     * Reads one key of a behaviors block into the steps the engine runs for it. A {@code
+     * shellTransform} holding an array of commands is one step per command, as the engine runs and
+     * echoes it; every other key is exactly one step.
+     */
+    static List<Behavior> readAll(String key, JsonValue value) {
+        if (key.equals("shellTransform") && value instanceof JsonArray commands) {
+            return commands.items().stream()
+                    .<Behavior>map(c -> new ShellTransform(JsonSupport.requireString(c, "'shellTransform[]'")))
+                    .toList();
+        }
+        return List.of(read(key, value));
+    }
+
     static Behavior read(String key, JsonValue value) {
         return switch (key) {
             case "wait" -> new Wait(WaitSpec.read(value));

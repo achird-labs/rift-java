@@ -2,6 +2,7 @@ package io.github.achirdlabs.rift.dsl;
 
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonValue;
+import io.github.achirdlabs.rift.model.Behavior;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Response;
 import io.github.achirdlabs.rift.model.ResponseMode;
@@ -9,6 +10,7 @@ import io.github.achirdlabs.rift.model.Stub;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.List;
 
 import static io.github.achirdlabs.rift.dsl.RiftDsl.copyFrom;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.equalTo;
@@ -114,12 +116,10 @@ class DslV2WireTest {
     }
 
     @Test
-    void shellTransformEmitsCommandArray() {
+    void shellTransformEmitsOneStepPerCommand() {
         Stub stub = onGet("/x").willReturn(ok().shellTransform("./a.sh", "./b.sh")).build();
-        JsonObject behaviors = behaviorsOf(stub);
-        io.github.achirdlabs.rift.json.JsonArray cmds =
-                (io.github.achirdlabs.rift.json.JsonArray) behaviors.get("shellTransform");
-        assertEquals(2, cmds.items().size());
+        assertEquals(List.of(new Behavior.ShellTransform("./a.sh"), new Behavior.ShellTransform("./b.sh")),
+                ((Response.Is) stub.responses().get(0)).behaviors().entries());
     }
 
     // ---- StubSpec: new fields ----

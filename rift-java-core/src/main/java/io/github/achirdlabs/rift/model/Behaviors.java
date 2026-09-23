@@ -5,6 +5,8 @@ import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonValue;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -66,7 +68,7 @@ public record Behaviors(List<Behavior> entries) {
      */
     static Behaviors read(JsonObject obj) {
         List<Behavior> entries = new ArrayList<>(obj.fields().entrySet().stream()
-                .map(e -> Behavior.read(e.getKey(), e.getValue()))
+                .flatMap(e -> Behavior.readAll(e.getKey(), e.getValue()).stream())
                 .toList());
         List<Integer> slots = new ArrayList<>();
         List<Behavior> transforming = new ArrayList<>();
@@ -76,25 +78,41 @@ public record Behaviors(List<Behavior> entries) {
                 transforming.add(entries.get(i));
             }
         }
-        transforming.sort(java.util.Comparator.comparingInt(b -> CANONICAL_ORDER.indexOf(b.key())));
+        transforming.sort(Comparator.comparingInt(b -> CANONICAL_ORDER.indexOf(b.key())));
         for (int i = 0; i < slots.size(); i++) {
             entries.set(slots.get(i), transforming.get(i));
         }
         return new Behaviors(entries);
     }
 
-    /** Reads the array-of-single-key-objects form: {@code [{"wait":100},{"decorate":"..."}]}. */
+    /**
+     * Reads the array form: {@code [{"wait":100},{"decorate":"..."}]}. Elements run in array order.
+     * The SDK writes one key per element, but the engine also accepts an element holding several
+     * keys and runs them in its fixed object order ({@code wait, lookup, copy, shellTransform,
+     * decorate}, then any other key alphabetically), so such an element is expanded in that order.
+     */
     static Behaviors readArray(JsonArray arr) {
         List<Behavior> entries = new ArrayList<>();
         for (JsonValue el : arr.items()) {
             JsonObject entry = JsonSupport.requireObject(el, "behaviors[]");
-            if (entry.fields().size() != 1) {
-                throw new WireFormatException("behaviors[]: each entry must have exactly one key");
+            if (entry.fields().isEmpty()) {
+                throw new WireFormatException("behaviors[]: an entry must have at least one key");
             }
-            var e = entry.fields().entrySet().iterator().next();
-            entries.add(Behavior.read(e.getKey(), e.getValue()));
+            entry.fields().entrySet().stream()
+                    .sorted(Comparator.comparingInt((Map.Entry<String, JsonValue> e) -> engineRank(e.getKey()))
+                            .thenComparing(Map.Entry::getKey))
+                    .forEach(e -> entries.addAll(Behavior.readAll(e.getKey(), e.getValue())));
         }
         return new Behaviors(entries);
+    }
+
+    /** A key's position in the engine's fixed object order; any other key sorts after, alphabetically. */
+    private static int engineRank(String key) {
+        if (key.equals("wait")) {
+            return 0;
+        }
+        int rank = CANONICAL_ORDER.indexOf(key);
+        return rank >= 0 ? rank + 1 : CANONICAL_ORDER.size() + 1;
     }
 
     /**
