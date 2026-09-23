@@ -12,6 +12,7 @@ import io.github.achirdlabs.rift.model.IsResponse;
 import io.github.achirdlabs.rift.model.Predicate;
 import io.github.achirdlabs.rift.model.Response;
 import io.github.achirdlabs.rift.model.ResponseMode;
+import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
 import java.net.InetSocketAddress;
@@ -77,7 +78,7 @@ final class InterceptImpl implements Intercept {
     InterceptImpl(RiftTransport transport, String host, int port, Consumer<RiftImpl.EngineRequirement> engineGate) {
         this.transport = transport;
         this.engineGate = engineGate;
-        this.uri = URI.create("http://" + host + ":" + port);
+        this.uri = HostAuthority.httpUri(host, port);
         this.address = new InetSocketAddress(host, port);
         this.caMaterial = null;
     }

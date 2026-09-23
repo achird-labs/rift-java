@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift.spawn;
 import io.github.achirdlabs.rift.SpawnOptions;
 import io.github.achirdlabs.rift.UpstreamTrust;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.transport.HostAuthority;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -55,7 +56,7 @@ public final class RiftProcess {
 
     public static RiftProcess launch(Path binary, SpawnOptions opts) {
         int port = choosePort(opts);
-        URI adminUri = URI.create("http://" + opts.host() + ":" + port);
+        URI adminUri = HostAuthority.httpUri(opts.host(), port);
         Path pidFile = createPidFile();
         List<String> command = buildCommand(binary, opts, port, pidFile);
         skipVerifyWarning(opts).ifPresent(warning -> LOG.log(Level.WARNING, warning));

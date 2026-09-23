@@ -13,6 +13,7 @@ import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Response;
+import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RemoteTransport;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
@@ -108,9 +109,9 @@ final class RiftImpl implements Rift {
         // options object) — the hostResolver override below is what actually determines an
         // imposter's uri(), so any placeholder value here is inert.
         ConnectOptions.Builder builder = ConnectOptions
-                .builder(URI.create("http://" + options.adminHost() + ":" + options.adminPort()))
+                .builder(HostAuthority.httpUri(options.adminHost(), options.adminPort()))
                 .versionCheck(options.versionCheck())
-                .hostResolver(port -> URI.create("http://" + options.adminHost() + ":" + port));
+                .hostResolver(port -> HostAuthority.httpUri(options.adminHost(), port));
         options.apiKey().ifPresent(builder::apiKey);
         return new RiftImpl(transport, builder.build(), onClose, version);
     }
