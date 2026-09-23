@@ -32,11 +32,13 @@ public interface Intercept extends AutoCloseable {
      * Adds a rule answering requests to {@code host} directly with {@code response}, without
      * contacting the real host.
      *
-     * <p>The engine's serve action carries only a numeric {@code statusCode}, <em>single-valued</em>
-     * {@code headers} and a text {@code body}. A response using anything else — any behavior
-     * ({@code wait}/{@code decorate}/{@code repeat}/{@code copy}/{@code lookup}/{@code
-     * shellTransform}), any {@code _rift} extension ({@code templated}, {@code script}, or a
-     * latency/error/TCP fault), a binary body, or a repeated header — is rejected here rather than
+     * <p>The engine's serve action carries only a numeric {@code statusCode}, {@code headers} and a
+     * text {@code body}. A repeated header is sent as one header line per value, which needs rift
+     * &ge; 0.18.0; on an older engine it is refused here (unless the version check is off), since
+     * that engine would reject the rule. A
+     * response using anything else — any behavior ({@code wait}/{@code decorate}/{@code repeat}/{@code
+     * copy}/{@code lookup}/{@code shellTransform}), any {@code _rift} extension ({@code templated},
+     * {@code script}, or a latency/error/TCP fault), or a binary body — is rejected here rather than
      * silently dropped. Use {@link #redirectTo} to reach an imposter, which has full stub fidelity.
      *
      * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a

@@ -40,6 +40,9 @@ final class RiftImpl implements Rift {
     /** The first engine release that honours {@code repeat} on a fault or {@code _rift}-only response. */
     static final String FAULT_SCRIPT_REPEAT_SINCE = "0.18.0";
 
+    /** The first engine release whose intercept serve action accepts a repeated header (rift#936). */
+    static final String INTERCEPT_MULTI_VALUE_HEADERS_SINCE = "0.18.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;
@@ -183,7 +186,11 @@ final class RiftImpl implements Rift {
      * SDK supports at all. It is sent with a warning rather than refused.
      */
     private void requireEngineSupport(ImposterDefinition def) {
-        List<EngineRequirement> requirements = requirementsOf(def);
+        requireEngineSupport(requirementsOf(def));
+    }
+
+    /** The check above for requirements gathered anywhere, e.g. by an intercept rule (see {@link InterceptImpl}). */
+    private void requireEngineSupport(List<EngineRequirement> requirements) {
         if (options.versionCheck() == VersionCheck.OFF || requirements.isEmpty()) {
             return;
         }
@@ -192,7 +199,7 @@ final class RiftImpl implements Rift {
                 LOG.log(Level.WARNING, "rift engine reports version " + version + ", below the " + MIN_ENGINE_VERSION
                         + " floor, so it cannot be checked for "
                         + requirements.stream().map(r -> r.feature() + " (rift >= " + r.since() + ")").toList()
-                        + "; sending the definition unchecked.");
+                        + "; sending it unchecked.");
                 return;
             }
             for (EngineRequirement requirement : requirements) {
@@ -212,7 +219,11 @@ final class RiftImpl implements Rift {
      * @param olderEngine what an engine older than {@code since} does with it, as the rest of a sentence
      * @param remedy      how to do without it, as an imperative clause
      */
-    private record EngineRequirement(String since, String feature, String olderEngine, String remedy) {
+    record EngineRequirement(String since, String feature, String olderEngine, String remedy) {
+    }
+
+    private void requireEngineSupportOf(EngineRequirement requirement) {
+        requireEngineSupport(List.of(requirement));
     }
 
     private static List<EngineRequirement> requirementsOf(ImposterDefinition def) {
@@ -374,10 +385,10 @@ final class RiftImpl implements Rift {
                 // No listener to start: probe the already-running one (started at engine launch via
                 // --intercept-port), then bind to the given endpoint.
                 transport.interceptListRules();
-                return new InterceptImpl(transport, options.host(), options.port());
+                return new InterceptImpl(transport, options.host(), options.port(), this::requireEngineSupportOf);
             }
             JsonValue response = transport.startIntercept(options.toJson());
-            return new InterceptImpl(transport, response);
+            return new InterceptImpl(transport, response, this::requireEngineSupportOf);
         } catch (RuntimeException e) {
             // The listener didn't actually start — reset so a genuine failure is retryable, while a
             // concurrent/second call was still blocked by the CAS above.

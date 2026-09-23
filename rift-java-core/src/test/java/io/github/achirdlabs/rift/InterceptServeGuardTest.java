@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift;
 import io.github.achirdlabs.rift.dsl.Fault;
 import io.github.achirdlabs.rift.dsl.IsSpec;
 import io.github.achirdlabs.rift.error.InvalidDefinition;
+import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.Behaviors;
@@ -41,8 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Intercept {@code serve} rejects what its wire action cannot deliver (#207).
  *
- * <p>The engine's intercept {@code ServeStub} carries only {@code statusCode}, <em>single-valued</em>
- * {@code headers} and {@code body} — and its deserializer does not use {@code deny_unknown_fields},
+ * <p>The engine's intercept {@code ServeStub} carries only {@code statusCode}, {@code headers}
+ * (multi-valued since rift 0.18.0) and {@code body} — and its deserializer does not use {@code deny_unknown_fields},
  * so anything extra the SDK posted would be accepted with a {@code 200} and then silently ignored.
  * That is the failure this guard exists to prevent: a fault-injection test written against a
  * {@code serve} rule looked green while asserting on a success response the author never asked for.
@@ -146,10 +147,15 @@ class InterceptServeGuardTest {
     }
 
     @Test
-    void rejectsMultiValuedHeader() {
-        // Without the guard withHeader(name, a, b) silently became `name: a`.
-        assertTrue(rejected(status(200).withHeader("Set-Cookie", "a=1", "b=2").withTextBody("b"))
-                .getMessage().contains("'Set-Cookie'"));
+    void aRepeatedHeaderIsSentAsAnArrayAndASingleOneAsAString() {
+        // rift 0.18.0 serves each array value as its own header line (#231); the engine-version
+        // check for older engines is the Rift facade's, so this directly built intercept has none.
+        InterceptImpl intercept = intercept();
+        intercept.serve("example.com", status(200).withHeader("Set-Cookie", "a=1", "b=2")
+                .withHeader("Content-Type", "text/plain").withTextBody("b"));
+        JsonObject serve = (JsonObject) ((JsonObject) ((JsonObject) transport.rules.get(0)).get("action")).get("serve");
+        assertEquals(JsonValue.parse("{\"Set-Cookie\":[\"a=1\",\"b=2\"],\"Content-Type\":\"text/plain\"}"),
+                serve.get("headers"));
     }
 
     @Test
@@ -178,9 +184,10 @@ class InterceptServeGuardTest {
 
         for (String expected : List.of(
                 "_behaviors.wait", "_behaviors.repeat", "_rift.templated", "_rift.fault.tcp",
-                "binary body", "'Set-Cookie'")) {
+                "binary body")) {
             assertTrue(message.contains(expected), "missing '" + expected + "' in: " + message);
         }
+        assertFalse(message.contains("Set-Cookie"), "a repeated header is deliverable since rift 0.18.0: " + message);
     }
 
     /**

@@ -56,8 +56,10 @@ intercept.redirectTo("api.partner.com", partnerImposter);
 
 `serve`'s response is an `IsSpec` — the same response builder the DSL uses for stub responses
 (`RiftDsl.ok()`, `okJson(...)`, `status(code)`, and so on) — but the engine's serve action is
-narrower than that builder. It carries **only** a numeric status code, **single-valued** headers,
-and a text body.
+narrower than that builder. It carries **only** a numeric status code, headers, and a text body.
+A repeated header — `withHeader("Set-Cookie", "a=1", "b=2")` — goes out as one header line per
+value on rift ≥ 0.18.0; an older engine would reject the rule, so the SDK refuses it there first
+(unless the version check is off).
 
 A response using anything beyond that is **rejected** with an `InvalidDefinition`, and the rule is
 not registered:
@@ -65,8 +67,7 @@ not registered:
 - any behavior — `after`/`waitMs`, `decorate`, `repeat`, `copy`, `lookup`, `shellTransform`;
 - any `_rift` extension — `templated()`, a script, or a fault (`withLatencyFault`,
   `withErrorFault`, `withTcpFault`);
-- a binary body (`withBinaryBody`), which the serve action can only carry as its base64 text;
-- a repeated header — `withHeader(name, a, b)`.
+- a binary body (`withBinaryBody`), which the serve action can only carry as its base64 text.
 
 ```java
 // Throws InvalidDefinition: the serve action has no fault concept, so without this the rule

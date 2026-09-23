@@ -75,6 +75,31 @@ class InterceptE2eIT {
     }
 
     @Test
+    void aRepeatedHeaderArrivesAsOneLinePerValue() throws Exception {
+        try (Rift rift = embedded()) {
+            Intercept intercept = rift.intercept();
+            try {
+                // rift 0.18.0 serves each value as its own header line (#231), which set-cookie needs.
+                intercept.serve("example.com", RiftDsl.status(200).withHeader("Set-Cookie", "a=1", "b=2"));
+
+                HttpClient client = HttpClient.newBuilder()
+                        .sslContext(intercept.trust().sslContext())
+                        .proxy(intercept.proxySelector())
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
+                HttpResponse<String> resp = client.send(
+                        HttpRequest.newBuilder(URI.create("https://example.com/"))
+                                .timeout(Duration.ofSeconds(10)).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+
+                assertEquals(java.util.List.of("a=1", "b=2"), resp.headers().allValues("set-cookie"));
+            } finally {
+                intercept.close();
+            }
+        }
+    }
+
+    @Test
     void predicateScopedRuleMatchesOnlyItsPathThroughTheProxy() throws Exception {
         try (Rift rift = embedded()) {
             Intercept intercept = rift.intercept();
