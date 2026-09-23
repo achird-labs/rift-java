@@ -49,7 +49,8 @@ One client, three transports — embedded (in-process, no Docker, OS-assigned po
 connect (any running Rift admin endpoint), spawn (managed `rift` binary). Full feature
 surface on each: stubs/predicates/responses, response cycling, behaviors, proxy
 record/playback, fault injection, stateful scenarios, spaces/flow-state, request
-verification, and TLS-MITM intercept with truststore/`SSLContext` helpers.
+verification, a server-side event stream, and TLS-MITM intercept with truststore/`SSLContext`
+helpers.
 
 ## Installation
 
@@ -278,3 +279,7 @@ TLS-MITM intercept (`rift.intercept()`) is covered in [docs/intercept.md](docs/i
 
 Proxy **record/replay** (`imposter.startRecording(origin)`) — capture real traffic and swap it for
 served stubs — is covered in [docs/recording.md](docs/recording.md).
+
+Spaces and flow state (`imposter.space(flowId)`, `imposter.flowState(flowId)`) are covered in
+[docs/spaces.md](docs/spaces.md), and the server-side event stream (`rift.events(...)`) in
+[docs/events.md](docs/events.md).

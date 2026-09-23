@@ -79,7 +79,9 @@ first (see [Reconciling with the journal](#reconciling-with-the-journal)).
 
 **`RiftEvent.RequestRecorded`** — an imposter recorded a request. Carries the imposter `port()`, the
 `request()` itself, its journal `index()` where the engine reports one, the resolved `flowId()` when
-the imposter has flow state configured, and the stream `seq()`.
+the imposter has flow state configured, and the stream `seq()`. Only imposters that record requests
+(`.record()`) produce it. The event is pushed as the request arrives, before it is answered, so its
+`request()` never has a `status()` or `latencyMs()`; read the journal for those.
 
 **`RiftEvent.ImposterChanged`** — an imposter was created, replaced or deleted (`action()`). Its
 `port()` is an `OptionalInt` because the delete-all case names no single port.
