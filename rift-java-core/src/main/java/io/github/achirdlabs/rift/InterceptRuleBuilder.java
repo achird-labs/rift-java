@@ -43,9 +43,9 @@ public final class InterceptRuleBuilder {
     /**
      * Answers matching requests inline with {@code response}; the real host is never contacted.
      *
-     * <p>Restricted to what the engine's serve action can carry — status, single-valued headers and
-     * a text body. See {@link Intercept#serve} for the full deliverable set; anything outside it is
-     * rejected rather than silently dropped.
+     * <p>Restricted to what the engine's serve action can carry — status, headers (a repeated one
+     * needs rift &ge; 0.18.0) and a text body. See {@link Intercept#serve} for the full deliverable
+     * set; anything outside it is rejected rather than silently dropped.
      *
      * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a
      *         construct the serve action cannot deliver; the rule is not registered

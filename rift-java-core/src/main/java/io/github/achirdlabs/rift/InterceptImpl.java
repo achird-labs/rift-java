@@ -19,6 +19,7 @@ import java.net.ProxySelector;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * {@link Intercept} over a {@link RiftTransport}: every method is a thin JSON-shape translation
@@ -35,8 +36,23 @@ final class InterceptImpl implements Intercept {
 
     private volatile InterceptTrust trust;
 
+    /**
+     * Refuses a rule feature the running engine cannot honour; {@link RiftImpl} supplies its
+     * engine-version check. An intercept built directly (in a test) checks nothing.
+     */
+    private final Consumer<RiftImpl.EngineRequirement> engineGate;
+
+    private static final RiftImpl.EngineRequirement MULTI_VALUE_HEADERS = new RiftImpl.EngineRequirement(
+            RiftImpl.INTERCEPT_MULTI_VALUE_HEADERS_SINCE, "multi-value intercept serve headers",
+            "rejects the rule ('did not match any variant')", "collapse the header to one value");
+
     InterceptImpl(RiftTransport transport, JsonValue startResponse) {
+        this(transport, startResponse, requirement -> { });
+    }
+
+    InterceptImpl(RiftTransport transport, JsonValue startResponse, Consumer<RiftImpl.EngineRequirement> engineGate) {
         this.transport = transport;
+        this.engineGate = engineGate;
         if (!(startResponse instanceof JsonObject obj)
                 || !(obj.get("interceptPort") instanceof JsonNumber port)
                 || !(obj.get("interceptUrl") instanceof JsonString url)) {
@@ -54,7 +70,13 @@ final class InterceptImpl implements Intercept {
 
     /** Attach mode: bind to a listener already started at engine launch, at the given endpoint. */
     InterceptImpl(RiftTransport transport, String host, int port) {
+        this(transport, host, port, requirement -> { });
+    }
+
+    /** Attach mode, with the engine-version check {@link RiftImpl} supplies. */
+    InterceptImpl(RiftTransport transport, String host, int port, Consumer<RiftImpl.EngineRequirement> engineGate) {
         this.transport = transport;
+        this.engineGate = engineGate;
         this.uri = URI.create("http://" + host + ":" + port);
         this.address = new InetSocketAddress(host, port);
         this.caMaterial = null;
@@ -99,7 +121,12 @@ final class InterceptImpl implements Intercept {
 
     // Shared by the host-only methods above and by InterceptRuleBuilder (predicate-scoped, host-optional).
     InterceptRule addServeRule(String host, List<Predicate> predicates, IsSpec response, RuleKind kind) {
-        JsonObject action = JsonObject.builder().put("serve", toServeStub(response)).build();
+        JsonObject serve = toServeStub(response);
+        if (serve.get("headers") instanceof JsonObject headers
+                && headers.fields().values().stream().anyMatch(v -> v instanceof JsonArray)) {
+            engineGate.accept(MULTI_VALUE_HEADERS);
+        }
+        JsonObject action = JsonObject.builder().put("serve", serve).build();
         JsonObject rule = ruleJson(host, predicates, action);
         transport.interceptAddRules(rule);
         return new InterceptRule(host, kind, rule);
@@ -216,9 +243,10 @@ final class InterceptImpl implements Intercept {
 
     /**
      * Projects an {@link IsSpec} down to the engine's flat {@code ServeStub} shape: a numeric
-     * {@code statusCode}, single-valued {@code headers}, and a plain-text {@code body} (see
+     * {@code statusCode}, {@code headers} (a single value as a string, several as an array, which
+     * rift &ge; 0.18.0 serves as one header line each), and a plain-text {@code body} (see
      * {@code ServeStub} in {@code intercept_rules.rs}) — narrower than the full {@code is} response
-     * shape a stub uses (multi-value headers, a structured JSON body, behaviors, faults). Anything
+     * shape a stub uses (a structured JSON body, behaviors, faults). Anything
      * beyond status/headers/body is <em>rejected</em> rather than dropped — see
      * {@link #requireDeliverable}.
      *
@@ -235,8 +263,10 @@ final class InterceptImpl implements Intercept {
         if (!ir.headers().isEmpty()) {
             JsonObject.Builder headers = JsonObject.builder();
             ir.headers().forEach((name, values) -> {
-                if (!values.isEmpty()) {
+                if (values.size() == 1) {
                     headers.put(name, new JsonString(values.get(0)));
+                } else if (values.size() > 1) {
+                    headers.put(name, new JsonArray(values.stream().<JsonValue>map(JsonString::new).toList()));
                 }
             });
             builder.put("headers", headers.build());
@@ -248,8 +278,8 @@ final class InterceptImpl implements Intercept {
     /**
      * Rejects a response the intercept {@code serve} action cannot deliver.
      *
-     * <p>The engine's {@code ServeStub} is only {@code {statusCode, headers, body}} with
-     * <em>single-valued</em> headers, and its deserializer does not use {@code deny_unknown_fields} —
+     * <p>The engine's {@code ServeStub} is only {@code {statusCode, headers, body}}, and its
+     * deserializer does not use {@code deny_unknown_fields} —
      * so a richer response posted here is accepted with a {@code 200} and then silently ignored at
      * request time. That is worse than a rejection: a fault-injection test written against a
      * {@code serve} rule stays green while asserting on the success response it never asked for.
@@ -291,17 +321,12 @@ final class InterceptImpl implements Intercept {
         if (ir.mode() == ResponseMode.BINARY) {
             undeliverable.add("a binary body (_mode=binary, withBinaryBody)");
         }
-        ir.headers().forEach((name, values) -> {
-            if (values.size() > 1) {
-                undeliverable.add("repeated header '" + name + "'");
-            }
-        });
         is.extra().keySet().forEach(key -> undeliverable.add("response key '" + key + "'"));
         ir.extra().keySet().forEach(key -> undeliverable.add("is response key '" + key + "'"));
 
         if (!undeliverable.isEmpty()) {
             throw new InvalidDefinition("intercept serve cannot deliver " + String.join(", ", undeliverable)
-                    + " — the engine's serve action carries only statusCode, single-valued headers and body, so"
+                    + " — the engine's serve action carries only statusCode, headers and body, so"
                     + " the rule would be registered and then answer a response you did not ask for."
                     + " Use redirectTo(imposter) for full stub fidelity.");
         }
