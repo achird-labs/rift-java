@@ -261,8 +261,9 @@ final class ImposterImpl implements Imposter {
 
     /**
      * Warn (once) if the flow-state API is used on an imposter with no store trigger (an explicit
-     * {@code _rift.flowState}, a scenario stub, or a {@code _rift.script} stub): the engine uses a
-     * no-op store, so reads return empty (#40). Advisory, same fetch-once/swallow policy as above.
+     * {@code _rift.flowState}, a scenario stub, a {@code _rift.script} stub, or {@code
+     * _rift.stateOps}): the engine uses a no-op store, so reads return empty (#40). Advisory, same
+     * fetch-once/swallow policy as above.
      */
     private synchronized void warnIfFlowStateUnusable() {
         if (flowStateConfigChecked) {
@@ -272,8 +273,8 @@ final class ImposterImpl implements Imposter {
         try {
             if (!FlowStateSupport.hasStoreTrigger(definition())) {
                 LOG.log(Level.WARNING, "imposter on port " + port + " uses the flow-state API but declares no "
-                        + "store trigger (_rift.flowState, a scenario stub, or a _rift.script stub); reads return "
-                        + "empty (engine uses a no-op store). Declare flowState(inMemoryFlowState()).");
+                        + "store trigger (_rift.flowState, a scenario stub, a _rift.script stub, or _rift.stateOps); "
+                        + "reads return empty (engine uses a no-op store). Declare flowState(inMemoryFlowState()).");
             }
         } catch (RiftException e) {
             // Advisory only: the SPI's declared def-fetch failures (engine unavailable, not found,

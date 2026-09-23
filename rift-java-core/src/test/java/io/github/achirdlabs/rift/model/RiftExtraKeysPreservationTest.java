@@ -66,9 +66,8 @@ class RiftExtraKeysPreservationTest {
 
         RiftResponseExtension withIs = ((Response.Is) responses.get(0)).rift().orElseThrow();
         assertTrue(withIs.templated());
-        assertEquals(List.of("stateOps", "dataset"), List.copyOf(withIs.extra().keySet()));
-        assertEquals(JsonValue.parse("""
-                [{"op": "increment", "key": "hits", "by": 1}, {"op": "clearFlow"}]"""), withIs.extra().get("stateOps"));
+        assertEquals(List.of("dataset"), List.copyOf(withIs.extra().keySet()));
+        assertEquals(List.of(new StateOp.Increment("hits", 1), new StateOp.ClearFlow()), withIs.stateOps());
         assertEquals(JsonValue.parse("{\"name\": \"users\", \"select\": \"row\"}"), withIs.extra().get("dataset"));
 
         RiftResponseExtension scriptOnly = ((Response.RiftScript) responses.get(1)).rift();
@@ -78,7 +77,8 @@ class RiftExtraKeysPreservationTest {
         RiftResponseExtension onlyUnknown = ((Response.Is) responses.get(2)).rift().orElseThrow();
         assertEquals(Optional.empty(), onlyUnknown.fault());
         assertFalse(onlyUnknown.templated());
-        assertEquals(Map.of("stateOps", JsonValue.parse("[{\"op\": \"delete\", \"key\": \"k\"}]")), onlyUnknown.extra());
+        assertEquals(List.of(new StateOp.Delete("k")), onlyUnknown.stateOps());
+        assertEquals(Map.of(), onlyUnknown.extra());
     }
 
     @Test
@@ -121,6 +121,8 @@ class RiftExtraKeysPreservationTest {
         assertThrows(WireFormatException.class,
                 () -> new RiftResponseExtension(Optional.empty(), Optional.empty(), false, Map.of("templated", v)));
         assertThrows(WireFormatException.class,
+                () -> new RiftResponseExtension(Optional.empty(), Optional.empty(), false, Map.of("stateOps", v)));
+        assertThrows(WireFormatException.class,
                 () -> new RiftConfig(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Map.of(),
                         Map.of("scripts", v)));
         assertThrows(WireFormatException.class,
@@ -132,8 +134,8 @@ class RiftExtraKeysPreservationTest {
         JsonValue dataset = JsonValue.parse("{\"name\":\"d\"}");
         assertEquals(Map.of("dataset", dataset), RiftResponseExtension.EMPTY.withExtra("dataset", dataset).extra());
         assertEquals(Map.of("sequencing", dataset), RiftConfig.EMPTY.withExtra("sequencing", dataset).extra());
-        RiftResponseExtension twice = RiftResponseExtension.EMPTY.withExtra("stateOps", dataset).withExtra("dataset", dataset);
-        assertEquals(List.of("stateOps", "dataset"), List.copyOf(twice.extra().keySet()));
+        RiftResponseExtension twice = RiftResponseExtension.EMPTY.withExtra("dataset", dataset).withExtra("futureKnob", dataset);
+        assertEquals(List.of("dataset", "futureKnob"), List.copyOf(twice.extra().keySet()));
         assertThrows(WireFormatException.class, () -> RiftResponseExtension.EMPTY.withExtra("fault", dataset));
         assertThrows(WireFormatException.class, () -> RiftConfig.EMPTY.withExtra("proxy", dataset));
         RiftFlowStateConfig flowState = new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Optional.empty());

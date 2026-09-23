@@ -90,6 +90,13 @@ class FlowStateSupportTest {
     }
 
     @Test
+    void stateOpsOnAnIsResponseTriggerStore() {
+        assertTrue(FlowStateSupport.hasStoreTrigger(def("""
+                {"port":1,"protocol":"http","stubs":[
+                  {"predicates":[],"responses":[{"is":{"statusCode":200},"_rift":{"stateOps":[{"op":"clearFlow"}]}}]}]}""")));
+    }
+
+    @Test
     void scriptOnlyResponseTriggersStore() {
         assertTrue(FlowStateSupport.hasStoreTrigger(def("""
                 {"port":1,"protocol":"http","stubs":[

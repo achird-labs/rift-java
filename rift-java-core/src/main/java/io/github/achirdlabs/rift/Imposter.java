@@ -159,9 +159,10 @@ public interface Imposter {
 
     /**
      * The runtime flow-state store for a flow id. The engine backs this with a real store only when
-     * the def declares one — an explicit {@code _rift.flowState}, a scenario stub, or a {@code
-     * _rift.script} stub; otherwise reads return empty (a no-op store). This accessor logs one
-     * advisory warning if no such trigger is present.
+     * the def declares one — an explicit {@code _rift.flowState}, a scenario stub, a {@code
+     * _rift.script} stub, or an {@code is} response with {@code _rift.stateOps}; otherwise reads
+     * return empty (a no-op store). This accessor logs one advisory warning if no such trigger is
+     * present.
      *
      * @throws IllegalArgumentException if {@code flowId} is blank — a blank id is never the default
      *     flow but a distinct, silently-wrong partition, so it is rejected rather than sent verbatim

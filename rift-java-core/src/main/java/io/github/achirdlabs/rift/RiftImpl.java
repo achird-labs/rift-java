@@ -34,6 +34,9 @@ final class RiftImpl implements Rift {
     /** The first engine release that honours {@code mutualAuth} (older ones accept every client). */
     static final String CLIENT_AUTH_SINCE = "0.18.0";
 
+    /** The first engine release that runs {@code _rift.stateOps} (older ones drop the block). */
+    static final String STATE_OPS_SINCE = "0.18.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;
@@ -222,7 +225,18 @@ final class RiftImpl implements Rift {
                     "client-certificate authentication (mutualAuth / rejectUnauthorized / ca)",
                     "ignores it and would accept every client", "remove requireClientCertificate"));
         }
+        if (hasStateOps(def)) {
+            requirements.add(new EngineRequirement(STATE_OPS_SINCE, "stateOps on an is response",
+                    "drops them silently", "replace them with a script"));
+        }
         return requirements;
+    }
+
+    private static boolean hasStateOps(ImposterDefinition def) {
+        return def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                .anyMatch(r -> r instanceof Response.Is is
+                        && is.rift().map(rift -> !rift.stateOps().isEmpty()).orElse(false));
     }
 
     private static boolean hasProxyOrInjectBehaviors(ImposterDefinition def) {

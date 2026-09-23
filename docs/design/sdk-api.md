@@ -452,6 +452,13 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // kept; `Behaviors.effectiveRepeat()` reports which applies. The DSL's `repeat(int)` emits the
 // block spelling.
 IsSpec templated()                                       // rename of template(); _rift.templated
+// declarative flow-state writes after the response (_rift.stateOps, rift >= 0.18.0; #227). Run in
+// chain order after templating and behaviors; engine-version gated at create/replaceAll.
+IsSpec setState(String key, String valueTemplate)        // {"op":"set"}; value rendered as a template
+IsSpec incrementState(String key)                        // {"op":"increment","by":1}
+IsSpec incrementState(String key, long by)
+IsSpec deleteState(String key)                           // {"op":"delete"}
+IsSpec clearFlowState()                                  // {"op":"clearFlow"}
 // probabilistic _rift faults (chainable, composable):
 IsSpec withLatencyFault(double probability, Duration min, Duration max)
 IsSpec withLatencyFault(double probability, Duration fixed)
