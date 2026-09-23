@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift;
 import io.github.achirdlabs.rift.codec.BodyCodecs;
 import io.github.achirdlabs.rift.codec.RiftBodyCodec;
 import io.github.achirdlabs.rift.json.JsonArray;
+import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
@@ -14,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 /**
  * A single recorded request, as returned by an imposter's {@code savedRequests} endpoint (a space
@@ -55,6 +58,63 @@ public record RecordedRequest(
         Optional<String> flowId = stringField(obj, "flowId");
         Map<String, String> pathParams = stringMapField(obj, "pathParams");
         return new RecordedRequest(method, path, query, headers, body, timestamp, requestFrom, flowId, pathParams, obj);
+    }
+
+    /**
+     * The status the imposter answered this request with. See {@link #latencyMs()} for when it is
+     * present; the two are present together or absent together.
+     */
+    public OptionalInt status() {
+        if (raw instanceof JsonObject obj && obj.get("status") instanceof JsonNumber n) {
+            try {
+                int code = n.asInt();
+                return code >= 0 && code <= 0xFFFF ? OptionalInt.of(code) : OptionalInt.empty();
+            } catch (NumberFormatException e) {
+                return OptionalInt.empty();
+            }
+        }
+        return OptionalInt.empty();
+    }
+
+    /**
+     * How long the imposter took to answer this request, in whole milliseconds: from the engine
+     * receiving the request (including reading its body) to the response being ready, before it is
+     * written to the socket. It includes any {@code wait} behavior, script or proxied upstream round
+     * trip. A present {@code 0} is an ordinary sub-millisecond reading. A value the engine could not
+     * have written (negative, or a status above 65535) reads as absent.
+     *
+     * <p>Requires rift &ge; 0.18.0; older engines never record it. Absent means not recorded, never
+     * zero: the engine attaches the outcome once the response exists, so an entry read while its
+     * request is still in flight has none yet. Request events on the event stream are pushed before
+     * the request is answered and never carry it; re-read the journal instead.
+     */
+    public OptionalLong latencyMs() {
+        if (raw instanceof JsonObject obj && obj.get("latencyMs") instanceof JsonNumber n) {
+            try {
+                long ms = n.asLong();
+                return ms >= 0 ? OptionalLong.of(ms) : OptionalLong.empty();
+            } catch (NumberFormatException e) {
+                return OptionalLong.empty();
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    /**
+     * {@code METHOD path}, followed by {@code  → status in N ms} when the engine recorded the
+     * outcome ({@code  → status} alone if only the status is present). An empty method prints as
+     * {@code ?} and an empty path as {@code /}. The one-line form verify failures and
+     * recorded-request dumps use.
+     */
+    public String summary() {
+        String line = (method.isEmpty() ? "?" : method) + " " + (path.isEmpty() ? "/" : path);
+        OptionalInt code = status();
+        if (code.isEmpty()) {
+            return line;
+        }
+        line += " → " + code.getAsInt();
+        OptionalLong ms = latencyMs();
+        return ms.isPresent() ? line + " in " + ms.getAsLong() + " ms" : line;
     }
 
     /** The first value of the named header, if present (case-sensitive, matching the wire key). */

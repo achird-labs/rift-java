@@ -4,6 +4,7 @@ import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.dsl.ImposterSpec;
 import io.github.achirdlabs.rift.json.JsonObject;
+import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 import org.junit.platform.engine.reporting.ReportEntry;
 
@@ -71,6 +72,14 @@ class RiftDumpRecordedTest {
         assertFalse(dump.contains("/u/20"), "capped at 20: " + dump);
         assertTrue(dump.contains("25"), "total noted: " + dump);
         assertTrue(dump.contains("more"), "truncation noted: " + dump);
+    }
+
+    @Test
+    void formatShowsTheRecordedOutcomeWhenPresent() {
+        List<RecordedRequest> reqs = List.of(
+                RecordedRequest.read(JsonValue.parse("{\"method\":\"POST\",\"path\":\"/a\",\"status\":201,\"latencyMs\":3}")),
+                RecordedRequest.read(JsonValue.parse("{\"method\":\"GET\",\"path\":\"/b\"}")));
+        assertEquals("2 recorded request(s):\nPOST /a → 201 in 3 ms\nGET /b", RiftTestExtension.formatRecordedDump(reqs));
     }
 
     private static Map<String, String> publishedEntries(Class<?> fixture) {

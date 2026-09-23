@@ -208,7 +208,8 @@ A mismatched pairing (e.g. `transport(SPAWN)` with `embeddedOptions(...)`) fails
 
 `@RiftTest(dumpRecordedOnFailure = true)` (or `.dumpRecordedOnFailure(true)` on the builder)
 makes a **failing** test publish each imposter's recorded requests to the JUnit report as an
-entry keyed `rift.recorded.<name>`, one `METHOD path` per line, capped at 20 requests per
+entry keyed `rift.recorded.<name>`, one `METHOD path` per line (followed by `→ status in N ms` on
+rift ≥ 0.18.0, which records the outcome), capped at 20 requests per
 imposter (with a `… N more` note when truncated). Nothing is published for a passing test or when
 the flag is off. It's a fast way to see what traffic actually reached a mock when a test fails:
 
