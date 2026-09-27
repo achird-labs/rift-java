@@ -33,6 +33,7 @@ class OrdersTest {
             Imposter users = client.create(imposter("users").port(4545)
                     .stub(onGet("/u/1").willReturn(okJson("{\"id\":1}"))));
             // users.uri() == http://<host>:<mappedPort(4545)> — point your SUT at it
+            // (https://… for an imposter created with .https(cert, key))
         }
     }
 }
@@ -42,7 +43,9 @@ class OrdersTest {
 
 `withGateway()` needs no pre-exposed imposter ports: traffic routes through the single admin port
 via the engine's `/__rift/:port` gateway, and `imposter.uri()` carries that prefix. The trade-off:
-one exposed port, but the `/__rift/:port` prefix is visible to the app under test.
+one exposed port, but the `/__rift/:port` prefix is visible to the app under test. The gateway is
+served by the admin listener, so `imposter.uri()` is `http://` in this mode even for an `https`
+imposter: the app speaks plain HTTP to the gateway, which hands the request to the imposter.
 
 ```java
 @Container

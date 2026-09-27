@@ -12,7 +12,6 @@ import javax.net.ssl.TrustManagerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -78,6 +77,25 @@ class ImposterClientAuthIT {
         });
     }
 
+    @TestFactory
+    Stream<DynamicTest> uriNamesTheHttpsScheme() {
+        return gated("uri() of an https imposter is https, on the resolver and bound-host paths (#250)", () -> {
+            try (Rift rift = engine()) {
+                Imposter viaResolver = rift.create(served(imposter("tls-resolver")
+                        .https(resource("tls/leaf.pem"), resource("tls/leaf-key.pem"))));
+                Imposter viaBoundHost = rift.create(served(imposter("tls-bound").host("127.0.0.1")
+                        .https(resource("tls/leaf.pem"), resource("tls/leaf-key.pem"))));
+
+                for (Imposter imp : new Imposter[] {viaResolver, viaBoundHost}) {
+                    assertEquals("https", imp.uri().getScheme());
+                    assertEquals("hello", get(imp, Optional.empty()).body());
+                    assertEquals("https", rift.imposter(imp.port()).orElseThrow().uri().getScheme(),
+                            "a lookup must report the scheme too");
+                }
+            }
+        });
+    }
+
     private static ImposterSpec served(ImposterSpec spec) {
         return spec.stub(onGet("/").willReturn(status(200).withTextBody("hello")));
     }
@@ -88,7 +106,7 @@ class ImposterClientAuthIT {
                 .sslContext(sslContext(clientP12))
                 .build();
         HttpResponse<String> response = client.send(
-                HttpRequest.newBuilder(URI.create("https://127.0.0.1:" + imp.port() + "/"))
+                HttpRequest.newBuilder(imp.uri().resolve("/"))
                         .timeout(Duration.ofSeconds(20)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode(), response::body);

@@ -25,6 +25,7 @@ import java.lang.System.Logger.Level;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -43,15 +44,20 @@ final class ImposterImpl implements Imposter {
     /** The host the imposter is bound to, when the engine runs locally and that host is concrete. */
     private final Optional<String> boundHost;
 
+    /** The imposter's engine protocol, {@code http} or {@code https}: fixed for its lifetime on this port. */
+    private final String protocol;
+
     ImposterImpl(int port, RiftTransport transport, ConnectOptions options) {
-        this(port, transport, options, Optional.empty());
+        this(port, transport, options, Optional.empty(), ImposterDefinition.DEFAULT_PROTOCOL);
     }
 
-    ImposterImpl(int port, RiftTransport transport, ConnectOptions options, Optional<String> boundHost) {
+    ImposterImpl(int port, RiftTransport transport, ConnectOptions options, Optional<String> boundHost,
+            String protocol) {
         this.port = port;
         this.transport = transport;
         this.options = options;
         this.boundHost = boundHost.filter(host -> !isWildcard(host));
+        this.protocol = Objects.requireNonNull(protocol, "protocol");
     }
 
     /** The any-address in any spelling ({@code 0.0.0.0}, {@code ::}, {@code [0:0:0:0:0:0:0:0]}, ...). */
@@ -70,8 +76,8 @@ final class ImposterImpl implements Imposter {
 
     @Override
     public URI uri() {
-        return boundHost.map(host -> HostAuthority.httpUri(host, port))
-                .orElseGet(() -> options.hostResolver().apply(port));
+        return boundHost.map(host -> HostAuthority.uri(protocol, host, port))
+                .orElseGet(() -> options.hostResolver().resolve(protocol, port));
     }
 
     @Override

@@ -4,7 +4,7 @@ import java.net.URI;
 import java.util.Objects;
 
 /**
- * Builds the authority of an {@code http://host:port} URI from a host the engine binds.
+ * Builds the authority of a {@code scheme://host:port} URI from a host the engine binds.
  *
  * <p>rift 0.18.0 accepts a bare IPv6 literal such as {@code ::1} on every door, but {@link URI}
  * cannot parse one unbracketed: {@code http://::1:4545} has no host and no port. So a bare IPv6
@@ -25,6 +25,12 @@ public final class HostAuthority {
 
     /** {@code http://host:port}, with a bare IPv6 host bracketed. */
     public static URI httpUri(String host, int port) {
-        return URI.create("http://" + bracketed(host) + ":" + port);
+        return uri("http", host, port);
+    }
+
+    /** {@code scheme://host:port}, with a bare IPv6 host bracketed. */
+    public static URI uri(String scheme, String host, int port) {
+        Objects.requireNonNull(scheme, "scheme");
+        return URI.create(scheme + "://" + bracketed(host) + ":" + port);
     }
 }

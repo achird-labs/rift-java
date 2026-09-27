@@ -163,10 +163,11 @@ public final class ConnectOptions {
   // versionCheck: FAIL | WARN | OFF — default from -Drift.versionCheck, then RIFT_VERSION_CHECK,
   //   then FAIL; checks the engine's version via GET /config against the SDK's floor
   //   (RiftImpl.MIN_ENGINE_VERSION, 0.13.1) and against per-feature floors at create/replaceAll.
-  // hostResolver: IntFunction<URI>  — maps an imposter port to the base URI the SUT should use.
-  //   Default: adminUri.host + imposter port. Needed for Docker/remapped-port setups
-  //   (the conformance "hostFor seam"). No upstreamTrust here: a connected engine's outbound
-  //   trust is set where that engine was started.
+  // hostResolver: HostResolver (protocol, port) -> URI — the base URI the SUT should use for an
+  //   imposter. Default: imposter protocol as the scheme + adminUri.host + imposter port (#250).
+  //   Needed for Docker/remapped-port setups (the conformance "hostFor seam"). An
+  //   IntFunction<URI> overload stays: its URI is used verbatim, scheme included. No
+  //   upstreamTrust here: a connected engine's outbound trust is set where that engine was started.
 }
 
 public final class SpawnOptions {
@@ -312,6 +313,7 @@ public interface Imposter {
   URI uri();                                  // spawn/embedded: the imposter's own bind host when concrete
                                               // (#243); otherwise, and always for connect/testcontainers,
                                               // ConnectOptions.hostResolver. IPv6 bracketed (HostAuthority).
+                                              // Scheme = the imposter's protocol (http/https, #250).
   Optional<String> name();
   ImposterDefinition definition();            // live GET (includes recorded state if requested)
 

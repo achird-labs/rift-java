@@ -1,5 +1,6 @@
 package io.github.achirdlabs.rift;
 
+import io.github.achirdlabs.rift.dsl.ImposterSpec;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 import org.junit.jupiter.api.Test;
@@ -40,9 +41,12 @@ class ImposterUriHostTest {
     }
 
     private static Rift spawned() {
+        return spawned("{\"imposters\":[{\"port\":4545,\"host\":\"::1\"},{\"port\":4546}]}");
+    }
+
+    private static Rift spawned(String listed) {
         ConnectOptions options = ConnectOptions.builder(URI.create("http://127.0.0.1:2525")).versionCheck(VersionCheck.OFF).build();
-        return RiftImpl.spawned(transport(() -> null,
-                () -> JsonValue.parse("{\"imposters\":[{\"port\":4545,\"host\":\"::1\"},{\"port\":4546}]}")), options, () -> { });
+        return RiftImpl.spawned(transport(() -> null, () -> JsonValue.parse(listed)), options, () -> { });
     }
 
     private static Rift embedded(String adminHost) {
@@ -53,6 +57,15 @@ class ImposterUriHostTest {
     private static URI created(Rift rift, String host) {
         return rift.create(imposter("i").host(host).stub(onGet("/").willReturn(ok()))).uri();
     }
+
+    /** An https imposter; the fake engine's create reply carries no protocol, so it must come from what was posted. */
+    private static URI createdHttps(Rift rift, String host) {
+        ImposterSpec spec = imposter("i").https(CERT, KEY).stub(onGet("/").willReturn(ok()));
+        return rift.create(host == null ? spec : spec.host(host)).uri();
+    }
+
+    private static final String CERT = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+    private static final String KEY = "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n";
 
     @Test
     void aConcreteImposterHostWinsOnASpawnedEngine() {
@@ -88,5 +101,38 @@ class ImposterUriHostTest {
         var listed = spawned().imposters();
         assertEquals("http://[::1]:4545", listed.get(0).uri().toString());
         assertEquals("http://127.0.0.1:4546", listed.get(1).uri().toString());
+    }
+
+    @Test
+    void anHttpsImposterBoundToAConcreteHostIsReachedOverHttps() {
+        assertEquals("https://127.0.0.2:4545", createdHttps(spawned(), "127.0.0.2").toString());
+        assertEquals("https://[::1]:4545", createdHttps(spawned(), "::1").toString());
+        assertEquals("https://127.0.0.1:4545", createdHttps(embedded("::1"), "127.0.0.1").toString());
+    }
+
+    @Test
+    void anHttpsImposterOnTheResolverPathIsReachedOverHttps() {
+        assertEquals("https://127.0.0.1:4545", createdHttps(spawned(), null).toString());
+        assertEquals("https://127.0.0.1:4545", createdHttps(spawned(), "0.0.0.0").toString());
+        assertEquals("https://[::1]:4545", createdHttps(embedded("::1"), null).toString());
+        assertEquals("https://127.0.0.1:4545", createdHttps(embedded("127.0.0.1"), "::").toString());
+    }
+
+    @Test
+    void aRawJsonCreateReadsTheProtocolItPosted() {
+        assertEquals("https://127.0.0.1:4545",
+                spawned().create("{\"protocol\":\"https\",\"stubs\":[]}").uri().toString());
+        assertEquals("http://127.0.0.1:4545", spawned().create("{\"stubs\":[]}").uri().toString());
+    }
+
+    @Test
+    void lookupsReadTheProtocolFromTheList() {
+        Rift rift = spawned("{\"imposters\":[{\"port\":4545,\"host\":\"::1\",\"protocol\":\"https\"},"
+                + "{\"port\":4546,\"protocol\":\"https\"},{\"port\":4547,\"protocol\":\"http\"}]}");
+        assertEquals("https://[::1]:4545", rift.imposter(4545).orElseThrow().uri().toString());
+        var listed = rift.imposters();
+        assertEquals("https://[::1]:4545", listed.get(0).uri().toString());
+        assertEquals("https://127.0.0.1:4546", listed.get(1).uri().toString());
+        assertEquals("http://127.0.0.1:4547", listed.get(2).uri().toString());
     }
 }

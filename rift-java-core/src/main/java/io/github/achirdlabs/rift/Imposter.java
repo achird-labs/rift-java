@@ -25,6 +25,10 @@ public interface Imposter {
      * for any connected engine, the address comes from {@code ConnectOptions.hostResolver}, which
      * by default reuses the admin host. The engine binds an imposter with no host on {@code
      * 0.0.0.0}, IPv4 only, so with an IPv6 admin host set {@code ImposterSpec.host("::1")} too.
+     *
+     * <p>The scheme is the imposter's protocol: {@code https://} for an {@code https} imposter. A
+     * resolver decides for itself on its path; the testcontainers gateway, for one, is always reached
+     * at the admin listener's scheme. See {@link HostResolver}.
      */
     URI uri();
 
