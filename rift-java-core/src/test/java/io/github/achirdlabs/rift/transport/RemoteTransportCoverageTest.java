@@ -11,6 +11,7 @@ import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -146,6 +147,36 @@ class RemoteTransportCoverageTest {
             try (Rift rift = connect(s)) {
                 Imposter imp = rift.create(imposter("x").port(4545).host("127.0.0.2"));
                 assertEquals(s.baseUri().getHost(), imp.uri().getHost());
+            }
+        }
+    }
+
+    @Test
+    void aConnectedEngineReportsAnHttpsImposterOverHttps() {
+        // The protocol, unlike the host, is an attribute of the imposter: a connected engine uses it too (#250).
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("POST /imposters", 201, "{\"port\":4545}");
+            try (Rift rift = connect(s)) {
+                Imposter imp = rift.create("{\"port\":4545,\"protocol\":\"https\",\"stubs\":[]}");
+                assertEquals(URI.create("https://" + s.baseUri().getHost() + ":4545"), imp.uri());
+            }
+        }
+    }
+
+    @Test
+    void aConnectedLookupReadsTheProtocolFromTheImposterItFetched() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /imposters/4545", 200, "{\"port\":4545,\"protocol\":\"https\",\"stubs\":[]}");
+            s.respond("GET /imposters", 200,
+                    "{\"imposters\":[{\"port\":4545,\"protocol\":\"https\"},{\"port\":4546,\"protocol\":\"http\"},"
+                            + "{\"port\":4547}]}");
+            try (Rift rift = connect(s)) {
+                String host = s.baseUri().getHost();
+                assertEquals(URI.create("https://" + host + ":4545"), rift.imposter(4545).orElseThrow().uri());
+                List<Imposter> listed = rift.imposters();
+                assertEquals(URI.create("https://" + host + ":4545"), listed.get(0).uri());
+                assertEquals(URI.create("http://" + host + ":4546"), listed.get(1).uri());
+                assertEquals(URI.create("http://" + host + ":4547"), listed.get(2).uri(), "an absent protocol is http");
             }
         }
     }

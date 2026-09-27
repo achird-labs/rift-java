@@ -118,7 +118,7 @@ final class RiftImpl implements Rift {
         ConnectOptions.Builder builder = ConnectOptions
                 .builder(HostAuthority.httpUri(options.adminHost(), options.adminPort()))
                 .versionCheck(options.versionCheck())
-                .hostResolver(port -> HostAuthority.httpUri(options.adminHost(), port));
+                .hostResolver((protocol, port) -> HostAuthority.uri(protocol, options.adminHost(), port));
         options.apiKey().ifPresent(builder::apiKey);
         return new RiftImpl(transport, builder.build(), onClose, version, true);
     }
@@ -337,8 +337,7 @@ final class RiftImpl implements Rift {
                         .findFirst()
                         .map(v -> imposterAt(port, v));
             }
-            transport.getImposter(port);
-            return Optional.of(imposterAt(port, JsonObject.of()));
+            return Optional.of(imposterAt(port, transport.getImposter(port)));
         } catch (ImposterNotFound e) {
             return Optional.empty();
         }
@@ -361,12 +360,18 @@ final class RiftImpl implements Rift {
         return List.of();
     }
 
-    /** An imposter handle, told the host it is bound to when that is an address this client can use. */
+    /**
+     * An imposter handle, told its protocol, and the host it is bound to when that is an address this
+     * client can use. The protocol is read for any engine: it is an attribute of the imposter, not an
+     * address. An absent one is the engine's default, {@code http}.
+     */
     private ImposterImpl imposterAt(int port, JsonValue definition) {
-        Optional<String> host = localEngine && definition instanceof JsonObject obj && obj.get("host") instanceof JsonString h
+        JsonObject obj = definition instanceof JsonObject o ? o : JsonObject.of();
+        Optional<String> host = localEngine && obj.get("host") instanceof JsonString h
                 ? Optional.of(h.value())
                 : Optional.empty();
-        return new ImposterImpl(port, transport, options, host);
+        String protocol = obj.get("protocol") instanceof JsonString p ? p.value() : ImposterDefinition.DEFAULT_PROTOCOL;
+        return new ImposterImpl(port, transport, options, host, protocol);
     }
 
     @Override

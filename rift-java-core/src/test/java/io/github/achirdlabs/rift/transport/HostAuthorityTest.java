@@ -43,7 +43,19 @@ class HostAuthorityTest {
     }
 
     @Test
+    void theSchemeIsTheOneAskedFor() {
+        URI tls = HostAuthority.uri("https", "::1", 4545);
+        assertEquals("https://[::1]:4545", tls.toString());
+        assertEquals("https", tls.getScheme());
+        assertEquals("[::1]", tls.getHost());
+        assertEquals(4545, tls.getPort());
+        assertEquals("https://127.0.0.1:2525", HostAuthority.uri("https", "127.0.0.1", 2525).toString());
+        assertEquals("http://127.0.0.1:2525", HostAuthority.uri("http", "127.0.0.1", 2525).toString());
+    }
+
+    @Test
     void nullIsRejected() {
         assertThrows(NullPointerException.class, () -> HostAuthority.bracketed(null));
+        assertThrows(NullPointerException.class, () -> HostAuthority.uri(null, "localhost", 1));
     }
 }

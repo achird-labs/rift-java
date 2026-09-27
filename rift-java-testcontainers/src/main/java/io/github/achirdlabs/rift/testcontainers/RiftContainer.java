@@ -1,6 +1,7 @@
 package io.github.achirdlabs.rift.testcontainers;
 
 import io.github.achirdlabs.rift.ConnectOptions;
+import io.github.achirdlabs.rift.HostResolver;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.RiftVersion;
@@ -235,9 +236,12 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
         URI admin = adminUri();
         ConnectOptions.Builder options = ConnectOptions.builder(admin);
         apiKey.ifPresent(options::apiKey);
-        options.hostResolver(gateway
-                ? port -> URI.create(admin + "/__rift/" + port)
-                : port -> HostAuthority.httpUri(getHost(), getMappedPort(port)));
+        // Gateway traffic reaches the imposter through the admin listener, so it takes the admin
+        // listener's scheme whatever the imposter speaks; direct traffic takes the imposter's protocol.
+        HostResolver resolver = gateway
+                ? (protocol, port) -> URI.create(admin + "/__rift/" + port)
+                : (protocol, port) -> HostAuthority.uri(protocol, getHost(), getMappedPort(port));
+        options.hostResolver(resolver);
         return Rift.connect(options.build());
     }
 
