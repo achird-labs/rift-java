@@ -31,6 +31,12 @@ final class RiftTestContext {
     private Recording goldenRecording;
     private Path goldenFile;
 
+    /**
+     * The {@code @RiftGolden} target, in CAPTURE or REPLAY; {@code null} without {@code @RiftGolden}.
+     * Its recorded stubs are the golden fixture, so {@link #resetConfiguredImposters()} leaves them.
+     */
+    private Imposter goldenImposter;
+
     /** Set only when {@code @RiftIntercept} is present; {@link #close()} closes it before the engine. */
     private Intercept intercept;
 
@@ -77,19 +83,32 @@ final class RiftTestContext {
         return intercept;
     }
 
-    /** Resets every configured imposter: clears recorded requests, scenario state, and proxy responses. */
+    /**
+     * Resets every configured imposter: clears recorded requests, scenario state, and proxy responses
+     * — except the {@code @RiftGolden} imposter's proxy responses. Since rift 0.19.0, clearing proxy
+     * responses also deletes the stubs a proxy recorded ({@code recordedFrom}), which on the golden
+     * imposter are the fixture itself: the stubs REPLAY loaded from the file, and the stubs CAPTURE has
+     * recorded so far and will persist on class close.
+     */
     void resetConfiguredImposters() {
         for (Map.Entry<String, Imposter> entry : impostersByName.entrySet()) {
             Imposter imposter = entry.getValue();
             try {
                 imposter.clearRecorded();
                 imposter.scenarios().reset();
-                imposter.clearProxyResponses();
+                if (imposter != goldenImposter) {
+                    imposter.clearProxyResponses();
+                }
             } catch (RuntimeException e) {
                 throw new IllegalStateException("failed to reset imposter '" + entry.getKey()
                         + "'; configured imposters: " + impostersByName.keySet(), e);
             }
         }
+    }
+
+    /** Marks {@code imposter} as the {@code @RiftGolden} target, so resets keep its recorded stubs. */
+    void setGoldenImposter(Imposter imposter) {
+        this.goldenImposter = imposter;
     }
 
     /** Records a golden CAPTURE in progress; {@link #close()} persists it to {@code file} before closing the engine. */

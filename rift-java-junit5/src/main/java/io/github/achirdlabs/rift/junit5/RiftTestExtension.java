@@ -121,6 +121,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
             return;
         }
         Imposter imposter = goldenImposter(golden, impostersByName);
+        riftTestContext.setGoldenImposter(imposter);
         boolean recapture = "recapture".equals(System.getProperty("rift.golden"));
         Path file = Path.of(golden.file());
         if (Files.exists(file) && !recapture) {
