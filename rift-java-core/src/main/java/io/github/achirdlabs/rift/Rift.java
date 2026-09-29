@@ -118,6 +118,9 @@ public interface Rift extends AutoCloseable {
      *                                       old to serve {@code /events}. That means poll instead,
      *                                       which is a supported baseline rather than a degraded
      *                                       mode.
+     * @throws io.github.achirdlabs.rift.error.ImposterNotFound if {@link EventStreamOptions#port()}
+     *                                       names no imposter — the same error every other per-port
+     *                                       call reports, not a claim that the engine cannot stream.
      * @see EventStream
      */
     EventStream events(EventStreamOptions options);

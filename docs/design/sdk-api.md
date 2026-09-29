@@ -857,7 +857,8 @@ Reconnect policy is the caller's: a retry schedule belongs to whatever drives th
 
 Capability probe: `events()` throws `UnsupportedOperationException` when streaming is unavailable —
 an engine too old to serve `/events` (404). The caller's move is to poll, which is the supported
-baseline, not a degraded mode.
+baseline, not a degraded mode. A 404 for a `port(...)` that names no imposter is not that: the
+SDK confirms with `GET /imposters/{port}` and throws `ImposterNotFound`, as every per-port call does.
 
 Transport coverage is total, embedded included: the FFI transport delegates `events()` to the same
 lazily-started in-process admin server it already delegates `replaceAllImposters` to, and that

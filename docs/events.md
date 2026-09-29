@@ -157,3 +157,8 @@ What still refuses is an engine too old to serve `/events`: that throws `Unsuppo
 rather than returning an empty stream that would look like "nothing is happening". Same principle the
 filtered cursor reads follow — a connection that cannot answer the question says so, instead of
 returning a plausible-looking answer that is wrong.
+
+A `port(...)` that names no imposter is a different mistake and gets a different answer:
+`ImposterNotFound`, the same error every other per-port call throws. The engine answers both cases
+with a 404, so when a port was asked for the SDK checks `GET /imposters/{port}` before deciding which
+one it is.

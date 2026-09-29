@@ -8,6 +8,7 @@ import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.RiftEvent;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.error.ImposterNotFound;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
@@ -80,6 +81,20 @@ class EventStreamIT {
                     assertEquals(page.nextIndex(), pushed.index(),
                             "the stream's index IS the journal cursor");
                 }
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> aStreamForAPortWithNoImposterIsImposterNotFound() {
+        // The engine refuses with a 404 — the same status an engine without /events gives — so this
+        // pins that the SDK reports the wrong port, not a missing capability (#254).
+        return gated("an unknown port is ImposterNotFound, not 'cannot stream'", () -> {
+            try (Rift rift = engine()) {
+                int nobody = 1; // privileged, so never an imposter this suite created
+                ImposterNotFound e = assertThrows(ImposterNotFound.class,
+                        () -> rift.events(EventStreamOptions.builder().port(nobody).build()).close());
+                assertEquals(nobody, e.port());
             }
         });
     }
