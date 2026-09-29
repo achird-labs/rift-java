@@ -10,6 +10,8 @@ import io.github.achirdlabs.rift.VersionCheck;
 import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.EngineError;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.error.ImposterNotFound;
+import io.github.achirdlabs.rift.error.InvalidDefinition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -267,6 +269,64 @@ class EventStreamTest {
             try (Rift rift = connect(s)) {
                 // Indistinguishable from the embedded transport's answer on purpose: both mean poll.
                 assertThrows(UnsupportedOperationException.class, () -> rift.events(opts()));
+            }
+        }
+    }
+
+    private static EventStreamOptions onPort(int port) {
+        return EventStreamOptions.builder().port(port).build();
+    }
+
+    private static final String IMPOSTER_NOT_FOUND =
+            "{\"errors\":[{\"code\":\"404\",\"type\":\"no such resource\",\"message\":\"Imposter not found on port 4545\"}]}";
+
+    @Test
+    void anUnknownPortIsImposterNotFoundNotAMissingStream() {
+        // rift <= 0.18.1: a bare {"error"} body from /events, the canonical envelope from the imposter route.
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /events", 404, "{\"error\":\"no imposter on port 4545\"}");
+            s.respond("GET /imposters/4545", 404, IMPOSTER_NOT_FOUND);
+            try (Rift rift = connect(s)) {
+                ImposterNotFound e = assertThrows(ImposterNotFound.class, () -> rift.events(onPort(4545)));
+                assertEquals(4545, e.port());
+                assertEquals("Imposter not found on port 4545", e.getMessage());
+            }
+        }
+    }
+
+    @Test
+    void anUnknownPortIsImposterNotFoundUnderTheEnvelopeToo() {
+        // rift#1226: /events answers the same envelope an engine without the route would, so only the
+        // imposter lookup can tell them apart.
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /events", 404, IMPOSTER_NOT_FOUND);
+            s.respond("GET /imposters/4545", 404, IMPOSTER_NOT_FOUND);
+            try (Rift rift = connect(s)) {
+                ImposterNotFound e = assertThrows(ImposterNotFound.class, () -> rift.events(onPort(4545)));
+                assertEquals(4545, e.port());
+            }
+        }
+    }
+
+    @Test
+    void a404ForAPortThatExistsStillMeansThisEngineCannotStream() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /events", 404, "{\"errors\":[{\"code\":\"404\",\"message\":\"Not Found\"}]}");
+            s.respond("GET /imposters/4545", 200, "{\"protocol\":\"http\",\"port\":4545}");
+            try (Rift rift = connect(s)) {
+                assertThrows(UnsupportedOperationException.class, () -> rift.events(onPort(4545)));
+            }
+        }
+    }
+
+    @Test
+    void aBareErrorBodyStillCarriesItsMessage() {
+        // rift <= 0.18.1 refuses a bad filter with {"error": "..."}; the message must not be the raw JSON.
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("GET /events", 400, "{\"error\":\"unknown types value 'bogus' (expected requests|lifecycle)\"}");
+            try (Rift rift = connect(s)) {
+                InvalidDefinition e = assertThrows(InvalidDefinition.class, () -> rift.events(opts()));
+                assertEquals("unknown types value 'bogus' (expected requests|lifecycle)", e.getMessage());
             }
         }
     }

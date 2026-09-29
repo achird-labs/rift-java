@@ -380,9 +380,17 @@ public final class RemoteTransport implements RiftTransport {
 
         int status = response.statusCode();
         if (status == 404) {
+            drainQuietly(response.body());
+            // A 404 has two meanings, and its body cannot tell them apart: an engine too old to route
+            // /events answers with the same "no such resource" envelope an engine that has the stream
+            // uses for a port naming no imposter. When a port was asked for, the imposter route
+            // decides it — the same GET every other per-port call makes, so a missing imposter
+            // surfaces as the same ImposterNotFound they throw (#254).
+            if (options.port().isPresent()) {
+                requireImposter(options.port().getAsInt());
+            }
             // An engine too old to serve /events. Same answer as a transport that cannot stream at
             // all, because the caller's move is the same: poll.
-            drainQuietly(response.body());
             throw new UnsupportedOperationException(
                     "this rift engine has no admin event stream (404 " + path + "); poll recordedSince(...) instead");
         }
@@ -392,6 +400,11 @@ public final class RemoteTransport implements RiftTransport {
             throw mapError(status, readErrorBody(response.body()), OptionalInt.empty());
         }
         return new SseEventStream(response.body(), URI.create(base + path), options.idleTimeout());
+    }
+
+    /** Throws the per-port error {@code GET /imposters/{port}} maps to, if the imposter is not there. */
+    private void requireImposter(int port) {
+        executeVoid("GET", "/imposters/" + port, null, OptionalInt.of(port));
     }
 
     private HttpResponse<InputStream> sendStreaming(String path) throws IOException, InterruptedException {
@@ -573,7 +586,11 @@ public final class RemoteTransport implements RiftTransport {
         return new EngineError(status, message);
     }
 
-    /** Extracts {@code errors[0].message} from a {@code {"errors":[{"code","message"}]}} error body, falling back to the raw body if it isn't that shape. */
+    /**
+     * Extracts {@code errors[0].message} from a {@code {"errors":[{"code","message"}]}} error body, or
+     * {@code error} from a bare {@code {"error":"..."}} one, falling back to the raw body if it is
+     * neither shape.
+     */
     private static String extractErrorMessage(String body) {
         try {
             if (JsonValue.parse(body) instanceof JsonObject obj
@@ -581,6 +598,11 @@ public final class RemoteTransport implements RiftTransport {
                     && !errors.items().isEmpty()
                     && errors.items().get(0) instanceof JsonObject first
                     && first.get("message") instanceof JsonString message) {
+                return message.value();
+            }
+            // Engines through 0.18.1 answer the /events refusals with a bare {"error": "..."}.
+            if (JsonValue.parse(body) instanceof JsonObject obj
+                    && obj.get("error") instanceof JsonString message) {
                 return message.value();
             }
         } catch (RuntimeException ignored) {
