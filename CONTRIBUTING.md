@@ -142,7 +142,11 @@ Artifacts publish to Maven Central under the `io.github.achird-labs` namespace v
 
 - **Snapshots** deploy automatically on every push to `master`, at whatever `-SNAPSHOT` version the
   root pom currently carries.
-- **Releases are cut by pushing a `vX.Y.Z` tag** — that is the only trigger. The `Publish` workflow
+- **Releases are cut by a `vX.Y.Z` tag** — pushing it triggers `Publish`, and so does dispatching
+  `Publish` on the tag ref (`gh workflow run publish.yml --ref vX.Y.Z`), which is how to publish a
+  tag whose push did not start a run. Runs are serialized per tag, and a run for a version that
+  already has a GitHub Release (or is already on Central) skips the deploy, so a duplicate trigger is
+  a harmless no-op. The `Publish` workflow
   stamps every module with the version from the tag, deploys, *then* creates the GitHub Release
   object and pushes a follow-up commit advancing `master` to the next `-SNAPSHOT` (which also syncs
   the README's install snippets to the released version).
@@ -159,7 +163,10 @@ separate `RELEASE_TOKEN` secret.
 
 `Engine Bump` (weekly, plus `workflow_dispatch`) polls `achird-labs/rift` and opens a
 `chore/engine-<version>` PR through the reusable `dep-bump.yml`; when CI on that PR is green,
-`auto-release.yml` merges it and pushes the release tag that `Publish` acts on. The loop needs **two**
+`auto-release.yml` merges it and pushes the release tag that `Publish` acts on. It does not trust the
+tag push alone to start `Publish`: if no run for the tag appears within a short grace period it
+dispatches `publish.yml` on the tag ref itself, and it fails if no `Publish` run for the tag exists
+five minutes later — so a tagged-but-unpublished release is a red run, not a silent gap (#253). The loop needs **two**
 repository secrets, and it stalls in a different place if either is missing:
 
 | secret | used for | if absent |

@@ -8,7 +8,19 @@ on:
   push:
     branches: [master]
     tags: ['v*']
+  # A release can also arrive as a dispatch on the tag ref: auto-release.yml runs
+  # `gh workflow run publish.yml --ref vX.Y.Z` after pushing the tag, so the release does not depend
+  # on the tag push triggering this workflow (#253). On such a dispatch github.ref is refs/tags/vX.Y.Z
+  # and GITHUB_REF_NAME is vX.Y.Z, exactly as on a tag push, so every tag-gated step below behaves
+  # the same either way.
   workflow_dispatch:
+
+# The tag push AND auto-release's dispatch can both start a run for the same tag. Serialize runs per
+# ref (never cancel one mid-deploy) so the second starts only after the first has finished, and let
+# the "already released" guard below turn it into a clean no-op.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -30,18 +42,48 @@ jobs:
           CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           # Require the full credential set; a partial config would red-fail the signing/deploy
           # steps, so skip cleanly instead and tell the maintainer what is missing.
-          if [ -n "$CENTRAL_USERNAME" ] && [ -n "$CENTRAL_PASSWORD" ] \
-             && [ -n "$GPG_PRIVATE_KEY" ] && [ -n "$GPG_PASSPHRASE" ]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          else
+          if ! { [ -n "$CENTRAL_USERNAME" ] && [ -n "$CENTRAL_PASSWORD" ] \
+             && [ -n "$GPG_PRIVATE_KEY" ] && [ -n "$GPG_PASSPHRASE" ]; }; then
             echo "Publishing credentials incomplete — skipping deploy."
             echo "Configure all of MAVEN_CENTRAL_USERNAME, MAVEN_CENTRAL_PASSWORD, GPG_PRIVATE_KEY"
             echo "and MAVEN_GPG_PASSPHRASE repository secrets to enable Central deployment."
             echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Double-publish guard: on a release tag, no-op if this version already shipped (a second run
+          # for the same tag — tag push + dispatch, or a re-run). Central refuses to overwrite a release,
+          # so redeploying would only fail. Two independent signals, either one sufficient:
+          #  - the GitHub Release object, which a successful run creates as its last publish step;
+          #  - the Central Portal's own "is this published" answer, for a run that deployed but died
+          #    before creating the Release. Only a definitive `"published":true` counts; any other
+          #    answer (error, false) proceeds to deploy, where a real duplicate fails loudly.
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              VERSION="${GITHUB_REF_NAME#v}"
+              if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "::notice::Release $GITHUB_REF_NAME already exists — $VERSION was published by an earlier run; skipping."
+                echo "deploy=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              AUTH="$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)"
+              PUBLISHED="$(curl -sS --max-time 30 -H "Authorization: Bearer $AUTH" \
+                "https://central.sonatype.com/api/v1/publisher/published?namespace=io.github.achird-labs&name=rift-java-core&version=$VERSION" \
+                || echo '{}')"
+              echo "Central Portal: rift-java-core $VERSION -> $PUBLISHED"
+              if printf '%s' "$PUBLISHED" | grep -Eq '"published"[[:space:]]*:[[:space:]]*true'; then
+                echo "::notice::rift-java-core $VERSION is already on Maven Central; skipping the redeploy."
+                echo "deploy=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              ;;
+          esac
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
 
       # The reactor runs on JDK 21 (LTS): it builds the zero-dep modules and the JDK 21 preview
       # embedded variant (rift-java-embedded-jdk21) natively. JDK 22 is installed alongside so the
