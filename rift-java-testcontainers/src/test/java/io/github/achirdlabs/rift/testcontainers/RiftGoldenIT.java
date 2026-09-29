@@ -57,21 +57,25 @@ class RiftGoldenIT {
         // The upstream lives in the same engine; the golden imposter proxies to it via container localhost.
         try (Rift client = RIFT.client()) {
             client.create(imposter("upstream").port(4700)
-                    .stub(onGet("/u/1").willReturn(okJson("{\"id\":1,\"src\":\"upstream\"}"))));
+                    .stub(onGet("/u/1").willReturn(okJson("{\"id\":1,\"src\":\"upstream\"}")))
+                    .stub(onGet("/u/2").willReturn(okJson("{\"id\":2,\"src\":\"upstream\"}"))));
         }
 
-        // CAPTURE — file absent: the fixture's test drives traffic through the golden imposter, which
-        // proxies to the upstream and records it; the golden file is persisted on class close.
+        // CAPTURE — file absent: the fixture's two tests drive traffic through the golden imposter, which
+        // proxies to the upstream and records it; the golden file is persisted on class close. Two tests
+        // prove the PER_TEST reset between them keeps the first test's recording (rift >= 0.19.0 deletes
+        // recorded stubs on DELETE savedProxyResponses, so the reset must spare the golden imposter).
         engine("junit-jupiter").selectors(selectClass(CaptureFixture.class)).execute()
-                .testEvents().assertStatistics(stats -> stats.started(1).succeeded(1).failed(0));
+                .testEvents().assertStatistics(stats -> stats.started(2).succeeded(2).failed(0));
         assertTrue(Files.exists(Path.of(GOLDEN_FILE)), "CAPTURE wrote the golden file");
 
         // Free port 4545 and delete the upstream so REPLAY starts clean with the origin genuinely gone.
         clearAllImposters();
 
-        // REPLAY — file present, upstream gone: served from the file. Green proves no network was touched.
+        // REPLAY — file present, upstream gone: served from the file. Green proves no network was touched,
+        // and the second test proves the PER_TEST reset kept the replayed stubs.
         engine("junit-jupiter").selectors(selectClass(ReplayFixture.class)).execute()
-                .testEvents().assertStatistics(stats -> stats.started(1).succeeded(1).failed(0));
+                .testEvents().assertStatistics(stats -> stats.started(2).succeeded(2).failed(0));
     }
 
     private static void clearAllImposters() throws Exception {
@@ -79,11 +83,17 @@ class RiftGoldenIT {
                 HttpResponse.BodyHandlers.discarding());
     }
 
-    private static HttpResponse<String> hitUsers() throws Exception {
+    private static HttpResponse<String> hitUser(int id) throws Exception {
         String base = System.getProperty("rift.golden.users.url");
         return HTTP.send(
-                HttpRequest.newBuilder(URI.create(base + "/u/1")).timeout(Duration.ofSeconds(5)).GET().build(),
+                HttpRequest.newBuilder(URI.create(base + "/u/" + id)).timeout(Duration.ofSeconds(5)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static void assertServed(HttpResponse<String> response, int id, String what) {
+        assertEquals(200, response.statusCode(), what + ": " + response.body());
+        assertTrue(response.body().contains("\"id\":" + id) && response.body().contains("\"src\":\"upstream\""),
+                what + ": " + response.body());
     }
 
     @RiftTest(transport = Transport.CONNECT, adminUri = "${rift.golden.admin}")
@@ -96,10 +106,13 @@ class RiftGoldenIT {
         Imposter usersImposter;
 
         @Test
-        void recordsThroughTheProxy() throws Exception {
-            HttpResponse<String> response = hitUsers();
-            assertEquals(200, response.statusCode());
-            assertTrue(response.body().contains("\"src\":\"upstream\""), "captured upstream body: " + response.body());
+        void recordsUserOneThroughTheProxy() throws Exception {
+            assertServed(hitUser(1), 1, "captured upstream body");
+        }
+
+        @Test
+        void recordsUserTwoThroughTheProxy() throws Exception {
+            assertServed(hitUser(2), 2, "captured upstream body");
         }
     }
 
@@ -113,10 +126,13 @@ class RiftGoldenIT {
         Imposter usersImposter;
 
         @Test
-        void servesFromTheGoldenFileWithoutNetwork() throws Exception {
-            HttpResponse<String> response = hitUsers();
-            assertEquals(200, response.statusCode());
-            assertTrue(response.body().contains("\"src\":\"upstream\""), "replayed body from file: " + response.body());
+        void servesUserOneFromTheGoldenFileWithoutNetwork() throws Exception {
+            assertServed(hitUser(1), 1, "replayed body from file");
+        }
+
+        @Test
+        void servesUserTwoFromTheGoldenFileWithoutNetwork() throws Exception {
+            assertServed(hitUser(2), 2, "replayed body from file");
         }
     }
 }

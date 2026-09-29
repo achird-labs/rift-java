@@ -153,6 +153,13 @@ public interface Imposter {
      */
     void clearRecorded(MatchClause... filters);
 
+    /**
+     * Clears what this imposter's proxies have saved ({@code DELETE /imposters/{port}/savedProxyResponses}).
+     *
+     * <p>From rift 0.19.0 this also deletes every stub a proxy recorded (one carrying {@code
+     * recordedFrom}, e.g. from {@code predicateGenerators}), matching Mountebank; stubs you declared
+     * are kept. Through 0.18.x the recorded stubs survived the call.
+     */
     void clearProxyResponses();
 
     Scenarios scenarios();

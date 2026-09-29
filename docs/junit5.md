@@ -104,6 +104,12 @@ class's single shared `Rift` client.
 Reset only touches imposters declared via `@RiftImposter`; imposters created ad hoc inside a test
 method (`rift.create(...)`) are the test's own responsibility to clean up.
 
+Clearing proxy responses removes what an imposter's proxy recorded: since rift 0.19.0 that includes
+the stubs the proxy recorded (those carrying `recordedFrom`), not only its saved responses, so a
+`record()` imposter re-reaches its upstream after every reset. The one exception is the
+[`@RiftGolden`](#golden-files-riftgolden) imposter, whose recorded stubs are the golden fixture:
+reset still clears its recorded requests and scenario state, but keeps its recorded stubs.
+
 ```java
 @RiftTest(reset = Reset.PER_CLASS)
 class SharedStateTest {
@@ -254,6 +260,10 @@ class UsersGoldenTest {
 - **file present → REPLAY**: the recorded stubs are loaded from `file` and served directly — no
   network, so CI (which has the committed golden file) never touches the origin.
 - `-Drift.golden=recapture` forces CAPTURE even when the file exists (refresh the recording).
+- The `Reset` policy never removes the golden imposter's recorded stubs, in either mode: CAPTURE
+  accumulates every test method's recordings into the one file, and REPLAY serves the file to every
+  test method. (Before rift-java 0.3.4, on rift 0.19.0+, a `PER_TEST` reset deleted them — REPLAY
+  served nothing and CAPTURE kept only the last method's traffic.)
 
 Commit the golden file. The persisted format is the engine's replayable imposter JSON — portable
 across the rift SDKs and loadable by `rift --configfile`. `@RiftGolden` targets the sole

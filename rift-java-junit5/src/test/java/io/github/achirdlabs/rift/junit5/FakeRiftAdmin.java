@@ -28,6 +28,7 @@ final class FakeRiftAdmin implements AutoCloseable {
         final int port;
         final List<String> savedRequests = new CopyOnWriteArrayList<>();
         final AtomicInteger stubAdds = new AtomicInteger();
+        final AtomicInteger proxyResponseClears = new AtomicInteger();
 
         ImposterState(int port) {
             this.port = port;
@@ -125,6 +126,12 @@ final class FakeRiftAdmin implements AutoCloseable {
                     return "{}";
                 }
                 return savedRequestsJson(state);
+            }
+            if (path.endsWith("/savedProxyResponses") && method.equals("DELETE")) {
+                if (state != null) {
+                    state.proxyResponseClears.incrementAndGet();
+                }
+                return "{}";
             }
             if (path.endsWith("/stubs") && method.equals("POST") && state != null) {
                 state.stubAdds.incrementAndGet();
