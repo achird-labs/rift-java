@@ -20,7 +20,10 @@ import java.net.ProxySelector;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 /**
  * {@link Intercept} over a {@link RiftTransport}: every method is a thin JSON-shape translation
@@ -33,6 +36,8 @@ final class InterceptImpl implements Intercept {
     private final RiftTransport transport;
     private final InetSocketAddress address;
     private final URI uri;
+    private final Optional<URI> engineAddress;
+    private final InetSocketAddress engineBound;
     private final CaMaterial caMaterial;
 
     private volatile InterceptTrust trust;
@@ -48,21 +53,30 @@ final class InterceptImpl implements Intercept {
             "rejects the rule ('did not match any variant')", "collapse the header to one value");
 
     InterceptImpl(RiftTransport transport, JsonValue startResponse) {
-        this(transport, startResponse, requirement -> { });
+        this(transport, startResponse, UnaryOperator.identity(), requirement -> { });
     }
 
-    InterceptImpl(RiftTransport transport, JsonValue startResponse, Consumer<RiftImpl.EngineRequirement> engineGate) {
+    /**
+     * A listener started here. The engine reports the address it bound; {@code dial} maps that to
+     * where this client reaches it, which differs when the engine is on another machine.
+     */
+    InterceptImpl(RiftTransport transport, JsonValue startResponse, UnaryOperator<InetSocketAddress> dial,
+            Consumer<RiftImpl.EngineRequirement> engineGate) {
         this.transport = transport;
         this.engineGate = engineGate;
         if (!(startResponse instanceof JsonObject obj)
                 || !(obj.get("interceptPort") instanceof JsonNumber port)
                 || !(obj.get("interceptUrl") instanceof JsonString url)) {
+            // The keys, never the body: a generateCa() response carries the CA's private key.
             throw new CommunicationError(
-                    "rift engine's intercept start response is missing 'interceptPort'/'interceptUrl': "
-                            + startResponse.toJson());
+                    "rift engine's intercept start response is missing 'interceptPort'/'interceptUrl'; it has "
+                            + (startResponse instanceof JsonObject o ? o.fields().keySet() : startResponse.getClass().getSimpleName()));
         }
-        this.uri = URI.create(url.value());
-        this.address = new InetSocketAddress(uri.getHost(), port.asInt());
+        URI reported = URI.create(url.value());
+        this.engineAddress = Optional.of(reported);
+        this.engineBound = new InetSocketAddress(reported.getHost(), port.asInt());
+        this.address = Objects.requireNonNull(dial.apply(engineBound), "intercept address mapping returned null");
+        this.uri = HostAuthority.httpUri(address.getHostString(), address.getPort());
         // Present only when the listener was started with generateCa() (returnCaKey).
         this.caMaterial = (obj.get("caCertPem") instanceof JsonString cert
                 && obj.get("caKeyPem") instanceof JsonString key)
@@ -80,6 +94,8 @@ final class InterceptImpl implements Intercept {
         this.engineGate = engineGate;
         this.uri = HostAuthority.httpUri(host, port);
         this.address = new InetSocketAddress(host, port);
+        this.engineAddress = Optional.empty();
+        this.engineBound = null;
         this.caMaterial = null;
     }
 
@@ -91,6 +107,16 @@ final class InterceptImpl implements Intercept {
     @Override
     public URI uri() {
         return uri;
+    }
+
+    @Override
+    public Optional<URI> engineAddress() {
+        return engineAddress;
+    }
+
+    /** Whether the engine bound a listener started here to a loopback address; false when attached. */
+    boolean engineBoundToLoopback() {
+        return engineBound != null && engineBound.getAddress() != null && engineBound.getAddress().isLoopbackAddress();
     }
 
     @Override

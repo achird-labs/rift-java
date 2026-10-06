@@ -2,6 +2,7 @@ package io.github.achirdlabs.rift;
 
 import io.github.achirdlabs.rift.transport.HostAuthority;
 
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Objects;
@@ -11,7 +12,8 @@ import java.util.function.IntFunction;
 /**
  * Immutable configuration for {@link Rift#connect(ConnectOptions)}: where the admin API lives,
  * how to authenticate against it, and how a live imposter's own network address is derived from
- * its protocol and port ({@link HostResolver}).
+ * its protocol and port ({@link HostResolver}), and where a runtime-started intercept listener is
+ * reached ({@link Builder#interceptAddress(IntFunction)}).
  *
  * <p>There is no outbound TLS trust setting here ({@link UpstreamTrust}): a connected engine was
  * configured by whoever started it, so pass {@code --upstream-ca-file} to {@code rift} there.
@@ -23,18 +25,21 @@ public final class ConnectOptions {
     private final Duration requestTimeout;
     private final VersionCheck versionCheck;
     private final HostResolver hostResolver;
+    private final Optional<IntFunction<InetSocketAddress>> interceptAddress;
 
     private ConnectOptions(
             URI adminUri,
             Optional<String> apiKey,
             Duration requestTimeout,
             VersionCheck versionCheck,
-            HostResolver hostResolver) {
+            HostResolver hostResolver,
+            Optional<IntFunction<InetSocketAddress>> interceptAddress) {
         this.adminUri = adminUri;
         this.apiKey = apiKey;
         this.requestTimeout = requestTimeout;
         this.versionCheck = versionCheck;
         this.hostResolver = hostResolver;
+        this.interceptAddress = interceptAddress;
     }
 
     public static Builder builder(URI adminUri) {
@@ -61,6 +66,14 @@ public final class ConnectOptions {
         return hostResolver;
     }
 
+    /**
+     * The override of where a runtime-started intercept listener is reached, if one was set; see
+     * {@link Builder#interceptAddress(IntFunction)}.
+     */
+    public Optional<IntFunction<InetSocketAddress>> interceptAddress() {
+        return interceptAddress;
+    }
+
     public static final class Builder {
 
         private final URI adminUri;
@@ -68,6 +81,7 @@ public final class ConnectOptions {
         private Duration requestTimeout = Duration.ofSeconds(30);
         private VersionCheck versionCheck = VersionCheck.resolveDefault();
         private HostResolver hostResolver;
+        private Optional<IntFunction<InetSocketAddress>> interceptAddress = Optional.empty();
 
         private Builder(URI adminUri) {
             this.adminUri = Objects.requireNonNull(adminUri, "adminUri");
@@ -111,8 +125,25 @@ public final class ConnectOptions {
             return this;
         }
 
+        /**
+         * Overrides where the client reaches an intercept listener started at runtime ({@link
+         * Rift#intercept(InterceptOptions)}), given the port the engine bound it on. Unset, the
+         * engine's reported bind address is used, with a wildcard bind ({@code 0.0.0.0}, {@code [::]})
+         * replaced by the admin host; set it when the engine's ports are remapped, as in a container.
+         *
+         * <p>Separate from {@link #hostResolver(HostResolver)} because the listener is a {@code
+         * CONNECT} proxy, never an imposter's HTTP base URI. It is also asked about the requested port
+         * before the listener starts, so throwing for a port it cannot reach (an unexposed container
+         * port, or {@code 0}) refuses the start with nothing started. Not consulted for an engine the
+         * SDK runs itself, nor for an {@link InterceptOptions#attach attached} listener.
+         */
+        public Builder interceptAddress(IntFunction<InetSocketAddress> interceptAddress) {
+            this.interceptAddress = Optional.of(Objects.requireNonNull(interceptAddress, "interceptAddress"));
+            return this;
+        }
+
         public ConnectOptions build() {
-            return new ConnectOptions(adminUri, apiKey, requestTimeout, versionCheck, hostResolver);
+            return new ConnectOptions(adminUri, apiKey, requestTimeout, versionCheck, hostResolver, interceptAddress);
         }
 
         /**

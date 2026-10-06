@@ -6,6 +6,7 @@ import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A live intercept (TLS-MITM forward-proxy) listener: point an HTTPS client's proxy at
@@ -24,6 +25,15 @@ public interface Intercept extends AutoCloseable {
 
     /** The intercept listener's base URL. */
     URI uri();
+
+    /**
+     * The address the engine reported binding the listener to, for diagnostics; empty for an {@link
+     * InterceptOptions#attach attached} listener, whose engine-side address is never reported. On a
+     * connected engine it can differ from {@link #address()}, which is where this client dials.
+     */
+    default Optional<URI> engineAddress() {
+        return Optional.empty();
+    }
 
     /** A {@link ProxySelector} routing every request through this intercept — convenience for {@code java.net.http.HttpClient}. */
     ProxySelector proxySelector();
