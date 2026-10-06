@@ -15,10 +15,15 @@ import io.github.achirdlabs.rift.model.ResponseMode;
 import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
+import java.io.ByteArrayInputStream;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -90,13 +95,50 @@ final class InterceptImpl implements Intercept {
 
     /** Attach mode, with the engine-version check {@link RiftImpl} supplies. */
     InterceptImpl(RiftTransport transport, String host, int port, Consumer<RiftImpl.EngineRequirement> engineGate) {
+        this(transport, host, port, null, engineGate);
+    }
+
+    /** Attach mode, carrying the CA the caller started the listener with ({@code null} when not given). */
+    InterceptImpl(RiftTransport transport, String host, int port, CaMaterial ca,
+            Consumer<RiftImpl.EngineRequirement> engineGate) {
         this.transport = transport;
         this.engineGate = engineGate;
         this.uri = HostAuthority.httpUri(host, port);
         this.address = new InetSocketAddress(host, port);
         this.engineAddress = Optional.empty();
         this.engineBound = null;
-        this.caMaterial = null;
+        this.caMaterial = ca;
+    }
+
+    /**
+     * Refuses an attach whose supplied CA is not the one the listener serves. Certificates are
+     * compared as DER: the engine serves its own PEM rendering of the same certificate.
+     */
+    static void requireListenerCa(CaMaterial supplied, String servedPem) {
+        byte[] suppliedDer;
+        try {
+            suppliedDer = firstCertificate(supplied.certPem());
+        } catch (CertificateException e) {
+            throw new InvalidDefinition("the CA given to InterceptOptions.attach is not a PEM certificate: " + e.getMessage(), e);
+        }
+        byte[] servedDer;
+        try {
+            servedDer = firstCertificate(servedPem);
+        } catch (CertificateException e) {
+            throw new CommunicationError("the intercept listener's CA (GET /intercept/ca.pem) is not a PEM certificate: "
+                    + e.getMessage(), e);
+        }
+        if (!Arrays.equals(suppliedDer, servedDer)) {
+            throw new InvalidDefinition("the CA given to InterceptOptions.attach does not match the listener's CA (GET"
+                    + " /intercept/ca.pem): the listener was started with another CA, so a client trusting the given one"
+                    + " would fail its TLS handshake");
+        }
+    }
+
+    private static byte[] firstCertificate(String pem) throws CertificateException {
+        return CertificateFactory.getInstance("X.509")
+                .generateCertificate(new ByteArrayInputStream(pem.getBytes(StandardCharsets.UTF_8)))
+                .getEncoded();
     }
 
     @Override

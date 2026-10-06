@@ -1,18 +1,27 @@
 package io.github.achirdlabs.rift.testcontainers;
 
+import io.github.achirdlabs.rift.Intercept;
+import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.UpstreamTrust;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.UncheckedIOException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -225,6 +234,130 @@ class RiftContainerTest {
         try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
             assertThrows(IllegalStateException.class, container::interceptOptions);
         }
+    }
+
+    @Test
+    void interceptCaFilesAreCopiedIntoTheContainerAndNamedToTheEngine(@TempDir Path dir) throws Exception {
+        Path cert = Files.writeString(dir.resolve("ca.pem"), "CERT-PEM");
+        Path key = Files.writeString(dir.resolve("ca-key.pem"), "KEY-PEM");
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888).withInterceptCa(cert, key)) {
+            container.configure();
+            // The file form of --intercept-ca-cert/--intercept-ca-key; the paths are in-container.
+            assertEquals("/etc/rift/intercept-ca-cert.pem", container.getEnvMap().get("RIFT_INTERCEPT_CA_CERT"));
+            assertEquals("/etc/rift/intercept-ca-key.pem", container.getEnvMap().get("RIFT_INTERCEPT_CA_KEY"));
+            assertEquals(Map.of("/etc/rift/intercept-ca-cert.pem", "CERT-PEM", "/etc/rift/intercept-ca-key.pem", "KEY-PEM"),
+                    copiedIntoTheContainer(container), "the host files' contents are what the container receives");
+        }
+    }
+
+    @Test
+    void inlineInterceptCaIsWrittenIntoTheContainer() throws Exception {
+        try (RiftContainer container = new RiftContainer().withInterceptCa("CERT-PEM", "KEY-PEM").withInterceptPort(8888)) {
+            container.configure();
+            assertEquals("/etc/rift/intercept-ca-cert.pem", container.getEnvMap().get("RIFT_INTERCEPT_CA_CERT"));
+            assertEquals("/etc/rift/intercept-ca-key.pem", container.getEnvMap().get("RIFT_INTERCEPT_CA_KEY"));
+            assertEquals(Map.of("/etc/rift/intercept-ca-cert.pem", "CERT-PEM", "/etc/rift/intercept-ca-key.pem", "KEY-PEM"),
+                    copiedIntoTheContainer(container));
+        }
+    }
+
+    @Test
+    void theAttachOptionsCarryTheCaThatWasCopiedIn(@TempDir Path dir) throws Exception {
+        Path cert = Files.writeString(dir.resolve("ca.pem"), "CERT-PEM");
+        Path key = Files.writeString(dir.resolve("ca-key.pem"), "KEY-PEM");
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888).withInterceptCa(cert, key)) {
+            container.configure();
+            // Changing the files after the start must not change what the attach claims the listener runs.
+            Files.writeString(cert, "EDITED-AFTER-START");
+            InterceptOptions options = container.attachOptions("localhost", 49152);
+            assertEquals(new Intercept.CaMaterial("CERT-PEM", "KEY-PEM"), attachCa(options));
+        }
+    }
+
+    @Test
+    void theAttachOptionsCarryNoCaWhenNoneWasCommitted() throws Exception {
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888)) {
+            container.configure();
+            assertNull(attachCa(container.attachOptions("localhost", 49152)));
+        }
+    }
+
+    @Test
+    void interceptCaFilesAreReadWhenTheContainerStartsNotWhenDeclared(@TempDir Path dir) {
+        // A static @Container field is built before the test can create the file; reading must wait.
+        Path missing = dir.resolve("not-yet.pem");
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888).withInterceptCa(missing, missing)) {
+            UncheckedIOException e = assertThrows(UncheckedIOException.class, container::configure);
+            assertTrue(e.getMessage().contains("not-yet.pem"), e.getMessage());
+        }
+    }
+
+    @Test
+    void anUnreadableInterceptCaKeyIsNamed(@TempDir Path dir) throws Exception {
+        Path cert = Files.writeString(dir.resolve("ca.pem"), "CERT-PEM");
+        Path missingKey = dir.resolve("missing-key.pem");
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888).withInterceptCa(cert, missingKey)) {
+            UncheckedIOException e = assertThrows(UncheckedIOException.class, container::configure);
+            assertTrue(e.getMessage().contains("missing-key.pem"), e.getMessage());
+        }
+    }
+
+    @Test
+    void interceptCaWithoutAnyInterceptListenerIsRejected() {
+        // The engine reads the CA env only when it launches a listener; without one it ignores it silently.
+        try (RiftContainer container = new RiftContainer().withInterceptCa("CERT", "KEY")) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, container::configure);
+            assertTrue(e.getMessage().startsWith("withInterceptCa needs withInterceptPort"), e.getMessage());
+        }
+    }
+
+    @Test
+    void interceptCaWithARuntimeListenerPointsAtTheStartOptions() {
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889).withInterceptCa("CERT", "KEY")) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, container::configure);
+            assertTrue(e.getMessage().contains("InterceptOptions.builder().ca(...)"), e.getMessage());
+        }
+    }
+
+    @Test
+    void noInterceptCaConfiguresNothing() throws Exception {
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888)) {
+            container.configure();
+            assertFalse(container.getEnvMap().containsKey("RIFT_INTERCEPT_CA_CERT"));
+            assertFalse(container.getEnvMap().containsKey("RIFT_INTERCEPT_CA_KEY"));
+            assertEquals(Map.of(), copiedIntoTheContainer(container));
+        }
+    }
+
+    @Test
+    void aLaterInterceptCaReplacesAnEarlierOne() throws Exception {
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888)
+                .withInterceptCa("OLD", "OLD-KEY").withInterceptCa("NEW", "NEW-KEY")) {
+            container.configure();
+            assertEquals(Map.of("/etc/rift/intercept-ca-cert.pem", "NEW", "/etc/rift/intercept-ca-key.pem", "NEW-KEY"),
+                    copiedIntoTheContainer(container));
+        }
+    }
+
+    /**
+     * What {@code withCopyToContainer} registered, by in-container path. Testcontainers keeps that map
+     * package-private, and asserting it, not our own field, is what proves the copy happens.
+     */
+    private static Map<String, String> copiedIntoTheContainer(RiftContainer container) throws Exception {
+        Method getter = GenericContainer.class.getDeclaredMethod("getCopyToTransferableContainerPathMap");
+        getter.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<Transferable, String> copies = (Map<Transferable, String>) getter.invoke(container);
+        Map<String, String> byPath = new HashMap<>();
+        copies.forEach((content, path) -> byPath.put(path, new String(content.getBytes(), StandardCharsets.UTF_8)));
+        return byPath;
+    }
+
+    /** The CA an attach carries; core keeps the accessor package-private. */
+    private static Intercept.CaMaterial attachCa(InterceptOptions options) throws Exception {
+        Method getter = InterceptOptions.class.getDeclaredMethod("attachCa");
+        getter.setAccessible(true);
+        return (Intercept.CaMaterial) getter.invoke(options);
     }
 
     @Test

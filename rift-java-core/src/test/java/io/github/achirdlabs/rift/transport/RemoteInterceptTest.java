@@ -5,6 +5,8 @@ import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.VersionCheck;
+import io.github.achirdlabs.rift.error.CommunicationError;
+import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -279,6 +281,85 @@ class RemoteInterceptTest {
 
             assertEquals("127.0.0.1", intercept.address().getHostString());
             assertEquals(9443, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void attachCarriesTheSuppliedCaOnceItMatchesTheListener() throws Exception {
+        server.respond("GET /intercept/ca.pem", 200, resource("test-inmemory-ca-cert.pem"));
+        Intercept.CaMaterial ca = new Intercept.CaMaterial(resource("test-inmemory-ca-cert.pem"), "THE-KEY");
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, ca));
+
+            assertEquals(Optional.of(ca), intercept.caMaterial(), "attach hands back what the caller gave the listener");
+            assertTrue(sawRequest("GET", "/intercept/ca.pem"), "checked against the listener's CA");
+            assertTrue(server.received().stream().noneMatch(r -> r.path().equals("/intercept")),
+                    "attach never starts a listener");
+        }
+    }
+
+    @Test
+    void anIdenticalCertificateInADifferentPemEncodingMatches() throws Exception {
+        // The engine serves its own PEM rendering; the same certificate must match whatever the line endings.
+        server.respond("GET /intercept/ca.pem", 200, resource("test-inmemory-ca-cert.pem").replace("\n", "\r\n") + "\n\n");
+        Intercept.CaMaterial ca = new Intercept.CaMaterial(resource("test-inmemory-ca-cert.pem"), "THE-KEY");
+        try (Rift rift = connect()) {
+            assertEquals(Optional.of(ca), rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, ca)).caMaterial());
+        }
+    }
+
+    @Test
+    void attachWithACaTheListenerIsNotUsingIsRefusedAndRetryable() throws Exception {
+        server.respond("GET /intercept/ca.pem", 200, resource("test-intercept-ca.pem"));
+        Intercept.CaMaterial wrong = new Intercept.CaMaterial(resource("test-inmemory-ca-cert.pem"), "THE-KEY");
+        try (Rift rift = connect()) {
+            InvalidDefinition e = assertThrows(InvalidDefinition.class,
+                    () -> rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, wrong)));
+            assertTrue(e.getMessage().contains("does not match"), e.getMessage());
+
+            // Nothing was started or claimed: attaching with the listener's real CA still works.
+            Intercept.CaMaterial right = new Intercept.CaMaterial(resource("test-intercept-ca.pem"), "THE-KEY");
+            assertEquals(Optional.of(right), rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, right)).caMaterial());
+        }
+    }
+
+    @Test
+    void attachWithASuppliedCertThatIsNotACertificateIsRefused() {
+        try (Rift rift = connect()) {
+            InvalidDefinition e = assertThrows(InvalidDefinition.class, () -> rift.intercept(
+                    InterceptOptions.attach("127.0.0.1", 9443, new Intercept.CaMaterial("not a certificate", "k"))));
+            assertTrue(e.getMessage().contains("certificate"), e.getMessage());
+        }
+    }
+
+    @Test
+    void aListenerServingSomethingOtherThanACertificateIsACommunicationError() throws Exception {
+        server.respond("GET /intercept/ca.pem", 200, "not a certificate");
+        Intercept.CaMaterial ca = new Intercept.CaMaterial(resource("test-inmemory-ca-cert.pem"), "THE-KEY");
+        try (Rift rift = connect()) {
+            CommunicationError e = assertThrows(CommunicationError.class,
+                    () -> rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, ca)));
+            assertTrue(e.getMessage().contains("GET /intercept/ca.pem"), e.getMessage());
+        }
+    }
+
+    @Test
+    void attachWithoutACaHasNoCaMaterialAndChecksNothing() {
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.attach("127.0.0.1", 9443));
+
+            assertEquals(Optional.empty(), intercept.caMaterial());
+            assertFalse(sawRequest("GET", "/intercept/ca.pem"));
+        }
+    }
+
+    private Rift connect() {
+        return Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build());
+    }
+
+    private static String resource(String name) throws java.io.IOException {
+        try (var in = RemoteInterceptTest.class.getClassLoader().getResourceAsStream(name)) {
+            return new String(java.util.Objects.requireNonNull(in, name).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 

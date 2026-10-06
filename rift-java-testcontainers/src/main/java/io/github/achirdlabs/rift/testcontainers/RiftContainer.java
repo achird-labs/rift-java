@@ -2,6 +2,7 @@ package io.github.achirdlabs.rift.testcontainers;
 
 import io.github.achirdlabs.rift.ConnectOptions;
 import io.github.achirdlabs.rift.HostResolver;
+import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.RiftVersion;
@@ -19,8 +20,10 @@ import java.lang.System.Logger.Level;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -56,6 +59,12 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     static final String UPSTREAM_CA_PATH = "/etc/rift/upstream-ca.pem";
     private static final String UPSTREAM_CA_FILE_ENV = "RIFT_UPSTREAM_CA_FILE";
     private static final String UPSTREAM_TLS_SKIP_VERIFY_ENV = "RIFT_UPSTREAM_TLS_SKIP_VERIFY";
+    /** Where a committed intercept CA's certificate is written inside the container. Package-private for tests. */
+    static final String INTERCEPT_CA_CERT_PATH = "/etc/rift/intercept-ca-cert.pem";
+    /** Where a committed intercept CA's key is written inside the container. Package-private for tests. */
+    static final String INTERCEPT_CA_KEY_PATH = "/etc/rift/intercept-ca-key.pem";
+    private static final String INTERCEPT_CA_CERT_ENV = "RIFT_INTERCEPT_CA_CERT";
+    private static final String INTERCEPT_CA_KEY_ENV = "RIFT_INTERCEPT_CA_KEY";
     /** An image tag that declares an engine version ({@code v0.18.0}, {@code 0.18.0-static}), as opposed to {@code latest}. */
     private static final Pattern VERSION_TAG = Pattern.compile("[vV]?\\d+(\\.\\d+){0,2}([-+].*)?");
 
@@ -63,6 +72,10 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     private Optional<String> apiKey = Optional.empty();
     private boolean gateway = false;
     private Optional<InterceptListener> interceptListener = Optional.empty();
+    /** Reads the committed intercept CA; deferred to the start, as a file may not exist before. */
+    private Optional<Supplier<Intercept.CaMaterial>> interceptCa = Optional.empty();
+    /** The committed CA as read and copied in at the start; what an attach hands back. */
+    private Optional<Intercept.CaMaterial> launchedCa = Optional.empty();
     private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
 
     /** Uses {@code zainalpour/rift-proxy:v}{@link #ENGINE_VERSION}. */
@@ -183,13 +196,74 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     }
 
     /**
+     * Launches the {@link #withInterceptPort(int) intercept listener} with a committed CA instead of an
+     * ephemeral one, so a system under test in its own container can trust it before it starts. The
+     * files are read when the container starts (an unreadable one fails the start), copied in, and
+     * named to the engine ({@code RIFT_INTERCEPT_CA_CERT}/{@code _KEY}). {@link #interceptOptions()}
+     * then carries the pair as copied, so the attached handle's {@code caMaterial()} returns it. A
+     * later call replaces an earlier one; set it before the first start, since a restarted container
+     * keeps what was copied in before.
+     *
+     * <p>Needs {@link #withInterceptPort(int)}: the engine reads the CA only when it launches a
+     * listener. A listener started at runtime ({@link #withExposedInterceptPort(int)}) takes its CA
+     * in the start, {@code InterceptOptions.builder().ca(...)}.
+     */
+    public RiftContainer withInterceptCa(Path certPem, Path keyPem) {
+        Objects.requireNonNull(certPem, "certPem");
+        Objects.requireNonNull(keyPem, "keyPem");
+        this.interceptCa = Optional.of(() -> new Intercept.CaMaterial(readCaFile(certPem), readCaFile(keyPem)));
+        return self();
+    }
+
+    /** {@link #withInterceptCa(Path, Path)} from PEM text. */
+    public RiftContainer withInterceptCa(String certPem, String keyPem) {
+        Intercept.CaMaterial ca = new Intercept.CaMaterial(Objects.requireNonNull(certPem, "certPem"),
+                Objects.requireNonNull(keyPem, "keyPem"));
+        this.interceptCa = Optional.of(() -> ca);
+        return self();
+    }
+
+    private static String readCaFile(Path file) {
+        try {
+            return Files.readString(file);
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read the intercept CA file " + file
+                    + " to copy into the rift container: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Reads the committed intercept CA for the launch, refusing it when no listener is launched: the
+     * engine reads the CA only then, and ignores it silently otherwise. Package-private for tests.
+     */
+    Optional<Intercept.CaMaterial> launchedInterceptCa() {
+        if (interceptCa.isEmpty()) {
+            return Optional.empty();
+        }
+        if (interceptListener.filter(InterceptListener::atLaunch).isEmpty()) {
+            throw new IllegalArgumentException(interceptListener.isPresent()
+                    ? "withInterceptCa applies to a listener launched with the engine (withInterceptPort); one started"
+                            + " at runtime (withExposedInterceptPort) takes its CA in InterceptOptions.builder().ca(...)"
+                    : "withInterceptCa needs withInterceptPort: the engine reads the CA only when it launches a listener");
+        }
+        return Optional.of(interceptCa.get().get());
+    }
+
+    /** Attach options for the launched listener reached at {@code host:mappedPort}. Package-private for tests. */
+    InterceptOptions attachOptions(String host, int mappedPort) {
+        return launchedCa
+                .map(ca -> InterceptOptions.attach(host, mappedPort, ca))
+                .orElseGet(() -> InterceptOptions.attach(host, mappedPort));
+    }
+
+    /**
      * Attach options for the intercept listener started by {@link #withInterceptPort(int)}, pointed at
      * the mapped host:port. Pass to {@code client().intercept(...)}. Valid only once the container is started.
      */
     public InterceptOptions interceptOptions() {
         InterceptListener listener = interceptListener.filter(InterceptListener::atLaunch).orElseThrow(() ->
                 new IllegalStateException("no intercept listener configured — call withInterceptPort(...) first"));
-        return InterceptOptions.attach(getHost(), getMappedPort(listener.port()));
+        return attachOptions(getHost(), getMappedPort(listener.port()));
     }
 
     /**
@@ -240,6 +314,13 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
         if (upstreamTrust.orElse(null) instanceof UpstreamTrust.SkipVerify) {
             withEnv(UPSTREAM_TLS_SKIP_VERIFY_ENV, "true");
         }
+        launchedCa = launchedInterceptCa();
+        launchedCa.ifPresent(ca -> {
+            withCopyToContainer(Transferable.of(ca.certPem()), INTERCEPT_CA_CERT_PATH);
+            withCopyToContainer(Transferable.of(ca.keyPem()), INTERCEPT_CA_KEY_PATH);
+            withEnv(INTERCEPT_CA_CERT_ENV, INTERCEPT_CA_CERT_PATH);
+            withEnv(INTERCEPT_CA_KEY_ENV, INTERCEPT_CA_KEY_PATH);
+        });
     }
 
     /** The CA PEM to copy to {@link #UPSTREAM_CA_PATH}, if the policy names one. Package-private for tests. */

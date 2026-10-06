@@ -424,7 +424,11 @@ final class RiftImpl implements Rift {
                 // No listener to start: probe the already-running one (started at engine launch via
                 // --intercept-port), then bind to the given endpoint.
                 transport.interceptListRules();
-                return new InterceptImpl(transport, options.host(), options.port(), this::requireEngineSupportOf);
+                Intercept.CaMaterial ca = options.attachCa();
+                if (ca != null) {
+                    InterceptImpl.requireListenerCa(ca, transport.interceptCaPem());
+                }
+                return new InterceptImpl(transport, options.host(), options.port(), ca, this::requireEngineSupportOf);
             }
             // Asked before the start, so a mapping that cannot reach the port (an unexposed container
             // port) refuses with nothing started to orphan.

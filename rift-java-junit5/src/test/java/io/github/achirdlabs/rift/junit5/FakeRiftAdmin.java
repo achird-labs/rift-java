@@ -43,6 +43,8 @@ final class FakeRiftAdmin implements AutoCloseable {
     final AtomicInteger interceptStarts = new AtomicInteger();
     final AtomicInteger interceptRuleAdds = new AtomicInteger();
     final AtomicInteger interceptRuleClears = new AtomicInteger();
+    /** The body of the last {@code POST /intercept}, or null if none was sent. */
+    volatile String lastInterceptStart;
 
     FakeRiftAdmin() {
         try {
@@ -73,7 +75,10 @@ final class FakeRiftAdmin implements AutoCloseable {
     private void dispatch(HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
         String path = exchange.getRequestURI().getRawPath();
-        exchange.getRequestBody().readAllBytes(); // drain
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        if (path.equals("/intercept") && method.equals("POST")) {
+            lastInterceptStart = body;
+        }
         String response = route(method, path);
         byte[] out = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");

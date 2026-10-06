@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,21 @@ class InterceptOptionsAttachTest {
         assertTrue(options.isAttach());
         assertEquals("127.0.0.1", options.host());
         assertEquals(8888, options.port());
+    }
+
+    @Test
+    void attachWithACaCarriesItAndStillSendsNoStartBody() {
+        Intercept.CaMaterial ca = new Intercept.CaMaterial("CERT", "KEY");
+        InterceptOptions options = InterceptOptions.attach("127.0.0.1", 8888, ca);
+        assertTrue(options.isAttach());
+        assertEquals(ca, options.attachCa());
+        assertEquals(8888, options.port());
+    }
+
+    @Test
+    void plainAttachCarriesNoCa() {
+        assertNull(InterceptOptions.attach("127.0.0.1", 8888).attachCa());
+        assertNull(InterceptOptions.builder().build().attachCa());
     }
 
     @Test

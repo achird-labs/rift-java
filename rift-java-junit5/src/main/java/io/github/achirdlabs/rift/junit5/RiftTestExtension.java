@@ -397,13 +397,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
         if (config == null) {
             return;
         }
-        InterceptOptions.Builder options = InterceptOptions.builder().host(config.host()).port(config.port());
-        String caCert = resolvePlaceholder(config.caCert());
-        String caKey = resolvePlaceholder(config.caKey());
-        if (!caCert.isEmpty() || !caKey.isEmpty()) {
-            options.ca(caCert.isEmpty() ? null : Path.of(caCert), caKey.isEmpty() ? null : Path.of(caKey));
-        }
-        Intercept intercept = rift.intercept(options.build());
+        Intercept intercept = rift.intercept(interceptOptions(config));
         ctx.setIntercept(intercept);
 
         String export = resolvePlaceholder(config.exportTruststore());
@@ -411,6 +405,45 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
             intercept.trust().exportTruststore(config.exportFormat(), config.exportPassword(), Path.of(export));
         }
         applyInterceptRules(testClass, ctx);
+    }
+
+    /** The options {@code config} describes, refusing a combination that cannot work. Package-private for tests. */
+    static InterceptOptions interceptOptions(RiftIntercept config) {
+        String caCert = resolvePlaceholder(config.caCert());
+        String caKey = resolvePlaceholder(config.caKey());
+        if (config.attach()) {
+            if (config.port() == 0) {
+                throw new IllegalStateException("@RiftIntercept(attach = true) needs the running listener's port");
+            }
+            if (config.inlineCa()) {
+                throw new IllegalStateException("@RiftIntercept(attach = true) cannot take inlineCa: the running listener"
+                        + " already has its CA");
+            }
+            // The declared values, not the resolved ones: an unset ${property} must not slip past.
+            if (!config.caCert().isEmpty() || !config.caKey().isEmpty()) {
+                throw new IllegalStateException("@RiftIntercept(attach = true) cannot take caCert/caKey: the running"
+                        + " listener already has its CA");
+            }
+            return InterceptOptions.attach(config.host(), config.port());
+        }
+        InterceptOptions.Builder options = InterceptOptions.builder().host(config.host()).port(config.port());
+        if (config.inlineCa()) {
+            if (caCert.isEmpty() || caKey.isEmpty()) {
+                throw new IllegalStateException("@RiftIntercept(inlineCa = true) needs both caCert and caKey");
+            }
+            options.ca(readCaPem(caCert), readCaPem(caKey));
+        } else if (!caCert.isEmpty() || !caKey.isEmpty()) {
+            options.ca(caCert.isEmpty() ? null : Path.of(caCert), caKey.isEmpty() ? null : Path.of(caKey));
+        }
+        return options.build();
+    }
+
+    private static String readCaPem(String path) {
+        try {
+            return Files.readString(Path.of(path));
+        } catch (IOException e) {
+            throw new IllegalStateException("@RiftIntercept(inlineCa = true) cannot read " + path + ": " + e.getMessage(), e);
+        }
     }
 
     private static void applyInterceptRules(Class<?> testClass, RiftTestContext ctx) {

@@ -41,9 +41,12 @@ public final class InterceptOptions {
     private final String caKeyPem;
     private final boolean returnCaKey;
     private final boolean attach;
+    /** The CA the caller says an attached listener runs with; null when not given (or not attaching). */
+    private final Intercept.CaMaterial attachCa;
 
     private InterceptOptions(String host, int port, Path caCertPath, Path caKeyPath,
-                             String caCertPem, String caKeyPem, boolean returnCaKey, boolean attach) {
+                             String caCertPem, String caKeyPem, boolean returnCaKey, boolean attach,
+                             Intercept.CaMaterial attachCa) {
         this.host = host;
         this.port = port;
         this.caCertPath = caCertPath;
@@ -52,6 +55,7 @@ public final class InterceptOptions {
         this.caKeyPem = caKeyPem;
         this.returnCaKey = returnCaKey;
         this.attach = attach;
+        this.attachCa = attachCa;
     }
 
     public static Builder builder() {
@@ -66,7 +70,25 @@ public final class InterceptOptions {
      */
     public static InterceptOptions attach(String host, int port) {
         Objects.requireNonNull(host, "host");
-        return new InterceptOptions(host, port, null, null, null, null, false, true);
+        return new InterceptOptions(host, port, null, null, null, null, false, true, null);
+    }
+
+    /**
+     * {@link #attach(String, int)} to a listener the caller started with {@code ca} (a container's
+     * committed CA, say), so {@link Intercept#caMaterial()} hands that pair back — to give a second
+     * container, for instance. The engine never returns a key it was given, so this is the only way
+     * the handle can carry one. The attach checks the listener's served certificate against {@code
+     * ca}'s and refuses a mismatch, which would otherwise surface as a failed TLS handshake in the SUT.
+     */
+    public static InterceptOptions attach(String host, int port, Intercept.CaMaterial ca) {
+        Objects.requireNonNull(host, "host");
+        Objects.requireNonNull(ca, "ca");
+        return new InterceptOptions(host, port, null, null, null, null, false, true, ca);
+    }
+
+    /** The CA given to {@link #attach(String, int, Intercept.CaMaterial)}, or null. */
+    Intercept.CaMaterial attachCa() {
+        return attachCa;
     }
 
     /** Whether these options attach to an already-running listener rather than starting one. */
@@ -185,7 +207,7 @@ public final class InterceptOptions {
                 throw new IllegalArgumentException(
                         "generateCa() cannot be combined with a supplied CA via ca(...)");
             }
-            return new InterceptOptions(host, port, caCertPath, caKeyPath, caCertPem, caKeyPem, returnCaKey, false);
+            return new InterceptOptions(host, port, caCertPath, caKeyPath, caCertPem, caKeyPem, returnCaKey, false, null);
         }
 
         /** An IPv4 literal (dotted quad, each octet 0-255) or an IPv6 literal (contains a colon). */
