@@ -273,13 +273,132 @@ class RemoteTransportCoverageTest {
     }
 
     @Test
-    void applyConfigParsesResult() {
+    void applyConfigReconcilesThroughPutImposters() {
+        // POST /admin/reload never reads a body: it reloads the engine's own sources. PUT /imposters
+        // reconciles toward the argument, the HTTP twin of rift_apply_config.
         try (FakeAdminServer s = new FakeAdminServer()) {
-            s.respond("POST /admin/reload", 200, "{\"created\":2,\"replaced\":1,\"stubPatched\":0,\"deleted\":3}");
+            s.respond("PUT /imposters", 200,
+                    "{\"imposters\":[],\"created\":[2],\"replaced\":[1],\"stubPatched\":[],\"deleted\":[3]}");
             try (Rift rift = connect(s)) {
                 var result = rift.applyConfig(JsonValue.parse("{\"imposters\":[]}"));
-                assertEquals(2, result.created());
-                assertEquals(3, result.deleted());
+                assertEquals(java.util.List.of(2), result.created());
+                assertEquals(java.util.List.of(3), result.deleted());
+            }
+            assertTrue(s.received().stream().anyMatch(r -> r.method().equals("PUT") && r.path().equals("/imposters")));
+            assertTrue(s.received().stream().noneMatch(r -> r.path().equals("/admin/reload")));
+        }
+    }
+
+    @Test
+    void applyConfigPartialFailureIsAReportNotAnException() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 500, "{\"errors\":[{\"code\":\"500\",\"type\":\"internal_error\","
+                    + "\"message\":\"Replace partially failed: 19478: Address already in use\"}],"
+                    + "\"failed\":[\"19478: Address already in use\"],"
+                    + "\"created\":[19477],\"replaced\":[],\"stubPatched\":[],\"deleted\":[]}");
+            try (Rift rift = connect(s)) {
+                var result = rift.applyConfig(JsonValue.parse("{\"imposters\":[]}"));
+                assertEquals(java.util.List.of(19477), result.created(), "what did apply is reported");
+                assertEquals(java.util.List.of(new io.github.achirdlabs.rift.ApplyResult.ApplyFailure(
+                        java.util.OptionalInt.of(19478), "Address already in use")), result.failed());
+            }
+        }
+    }
+
+    @Test
+    void applyConfigOtherServerErrorsStillThrow() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 500, "{\"errors\":[{\"message\":\"boom\"}]}");
+            try (Rift rift = connect(s)) {
+                io.github.achirdlabs.rift.error.EngineError e = assertThrows(io.github.achirdlabs.rift.error.EngineError.class,
+                        () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
+                assertEquals(500, e.code());
+            }
+        }
+    }
+
+    @Test
+    void applyConfigSendsTheConfigAsThePutBody() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 200, "{\"imposters\":[],\"created\":[],\"replaced\":[],\"stubPatched\":[],\"deleted\":[]}");
+            try (Rift rift = connect(s)) {
+                rift.applyConfig(JsonValue.parse("{\"imposters\":[{\"port\":4545,\"protocol\":\"http\"}]}"));
+            }
+            String sent = s.received().stream().filter(r -> r.method().equals("PUT")).findFirst().orElseThrow().body();
+            assertEquals(JsonValue.parse("{\"imposters\":[{\"port\":4545,\"protocol\":\"http\"}]}"), JsonValue.parse(sent));
+        }
+    }
+
+    @Test
+    void applyConfigWrapsABareArrayLikeTheEmbeddedEngineAcceptsIt() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 200, "{\"imposters\":[],\"created\":[],\"replaced\":[],\"stubPatched\":[],\"deleted\":[]}");
+            try (Rift rift = connect(s)) {
+                rift.applyConfig(JsonValue.parse("[{\"port\":4545,\"protocol\":\"http\"}]"));
+            }
+            String sent = s.received().stream().filter(r -> r.method().equals("PUT")).findFirst().orElseThrow().body();
+            assertEquals(JsonValue.parse("{\"imposters\":[{\"port\":4545,\"protocol\":\"http\"}]}"), JsonValue.parse(sent));
+        }
+    }
+
+    @Test
+    void applyConfigRejectedAsInvalidIsAnInvalidDefinition() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 400, "{\"errors\":[{\"message\":\"Invalid imposter set (imposters unchanged): dup\"}]}");
+            try (Rift rift = connect(s)) {
+                assertThrows(io.github.achirdlabs.rift.error.InvalidDefinition.class,
+                        () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
+            }
+        }
+    }
+
+    @Test
+    void aServerErrorThatOnlyLooksLikeAReportIsStillAnError() {
+        for (String body : java.util.List.of("{\"failed\":\"not an array\"}", "not json", "[\"failed\"]")) {
+            try (FakeAdminServer s = new FakeAdminServer()) {
+                s.respond("PUT /imposters", 500, body);
+                try (Rift rift = connect(s)) {
+                    io.github.achirdlabs.rift.error.EngineError e = assertThrows(io.github.achirdlabs.rift.error.EngineError.class,
+                            () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")), body);
+                    assertEquals(500, e.code());
+                }
+            }
+        }
+    }
+
+    @Test
+    void aPartialFailureReportWithoutPortListsIsStillReported() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 500, "{\"failed\":[\"4545: bind failed\"]}");
+            try (Rift rift = connect(s)) {
+                assertEquals(1, rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")).failed().size(),
+                        "a failure must never be dropped as 'no report'");
+            }
+        }
+    }
+
+    @Test
+    void applyConfigAnsweredWithABareListIsRefusedToo() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 200, "[{\"port\":4545}]");
+            try (Rift rift = connect(s)) {
+                assertThrows(io.github.achirdlabs.rift.error.EngineUnavailable.class,
+                        () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
+            }
+        }
+    }
+
+    @Test
+    void applyConfigWithoutAReportIsRefused() {
+        // Today's engines answer PUT /imposters with the imposter list only (rift#1304 adds the report).
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 200, "{\"imposters\":[{\"port\":4545,\"protocol\":\"http\"}]}");
+            try (Rift rift = connect(s)) {
+                io.github.achirdlabs.rift.error.EngineUnavailable e = assertThrows(
+                        io.github.achirdlabs.rift.error.EngineUnavailable.class,
+                        () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
+                assertTrue(e.getMessage().contains("replaceAll"), e.getMessage());
+                assertTrue(e.getMessage().contains("reconciled"), "it says the apply itself happened: " + e.getMessage());
             }
         }
     }

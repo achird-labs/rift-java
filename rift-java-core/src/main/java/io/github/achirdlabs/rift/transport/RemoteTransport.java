@@ -11,6 +11,7 @@ import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
+import io.github.achirdlabs.rift.json.JsonParseException;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 
@@ -125,9 +126,41 @@ public final class RemoteTransport implements RiftTransport {
         executeVoid("PUT", "/imposters", doc.toJson(), OptionalInt.empty());
     }
 
+    /**
+     * {@code PUT /imposters}: the same reconcile as {@code rift_apply_config}. Not {@code POST
+     * /admin/reload}, which reads no body and reloads the engine's own config sources instead. A
+     * partial failure answers {@code 500} with the report (which ports did apply, and {@code
+     * failed}); that body is returned as the report rather than mapped to an {@link EngineError}.
+     */
     @Override
     public JsonValue applyConfig(JsonValue config) {
-        return executeJson("POST", "/admin/reload", config.toJson(), OptionalInt.empty());
+        // rift_apply_config also takes a bare array of imposters; PUT /imposters takes only the object.
+        JsonValue body = config instanceof JsonArray imposters
+                ? JsonObject.builder().put("imposters", imposters).build()
+                : config;
+        HttpResponse<String> response = send("PUT", "/imposters", body.toJson());
+        if (isSuccess(response.statusCode())) {
+            return parseJsonBody(response, "PUT /imposters");
+        }
+        if (response.statusCode() == 500) {
+            Optional<JsonObject> report = applyReport(response.body());
+            if (report.isPresent()) {
+                return report.get();
+            }
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    /** A partial-failure body that carries the apply report, as opposed to an ordinary server error. */
+    private static Optional<JsonObject> applyReport(String body) {
+        try {
+            return JsonValue.parse(body) instanceof JsonObject obj && obj.get("failed") instanceof JsonArray
+                    ? Optional.of(obj)
+                    : Optional.empty();
+        } catch (JsonParseException notJson) {
+            // An unparseable 500 is an ordinary server error, mapped as one by the caller.
+            return Optional.empty();
+        }
     }
 
     @Override
