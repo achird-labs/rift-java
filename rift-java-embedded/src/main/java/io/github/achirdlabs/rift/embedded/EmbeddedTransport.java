@@ -319,6 +319,11 @@ public final class EmbeddedTransport implements RiftTransport {
     }
 
     @Override
+    public void stopIntercept() {
+        calls.stopIntercept();
+    }
+
+    @Override
     public String interceptCaPem() {
         return calls.interceptCaPem();
     }

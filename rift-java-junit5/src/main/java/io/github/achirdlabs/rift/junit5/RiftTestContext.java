@@ -122,19 +122,35 @@ final class RiftTestContext {
             return;
         }
         closed = true;
+        // Every step runs, in order, and a later failure rides along as suppressed instead of
+        // replacing an earlier one: stopping the intercept can now fail too (the engine already gone).
+        RuntimeException failure = null;
         try {
             if (goldenRecording != null) {
-                persistGolden();
+                failure = attempt(failure, this::persistGolden);
+            }
+            if (intercept != null) {
+                failure = attempt(failure, intercept::close);
             }
         } finally {
-            try {
-                if (intercept != null) {
-                    intercept.close();
-                }
-            } finally {
-                rift.close();
-            }
+            // Even an Error from the steps above must not leak the engine.
+            failure = attempt(failure, rift::close);
         }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private static RuntimeException attempt(RuntimeException failure, Runnable step) {
+        try {
+            step.run();
+        } catch (RuntimeException e) {
+            if (failure == null) {
+                return e;
+            }
+            failure.addSuppressed(e);
+        }
+        return failure;
     }
 
     /** Persist uses the transport, so it must run while the engine is still open — before {@link Rift#close()}. */

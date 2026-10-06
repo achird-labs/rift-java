@@ -428,7 +428,8 @@ final class RiftImpl implements Rift {
                 if (ca != null) {
                     InterceptImpl.requireListenerCa(ca, transport.interceptCaPem());
                 }
-                return new InterceptImpl(transport, options.host(), options.port(), ca, this::requireEngineSupportOf);
+                return new InterceptImpl(transport, options.host(), options.port(), ca, this::requireEngineSupportOf,
+                        () -> interceptStarted.set(false));
             }
             // Asked before the start, so a mapping that cannot reach the port (an unexposed container
             // port) refuses with nothing started to orphan.
@@ -443,7 +444,8 @@ final class RiftImpl implements Rift {
             throw e;
         }
         try {
-            InterceptImpl intercept = new InterceptImpl(transport, response, interceptDial(), this::requireEngineSupportOf);
+            InterceptImpl intercept = new InterceptImpl(transport, response, interceptDial(), this::requireEngineSupportOf,
+                    () -> interceptStarted.set(false));
             if (!localEngine && intercept.engineBoundToLoopback()) {
                 // Fine for an engine run beside this client, unreachable for one in a container or on
                 // another host; which it is cannot be told from here, so this warns rather than refuses.
@@ -454,11 +456,22 @@ final class RiftImpl implements Rift {
             }
             return intercept;
         } catch (RuntimeException e) {
-            // The engine is already running the listener and allows one, so the latch stays set: a
-            // retry would only be refused.
-            throw new IllegalStateException("the rift engine started an intercept listener at "
-                    + reportedInterceptUrl(response) + " but this client cannot use it (" + e.getMessage()
-                    + "); the engine runs one listener per process, so it stays until the engine stops", e);
+            // The engine is running a listener this client cannot use, and it allows one: stop it, so
+            // a retry can start another. If even that fails the latch stays set, as a retry would only
+            // be refused.
+            String started = "the rift engine started an intercept listener at " + reportedInterceptUrl(response)
+                    + " but this client cannot use it (" + e.getMessage() + ")";
+            try {
+                transport.stopIntercept();
+            } catch (RuntimeException stopFailure) {
+                IllegalStateException failure = new IllegalStateException(started + "; stopping it failed too ("
+                        + stopFailure + "), and the engine runs one listener per process, so it stays until the"
+                        + " engine stops", e);
+                failure.addSuppressed(stopFailure);
+                throw failure;
+            }
+            interceptStarted.set(false);
+            throw new IllegalStateException(started + "; it was stopped", e);
         }
     }
 

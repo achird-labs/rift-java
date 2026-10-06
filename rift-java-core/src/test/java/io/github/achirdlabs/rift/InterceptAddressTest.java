@@ -17,6 +17,7 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Where a runtime-started intercept is reached on an engine the SDK runs itself (spawn, embedded):
@@ -85,6 +86,37 @@ class InterceptAddressTest {
             assertEquals(Optional.empty(), intercept.engineAddress());
             assertEquals(9443, intercept.address().getPort());
             assertEquals(0, interceptAddressCalls.get(), "an attached endpoint is never remapped");
+        }
+    }
+
+    @Test
+    void aTransportThatCannotStopClearsTheRulesAndKeepsTheEngineClaimed() {
+        // A third-party transport predating stopIntercept: close() must still work as it did — clear
+        // the rules — and, the listener still running, keep a second start from being attempted.
+        AtomicInteger clears = new AtomicInteger();
+        RiftTransport transport = (RiftTransport) Proxy.newProxyInstance(
+                RiftTransport.class.getClassLoader(), new Class<?>[] {RiftTransport.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "startIntercept" -> JsonValue.parse(
+                            "{\"interceptPort\": 9000, \"interceptUrl\": \"http://127.0.0.1:9000\"}");
+                    case "interceptClearRules" -> {
+                        clears.incrementAndGet();
+                        yield null;
+                    }
+                    case "close" -> null;
+                    // stopIntercept falls here, like the SPI's default for a transport that lacks it.
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+        try (Rift rift = RiftImpl.spawned(transport,
+                ConnectOptions.builder(URI.create("http://127.0.0.1:2525")).versionCheck(VersionCheck.OFF).build(), () -> { })) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().build());
+            intercept.close();
+            intercept.close();
+
+            assertEquals(1, clears.get());
+            assertThrows(IllegalStateException.class, intercept::rules);
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().build()),
+                    "the listener could not be stopped, so the engine is still taken");
         }
     }
 

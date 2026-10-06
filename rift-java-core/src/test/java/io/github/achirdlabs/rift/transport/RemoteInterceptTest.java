@@ -42,6 +42,7 @@ class RemoteInterceptTest {
         server.respond("POST /intercept/rules", 200, "{}");
         server.respond("GET /intercept/rules", 200, "[]");
         server.respond("DELETE /intercept/rules", 200, "{}");
+        server.respond("DELETE /intercept", 204, "");
         server.respond("GET /intercept/ca.pem", 200, "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----");
         transport = new RemoteTransport(server.baseUri(), Optional.empty(), Duration.ofSeconds(5));
     }
@@ -171,10 +172,41 @@ class RemoteInterceptTest {
     }
 
     @Test
-    void aMappingThatFailsAfterTheStartKeepsTheListenerClaimed() {
+    void aMappingThatFailsAfterTheStartStopsTheListenerAndStaysRetryable() {
         server.respond("POST /intercept", 200, "{\"interceptPort\":40123,\"interceptUrl\":\"http://0.0.0.0:40123\","
                 + "\"caCertPem\":\"CERT\",\"caKeyPem\":\"SECRET-CA-KEY\"}");
-        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+        try (Rift rift = Rift.connect(failingAfterTheStart())) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> rift.intercept(InterceptOptions.builder().host("0.0.0.0").generateCa().build()));
+            assertTrue(e.getMessage().contains("http://0.0.0.0:40123"), e.getMessage());
+            assertTrue(e.getMessage().contains("port 40123 is not mapped"), e.getMessage());
+            assertTrue(e.getMessage().contains("stopped"), e.getMessage());
+            assertFalse(e.getMessage().contains("SECRET-CA-KEY"), "a generated CA's private key must never reach an error");
+            assertTrue(sawRequest("DELETE", "/intercept"), "the unusable listener is stopped, not orphaned");
+
+            // Stopped, so the engine's one slot is free again: a retry is sent, not refused here.
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().host("0.0.0.0").build()));
+            assertEquals(2, server.received().stream().filter(r -> r.method().equals("POST") && r.path().equals("/intercept")).count());
+        }
+    }
+
+    @Test
+    void aMappingThatFailsAfterTheStartKeepsTheListenerClaimedWhenItCannotBeStopped() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":40123,\"interceptUrl\":\"http://0.0.0.0:40123\"}");
+        server.respond("DELETE /intercept", 500, "{\"errors\":[{\"message\":\"boom\"}]}");
+        try (Rift rift = Rift.connect(failingAfterTheStart())) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> rift.intercept(InterceptOptions.builder().host("0.0.0.0").build()));
+            assertEquals(1, e.getSuppressed().length, "the failed stop is attached, not lost");
+
+            // Still running and the engine allows one: a retry is refused here, not sent.
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().build()));
+            assertEquals(1, server.received().stream().filter(r -> r.method().equals("POST") && r.path().equals("/intercept")).count());
+        }
+    }
+
+    private ConnectOptions failingAfterTheStart() {
+        return ConnectOptions.builder(server.baseUri())
                 .versionCheck(VersionCheck.OFF)
                 .interceptAddress(port -> {
                     if (port != 0) {
@@ -182,17 +214,7 @@ class RemoteInterceptTest {
                     }
                     return InetSocketAddress.createUnresolved("localhost", 1);
                 })
-                .build())) {
-            IllegalStateException e = assertThrows(IllegalStateException.class,
-                    () -> rift.intercept(InterceptOptions.builder().host("0.0.0.0").generateCa().build()));
-            assertTrue(e.getMessage().contains("http://0.0.0.0:40123"), e.getMessage());
-            assertTrue(e.getMessage().contains("port 40123 is not mapped"), e.getMessage());
-            assertFalse(e.getMessage().contains("SECRET-CA-KEY"), "a generated CA's private key must never reach an error");
-
-            // The engine is running the listener and allows one: a retry is refused here, not sent.
-            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().build()));
-            assertEquals(1, server.received().stream().filter(r -> r.path().equals("/intercept")).count());
-        }
+                .build();
     }
 
     @Test
@@ -360,6 +382,115 @@ class RemoteInterceptTest {
     private static String resource(String name) throws java.io.IOException {
         try (var in = RemoteInterceptTest.class.getClassLoader().getResourceAsStream(name)) {
             return new String(java.util.Objects.requireNonNull(in, name).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    @Test
+    void stopInterceptDeletesIntercept() {
+        transport.stopIntercept();
+        assertTrue(sawRequest("DELETE", "/intercept"));
+    }
+
+    @Test
+    void closeStopsAListenerItStarted() {
+        try (Rift rift = connect()) {
+            rift.intercept(InterceptOptions.builder().build()).close();
+
+            assertTrue(sawRequest("DELETE", "/intercept"), "an owned listener is stopped");
+            assertFalse(sawRequest("DELETE", "/intercept/rules"), "stopping drops the rules with it");
+        }
+    }
+
+    @Test
+    void closeIsIdempotent() {
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().build());
+            intercept.close();
+            intercept.close();
+
+            assertEquals(1, server.received().stream().filter(r -> r.method().equals("DELETE") && r.path().equals("/intercept")).count());
+        }
+    }
+
+    @Test
+    void aClosedListenerCanBeStartedAgain() {
+        try (Rift rift = connect()) {
+            rift.intercept(InterceptOptions.builder().build()).close();
+            Intercept again = rift.intercept(InterceptOptions.builder().build());
+
+            assertEquals(9000, again.address().getPort());
+            assertEquals(2, server.received().stream().filter(r -> r.method().equals("POST") && r.path().equals("/intercept")).count());
+        }
+    }
+
+    @Test
+    void closeOnAnAttachedHandleOnlyClearsRules() {
+        // The launcher (a container, --intercept-port) owns an attached listener; closing must not stop it.
+        try (Rift rift = connect()) {
+            rift.intercept(InterceptOptions.attach("127.0.0.1", 9443)).close();
+
+            assertTrue(sawRequest("DELETE", "/intercept/rules"));
+            assertFalse(sawRequest("DELETE", "/intercept"));
+        }
+    }
+
+    @Test
+    void anAttachedListenerCanBeAttachedAgainAfterClose() {
+        try (Rift rift = connect()) {
+            rift.intercept(InterceptOptions.attach("127.0.0.1", 9443)).close();
+            assertEquals(9443, rift.intercept(InterceptOptions.attach("127.0.0.1", 9443)).address().getPort());
+        }
+    }
+
+    @Test
+    void aClosedHandleRefusesRulesAndTrustButStillSaysWhereItWas() {
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().build());
+            intercept.close();
+
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> intercept.serve("example.com", io.github.achirdlabs.rift.dsl.RiftDsl.ok()));
+            assertEquals("intercept is closed", e.getMessage());
+            assertThrows(IllegalStateException.class, intercept::rules);
+            assertThrows(IllegalStateException.class, intercept::clearRules);
+            assertThrows(IllegalStateException.class, () -> intercept.rule().host("example.com"),
+                    "the builder is refused up front, not at its terminal action");
+            assertThrows(IllegalStateException.class, () -> intercept.forward("example.com", "9443"));
+            assertThrows(IllegalStateException.class, () -> intercept.redirectTo("example.com", null),
+                    "refused as closed before the imposter is even read");
+            // A restart without a supplied CA mints a new one: a cached trust() would hand out the old anchor.
+            assertThrows(IllegalStateException.class, intercept::trust);
+            assertEquals(9000, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void aBuilderTakenBeforeTheCloseCannotAddARuleAfterIt() {
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().build());
+            var builder = intercept.rule().host("example.com");
+            intercept.close();
+
+            assertThrows(IllegalStateException.class, () -> builder.serve(io.github.achirdlabs.rift.dsl.RiftDsl.ok()));
+            assertThrows(IllegalStateException.class, () -> builder.forward("9443"));
+            assertFalse(sawRequest("POST", "/intercept/rules"));
+        }
+    }
+
+    @Test
+    void aFailedStopLeavesTheHandleOpenAndTheListenerClaimed() {
+        server.respond("DELETE /intercept", 500, "{\"errors\":[{\"message\":\"boom\"}]}");
+        try (Rift rift = connect()) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().build());
+            assertThrows(RuntimeException.class, intercept::close);
+
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().build()),
+                    "the listener may still run, so the slot stays claimed");
+            server.respond("DELETE /intercept", 204, "");
+            intercept.close();
+            assertEquals(2, server.received().stream().filter(r -> r.method().equals("DELETE") && r.path().equals("/intercept")).count(),
+                    "a failed close can be retried");
+            rift.intercept(InterceptOptions.builder().build());
         }
     }
 

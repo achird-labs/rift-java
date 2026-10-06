@@ -11,7 +11,8 @@ import java.lang.annotation.Target;
 
 /**
  * Starts a TLS-MITM intercept listener for a {@code @RiftTest} class. The listener and its CA live
- * for the class; only its rules reset per test (per the {@code @RiftTest} {@link Reset} policy).
+ * for the class, and the listener is stopped when the class ends (an {@link #attach attached} one is
+ * left running); only its rules reset per test (per the {@code @RiftTest} {@link Reset} policy).
  * Declare rules with a {@link RiftInterceptRules} method and get the live handle with
  * {@link InjectIntercept}.
  */

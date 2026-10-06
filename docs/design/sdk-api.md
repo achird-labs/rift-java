@@ -892,7 +892,7 @@ public interface Intercept extends AutoCloseable {
   List<InterceptRule> rules(); void clearRules();
   InterceptTrust trust();
   Optional<CaMaterial> caMaterial();                 // generateCa() only: record CaMaterial(certPem, keyPem)
-  @Override void close();                            // clears rules; stops listener where supported
+  @Override void close();                            // stops an owned listener (re-arms intercept()); attached: clears rules
 }
 
 public interface InterceptTrust {

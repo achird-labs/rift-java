@@ -15,8 +15,9 @@ import java.util.Optional;
  * forward to a plain {@code host:port} ({@link #forward}), or forward to one of this SDK's own
  * {@link Imposter}s ({@link #redirectTo}).
  *
- * <p>Obtained via {@link Rift#intercept()}/{@link Rift#intercept(InterceptOptions)}; at most one
- * per engine — a second call throws {@link IllegalStateException}.
+ * <p>Obtained via {@link Rift#intercept()}/{@link Rift#intercept(InterceptOptions)}; one at a time
+ * per engine — a second call while one is open throws {@link IllegalStateException}, and {@link
+ * #close()} frees the engine for another.
  */
 public interface Intercept extends AutoCloseable {
 
@@ -90,7 +91,15 @@ public interface Intercept extends AutoCloseable {
     /** A CA's PEM material (cert + private key). */
     record CaMaterial(String certPem, String keyPem) { }
 
-    /** Clears this intercept's rules; the listener itself is torn down when the owning {@link Rift} is closed. */
+    /**
+     * Stops a listener this handle started, freeing the engine for a new {@link
+     * Rift#intercept(InterceptOptions)} — which, without a supplied CA, mints a new one. For an {@link
+     * InterceptOptions#attach attached} listener, which its launcher owns, clears the rules and leaves
+     * it running: only a re-attach can follow. Afterwards rule operations and {@link #trust()} throw
+     * {@link IllegalStateException}; the address accessors still answer. Idempotent; a failed stop
+     * leaves the handle open, to retry. Not to be called while another thread is mid-way through a
+     * rule operation on this handle.
+     */
     @Override
     void close();
 }
