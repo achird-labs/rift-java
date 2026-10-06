@@ -21,10 +21,32 @@ import java.lang.annotation.Target;
 @Documented
 public @interface RiftIntercept {
 
-    /** Bind port; {@code 0} = OS-assigned. Fix it for a container SUT that points at a stable port. */
+    /**
+     * Attach to a listener the engine started at launch ({@code --intercept-port}) instead of starting
+     * one, which such an engine refuses. {@link #host} and {@link #port} are then where that listener
+     * is <em>reached</em> — a fixed host port; one Docker assigns at runtime cannot be named here, so
+     * use {@code RiftContainer.interceptOptions()} for that — and {@link #port} must be set. The listener already has its CA, so {@link #caCert}, {@link
+     * #caKey} and {@link #inlineCa} are refused.
+     */
+    boolean attach() default false;
+
+    /**
+     * Read {@link #caCert}/{@link #caKey} here and send the PEM in the start request (rift &ge;
+     * 0.13.4), so an engine on another machine or in a container needs no file at those paths.
+     * Without it the paths are handed to the engine, which reads them itself.
+     */
+    boolean inlineCa() default false;
+
+    /**
+     * Bind port; {@code 0} = OS-assigned. Fix it for a container SUT that points at a stable port.
+     * With {@link #attach}, the port the running listener is reached on.
+     */
     int port() default 0;
 
-    /** Bind host; an IP literal ({@code "0.0.0.0"} to reach it from another container). */
+    /**
+     * Bind host; an IP literal ({@code "0.0.0.0"} to reach it from another container). With {@link
+     * #attach}, the host the running listener is reached on, which may be a name.
+     */
     String host() default "127.0.0.1";
 
     /** Committed CA cert PEM path (with {@link #caKey}); {@code ${property}} placeholders are resolved. Empty = ephemeral CA. */

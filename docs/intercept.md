@@ -301,6 +301,24 @@ trusts the anchor up front, and the interceptor signs each intercepted leaf with
 For a non-JVM SUT, point its own trust mechanism at `ca-cert.pem` instead (e.g.
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, or the OS trust store).
 
+**With `rift-java-testcontainers`, the rift container itself can launch with the committed CA** —
+no runtime start, and the SUT container trusts the same file:
+
+```java
+@Container
+static final RiftContainer rift = new RiftContainer()
+        .withInterceptPort(8888)                                                    // launched with the engine
+        .withInterceptCa(Path.of("intercept/ca-cert.pem"), Path.of("intercept/ca-key.pem"));
+
+Intercept intercept = rift.client().intercept(rift.interceptOptions());            // attach, carrying the CA
+intercept.caMaterial();   // the committed pair, checked against the CA the listener serves
+```
+
+`interceptOptions()` attaches with `InterceptOptions.attach(host, port, caMaterial)`: the attach
+compares the listener's served certificate with the given one and refuses a mismatch, rather than
+letting the SUT fail its handshake later. Outside Testcontainers, pass your pair to
+`InterceptOptions.attach(host, port, ca)` yourself for the same check and `caMaterial()`.
+
 > **A file-path CA (`ca(Path, Path)`) is read by the engine from its own filesystem** — fine for the
 > embedded engine, but a **separate rift container** reached via `Rift.connect(...)` resolves those
 > paths *inside the container*, so mount the CA there. To avoid the mount entirely, pass the CA

@@ -308,6 +308,13 @@ class FeatureFlagTest {
   CA, else ephemeral; `${property}` placeholders resolved), and `exportTruststore`/`exportFormat`/
   `exportPassword` (written during `beforeAll`, for a containerized SUT to mount — see
   [docs/intercept.md](intercept.md#sharing-one-ca-with-a-containerized-sut)).
+  - `inlineCa = true` reads `caCert`/`caKey` here and sends the PEM in the start request (rift ≥ 0.13.4),
+    so a `Transport.CONNECT` engine in a container needs no file at those paths.
+  - `attach = true` binds to a listener the engine started **at launch** (`--intercept-port`, say in a
+    docker-compose service) instead of starting one, which such an engine refuses. `host`/`port` are
+    then where that listener is *reached* — a **fixed** host port, since an annotation cannot name one
+    Docker assigns at runtime (for `RiftContainer`, use its `interceptOptions()`); `port` is required
+    and `host` may be a name. The listener already has its CA, so `caCert`/`caKey`/`inlineCa` are refused.
 - `@RiftInterceptRules` — a `static void` method invoked once the listener starts and re-invoked after
   each per-test rules reset. Its parameters resolve like test parameters: `Intercept`, `@InjectRift
   Rift`, `@InjectImposter Imposter`.

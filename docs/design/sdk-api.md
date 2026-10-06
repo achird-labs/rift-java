@@ -922,7 +922,9 @@ Remote transport maps to `/intercept/*` admin endpoints (rift ≥ 0.13.3 `POST /
 listener at runtime, #493); embedded maps to `rift_start_intercept` / `rift_intercept_*`.
 `InterceptOptions.attach(host, port)` binds to a listener the engine started at launch
 (`--intercept-port` / `RIFT_INTERCEPT_PORT`) instead of starting one — used by
-`RiftContainer.withInterceptPort(...)` + `interceptOptions()`. `RiftContainer.withExposedInterceptPort(...)`
+`RiftContainer.withInterceptPort(...)` + `interceptOptions()`; `withInterceptCa(...)` launches it with a
+committed CA, which `attach(host, port, CaMaterial)` carries back as `caMaterial()` after checking it
+against the served certificate (#259). `RiftContainer.withExposedInterceptPort(...)`
 instead exposes a port with no listener at launch, for a runtime start (with the caller's CA) that
 `client()` maps to Docker's port; the two modes are mutually exclusive, refused eagerly, because the
 engine runs one listener (#258). A started listener's bind host must be

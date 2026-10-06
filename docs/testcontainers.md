@@ -82,6 +82,22 @@ void mocksAnHttpsDependency() throws Exception {
 }
 ```
 
+To launch that listener with a **committed CA** — one a SUT container already trusts before it
+starts — add `withInterceptCa(certPem, keyPem)` (paths, read when the container starts, or PEM
+text). The pair is copied into the container and named to the engine; `interceptOptions()` carries
+it, so the attached handle's `caMaterial()` hands it back after checking it against the CA the
+listener serves:
+
+```java
+@Container
+static final RiftContainer rift = new RiftContainer()
+        .withInterceptPort(8888)
+        .withInterceptCa(Path.of("intercept/ca-cert.pem"), Path.of("intercept/ca-key.pem"));
+```
+
+`withInterceptCa` needs `withInterceptPort`: the engine reads the CA only when it launches a listener.
+See [docs/intercept.md](intercept.md#sharing-one-ca-with-a-containerized-sut) for the SUT side.
+
 To start the listener at runtime instead — with your own committed CA, for instance — use
 `withExposedInterceptPort(port)`: the port is exposed but no listener is launched (one launched
 listener would refuse every runtime start with a `409`, so the two modes cannot be combined). Start

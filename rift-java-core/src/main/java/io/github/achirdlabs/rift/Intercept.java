@@ -79,13 +79,15 @@ public interface Intercept extends AutoCloseable {
     InterceptTrust trust();
 
     /**
-     * The CA material the engine generated when this intercept was started with
-     * {@link InterceptOptions.Builder#generateCa()} — its cert <em>and</em> key, to persist and
-     * redistribute a shareable anchor. Empty for an ephemeral or a caller-supplied CA.
+     * This intercept's CA cert <em>and</em> key, to persist or hand to another container: the pair the
+     * engine generated when started with {@link InterceptOptions.Builder#generateCa()}, or the pair
+     * given to {@link InterceptOptions#attach(String, int, CaMaterial)} — checked at attach against the
+     * certificate the listener serves, since the engine never returns a key it was given (the key itself
+     * is not checked). Empty for an ephemeral CA, a CA supplied to a start, or an attach given no pair.
      */
     java.util.Optional<CaMaterial> caMaterial();
 
-    /** A generated CA's PEM material (cert + private key). */
+    /** A CA's PEM material (cert + private key). */
     record CaMaterial(String certPem, String keyPem) { }
 
     /** Clears this intercept's rules; the listener itself is torn down when the owning {@link Rift} is closed. */
