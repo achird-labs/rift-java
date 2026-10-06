@@ -25,11 +25,10 @@ import java.util.Objects;
  * <p>A CA may be supplied as file paths ({@link Builder#ca(Path, Path)}) or <em>in memory</em> — a
  * PEM {@link Builder#ca(String, String) String}, {@link Builder#ca(byte[], byte[]) byte[]}, or a
  * {@link Builder#ca(KeyStore, char[]) KeyStore} (e.g. from a secret store, without touching disk in
- * caller code). In-memory material is written to a private, owner-only temp file the SDK owns
- * ({@code deleteOnExit}); the engine still loads it from that path, so — like a file-path CA — it
- * must be on a filesystem the engine can read (trivially true for the embedded transport; a
- * containerized remote engine needs the path mounted, or engine-side inline-bytes support, tracked
- * upstream).
+ * caller code). In-memory material is sent inline in the start request ({@code caCertPem}/{@code
+ * caKeyPem}, rift &ge; 0.13.4), so it reaches an engine on another machine or in a container with
+ * nothing staged there. A file-path CA is read by the engine from <em>its own</em> filesystem: right
+ * for the embedded engine, but a containerized one needs the files mounted at those paths.
  */
 public final class InterceptOptions {
 
@@ -63,10 +62,12 @@ public final class InterceptOptions {
     }
 
     /**
-     * Attach to an intercept listener the engine started at launch (via {@code --intercept-port} /
-     * {@code RIFT_INTERCEPT_PORT}) at {@code host:port}, rather than starting one. This is how a
-     * remote/connected engine — whose admin API can only <em>manage</em> a listener, not start one —
-     * exposes intercept; {@code host}/{@code port} are the reachable endpoint (e.g. a mapped Docker port).
+     * Attach to an intercept listener something else started — the engine at launch ({@code
+     * --intercept-port} / {@code RIFT_INTERCEPT_PORT}, e.g. a container's {@code withInterceptPort})
+     * — at {@code host:port}, rather than starting one; {@code host}/{@code port} are the reachable
+     * endpoint (e.g. a mapped Docker port). To start a listener instead, on any transport, pass
+     * {@link #builder()} options to {@link Rift#intercept(InterceptOptions)} (rift &ge; 0.13.3 over the
+     * admin API).
      */
     public static InterceptOptions attach(String host, int port) {
         Objects.requireNonNull(host, "host");
