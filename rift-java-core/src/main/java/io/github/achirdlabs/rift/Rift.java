@@ -94,6 +94,21 @@ public interface Rift extends AutoCloseable {
 
     void deleteAll();
 
+    /**
+     * Reconciles the engine's imposters toward {@code config} ({@code {"imposters":[...]}}): creates
+     * what is new, replaces or patches what changed, deletes what is no longer declared, and leaves an
+     * unchanged imposter — and its runtime state — alone. Only {@code imposters} is applied; a config
+     * file's {@code intercept} or {@code routes} block is not. {@link #replaceAll} is the same
+     * operation without a report.
+     *
+     * <p>The embedded engine reports what changed. Over the admin API ({@code PUT /imposters}) the
+     * engine applies the config but cannot yet report it (achird-labs/rift#1304), so this throws
+     * {@link io.github.achirdlabs.rift.error.EngineUnavailable} <em>after</em> the reconcile — use
+     * {@link #replaceAll} there.
+     *
+     * @return the ports changed, and in {@link ApplyResult#failed()} the imposters that could not be
+     *         applied — a partial apply, with every other port already reconciled
+     */
     ApplyResult applyConfig(JsonValue config);
 
     void replaceAll(List<ImposterDefinition> imposters);
