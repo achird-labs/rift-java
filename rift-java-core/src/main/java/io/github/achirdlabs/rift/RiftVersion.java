@@ -30,8 +30,8 @@ public final class RiftVersion {
     }
 
     /**
-     * {@return the pinned Rift engine version, e.g. {@code "0.13.4"}} — the default for
-     * {@link SpawnOptions} and the testcontainers proxy image tag.
+     * {@return the pinned Rift engine version, the build's {@code rift.engine.version}} — the default
+     * for {@link SpawnOptions} and the testcontainers proxy image tag.
      */
     public static String engineVersion() {
         return require("engine.version");

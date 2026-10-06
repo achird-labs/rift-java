@@ -13,8 +13,9 @@
   <artifactId>rift-java-example-optimizely-datafile</artifactId>
   <name>rift-java-example-optimizely-datafile</name>
   <description>
-    Parity sample: an Intercept "serve" rule answers real HTTPS traffic to a CDN host with a
-    locally-served feature-flag datafile, so no real network call ever leaves the JVM.
+    Parity sample: an Intercept redirect rule diverts real HTTPS traffic for a CDN host into an
+    imposter serving a feature-flag datafile, then swaps the datafile with replaceStubs, so no real
+    network call ever leaves the JVM.
   </description>
   <url>https://github.com/achird-labs/rift-java</url>
 

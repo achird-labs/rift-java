@@ -52,6 +52,10 @@ record/playback, fault injection, stateful scenarios, spaces/flow-state, request
 verification, a server-side event stream, and TLS-MITM intercept with truststore/`SSLContext`
 helpers.
 
+Runnable samples live in [`examples/`](examples/) (JDK 22+, embedded engine): proxy record/replay, and
+an [Optimizely datafile served over TLS intercept](examples/optimizely-datafile/README.md) with a
+mid-test datafile swap.
+
 ## Installation
 
 rift-java is published under the `io.github.achird-labs` group ID (since 0.1.3 — see
