@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -157,6 +158,72 @@ class RiftContainerTest {
     void upstreamTrustRejectsNull() {
         try (RiftContainer container = new RiftContainer()) {
             assertThrows(NullPointerException.class, () -> container.withUpstreamTrust(null));
+        }
+    }
+
+    @Test
+    void withExposedInterceptPortExposesWithoutBootingTheListener() {
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
+            assertTrue(container.getExposedPorts().contains(8889), "8889 exposed");
+            assertFalse(container.getEnvMap().containsKey("RIFT_INTERCEPT_PORT"),
+                    "the engine must not start a listener at launch, or a runtime start answers 409");
+        }
+    }
+
+    @Test
+    void bootThenExposedInterceptPortIsRejected() {
+        try (RiftContainer container = new RiftContainer().withInterceptPort(8888)) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> container.withExposedInterceptPort(8889));
+            assertTrue(e.getMessage().contains("withInterceptPort") && e.getMessage().contains("withExposedInterceptPort"),
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    void exposedThenBootInterceptPortIsRejected() {
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> container.withInterceptPort(8888));
+            assertTrue(e.getMessage().contains("withInterceptPort") && e.getMessage().contains("withExposedInterceptPort"),
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    void theClientRoutesARuntimeInterceptThroughTheContainerMapping() {
+        // client() needs a running container; its options do not. A start on an unexposed port is
+        // refused by this mapping, which the client asks before starting anything.
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
+            var mapping = container.connectOptions(URI.create("http://localhost:2525")).interceptAddress().orElseThrow();
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> mapping.apply(0));
+            assertTrue(e.getMessage().contains("withExposedInterceptPort"), e.getMessage());
+        }
+    }
+
+    @Test
+    void anUnexposedInterceptPortIsRefused() {
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
+            IllegalArgumentException zero = assertThrows(IllegalArgumentException.class,
+                    () -> container.interceptAddressFor(0));
+            assertTrue(zero.getMessage().contains("withExposedInterceptPort"), zero.getMessage());
+            assertThrows(IllegalArgumentException.class, () -> container.interceptAddressFor(9999));
+        }
+    }
+
+    @Test
+    void gatewayModeStillRefusesAnUnexposedInterceptPort() {
+        // The gateway routes imposter HTTP through the admin port; a CONNECT proxy cannot ride it, so the
+        // intercept mapping is the fixed-port one whatever the imposter mode.
+        try (RiftContainer container = new RiftContainer().withGateway().withExposedInterceptPort(8889)) {
+            assertThrows(IllegalArgumentException.class, () -> container.interceptAddressFor(0));
+        }
+    }
+
+    @Test
+    void interceptOptionsStillRequiresTheBootMode() {
+        try (RiftContainer container = new RiftContainer().withExposedInterceptPort(8889)) {
+            assertThrows(IllegalStateException.class, container::interceptOptions);
         }
     }
 

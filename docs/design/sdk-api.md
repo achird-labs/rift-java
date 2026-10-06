@@ -47,7 +47,7 @@ of WireMock 3 / MockServer / Hoverfly / Testcontainers / wiremock-spring-boot.
 | `rift-java-junit5` | 17 | `@RiftTest`, `RiftTestExtension`, parameter injection, `@RiftGolden` |
 | `rift-java-jackson` | 17 | `RiftBodyCodec` implementation over `jackson-databind` |
 | `rift-java-spring` | 17 | **new** — Spring Boot test integration (`@EnableRift`, `@ConfigureImposter`, `@InjectImposter`) |
-| `rift-java-testcontainers` | 17 | `RiftContainer` — a Dockerized engine with a connected client and intercept attach |
+| `rift-java-testcontainers` | 17 | `RiftContainer` — a Dockerized engine with a connected client and intercept (attach or runtime start) |
 | `rift-java-bom` | — | **new** — BOM aligning all modules + natives classifiers |
 
 Record/playback (`Imposter.startRecording`, `@RiftGolden`) and `RiftContainer`, once backlog,
@@ -168,6 +168,11 @@ public final class ConnectOptions {
   //   Needed for Docker/remapped-port setups (the conformance "hostFor seam"). An
   //   IntFunction<URI> overload stays: its URI is used verbatim, scheme included. No
   //   upstreamTrust here: a connected engine's outbound trust is set where that engine was started.
+  // interceptAddress: IntFunction<InetSocketAddress> port -> where a runtime-started intercept
+  //   listener is dialled on a connected engine (#258). Unset: the engine's reported bind address,
+  //   a wildcard bind replaced by the admin host. Separate from hostResolver: the listener is a
+  //   CONNECT proxy, not an imposter base URI. Also asked with the requested port before the start,
+  //   so it can refuse an unreachable port with nothing started.
 }
 
 public final class SpawnOptions {
@@ -878,6 +883,7 @@ park a pool thread every other admin call needs.
 public interface Intercept extends AutoCloseable {
   InetSocketAddress address();                       // for ProxySelector / http.proxyHost
   URI uri();
+  Optional<URI> engineAddress();                     // the engine's reported bind address; empty when attached
   ProxySelector proxySelector();                     // convenience for java.net.http clients
   InterceptRule serve(String host, IsSpec response); // rule: answer host directly
   InterceptRule forward(String host, String hostPort);
@@ -916,7 +922,10 @@ Remote transport maps to `/intercept/*` admin endpoints (rift ≥ 0.13.3 `POST /
 listener at runtime, #493); embedded maps to `rift_start_intercept` / `rift_intercept_*`.
 `InterceptOptions.attach(host, port)` binds to a listener the engine started at launch
 (`--intercept-port` / `RIFT_INTERCEPT_PORT`) instead of starting one — used by
-`RiftContainer.withInterceptPort(...)` + `interceptOptions()`. A started listener's bind host must be
+`RiftContainer.withInterceptPort(...)` + `interceptOptions()`. `RiftContainer.withExposedInterceptPort(...)`
+instead exposes a port with no listener at launch, for a runtime start (with the caller's CA) that
+`client()` maps to Docker's port; the two modes are mutually exclusive, refused eagerly, because the
+engine runs one listener (#258). A started listener's bind host must be
 an IP literal; an attach host may be any reachable host, and an IPv6 one is bracketed in `uri()`.
 Target ergonomics: the rift-java-demo ~30-line hand-rolled flow becomes ~8 lines (issue #12's goal).
 

@@ -20,6 +20,28 @@ Works on every transport: embedded starts the listener over FFM, and a connected
 starts it over the admin API (rift ≥ 0.13.3). The bind `host` must be an **IP literal** (e.g.
 `127.0.0.1` or `0.0.0.0`) — a hostname is rejected client-side.
 
+### Where the listener is reached
+
+The engine reports the address it **bound** — `intercept.engineAddress()` keeps it. For an engine
+the SDK runs itself (spawn, embedded) that is also where the client dials. For a **connected**
+engine it is an address on the engine's machine: `address()`, `uri()` and `proxySelector()` keep
+it, except that a wildcard bind (`0.0.0.0`, `[::]`) is dialled at the admin host. Where the
+engine's ports are remapped — a container, a port-forward — set
+`ConnectOptions.Builder.interceptAddress(port -> …)`; `RiftContainer.client()` sets it for you.
+
+- A runtime start binds `127.0.0.1` unless told otherwise, which answers only on the engine's own
+  machine. For an engine in a container or on another host, bind its interface:
+  `InterceptOptions.builder().host("0.0.0.0")`. The SDK logs a warning when a connected engine
+  reports a loopback bind.
+- The mapping is asked about the requested port **before** the listener starts, so a mapping that
+  cannot reach it (an unexposed container port, or port `0`) refuses with nothing started. Should it
+  fail *after* the start, the error names the running listener: the engine runs one, so it stays
+  until the engine stops and a retry is refused.
+- `interceptAddress` is separate from the imposter `hostResolver`: the listener is a `CONNECT`
+  proxy, never an imposter's HTTP base URI, so a gateway-style imposter mapping does not apply.
+- A listener the engine starts **at launch** (`--intercept-port`) binds the admin interface, which
+  is why attaching to one (below) works without a bind host.
+
 ### Attaching to a listener started at engine launch
 
 When the engine already started a listener at launch — via `--intercept-port` /
@@ -38,6 +60,17 @@ address — a mapped Docker port, say. An IPv6 host may be given bare (`::1`) or
 RiftContainer rift = new RiftContainer().withInterceptPort(8888);   // engine launches the listener
 // … after start …
 Intercept intercept = rift.client().intercept(rift.interceptOptions());   // attach to the mapped port
+```
+
+To start the listener at runtime instead — with your own CA, say — expose the port without
+launching a listener, then start it bound to the container's interface. The handle is mapped to
+Docker's port:
+
+```java
+RiftContainer rift = new RiftContainer().withExposedInterceptPort(8889);  // exposed, not started
+// … after start …
+Intercept intercept = rift.client().intercept(InterceptOptions.builder()
+        .host("0.0.0.0").port(8889).ca(certPem, keyPem).build());
 ```
 
 ## Rules: what happens to an intercepted host

@@ -10,10 +10,21 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** {@link RemoteTransport} maps the intercept operations onto the admin API's {@code /intercept/*} routes. */
@@ -61,6 +72,213 @@ class RemoteInterceptTest {
                     "attach must not attempt to start a listener");
             assertEquals(9443, intercept.address().getPort());
             assertEquals("127.0.0.1", intercept.address().getHostString());
+        }
+    }
+
+    @Test
+    void startMapsTheEngineBindAddressThroughTheInterceptAddressSeam() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://0.0.0.0:9000\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> InetSocketAddress.createUnresolved("localhost", port + 10000))
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("0.0.0.0").port(9000).build());
+
+            assertEquals("localhost", intercept.address().getHostString());
+            assertEquals(19000, intercept.address().getPort());
+            assertEquals(URI.create("http://localhost:19000"), intercept.uri());
+            assertEquals(List.of(new Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved("localhost", 19000))),
+                    intercept.proxySelector().select(URI.create("https://example.com/")));
+            assertEquals(Optional.of(URI.create("http://0.0.0.0:9000")), intercept.engineAddress(),
+                    "the engine's own bind address is still available");
+        }
+    }
+
+    @Test
+    void startDefaultsToTheAdminHostWithTheEnginePort() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://0.0.0.0:9000\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("0.0.0.0").build());
+
+            assertEquals(server.baseUri().getHost(), intercept.address().getHostString());
+            assertEquals(9000, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void theImposterHostResolverNeverSteersTheIntercept() {
+        // A gateway-style imposter resolver points at the admin port; the CONNECT listener is elsewhere.
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://0.0.0.0:9000\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .hostResolver(port -> URI.create("http://gateway.example:2525/__rift/" + port))
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("0.0.0.0").build());
+
+            assertEquals(server.baseUri().getHost(), intercept.address().getHostString());
+            assertEquals(9000, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void aRefusedMappingStopsTheStartBeforeAnyListenerIsStarted() {
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> {
+                    throw new IllegalArgumentException("intercept port " + port + " is not exposed");
+                })
+                .build())) {
+            IllegalArgumentException first = assertThrows(IllegalArgumentException.class,
+                    () -> rift.intercept(InterceptOptions.builder().build()));
+            assertEquals("intercept port 0 is not exposed", first.getMessage());
+            assertTrue(server.received().stream().noneMatch(r -> r.path().equals("/intercept")),
+                    "nothing may be started when the address cannot be mapped");
+            // The refusal is retryable: it must not leave the one-intercept-per-engine latch set.
+            assertThrows(IllegalArgumentException.class, () -> rift.intercept(InterceptOptions.builder().build()));
+        }
+    }
+
+    @Test
+    void startKeepsAnExplicitlyBoundAddressByDefault() {
+        // Only a wildcard bind is replaced: an engine bound to a routable IP is dialled there.
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://10.1.2.3:9000\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("10.1.2.3").build());
+
+            assertEquals("10.1.2.3", intercept.address().getHostString());
+            assertEquals(9000, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void theMappingSeesTheRequestedPortBeforeTheStartThenTheBoundPort() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":40123,\"interceptUrl\":\"http://0.0.0.0:40123\"}");
+        List<Integer> asked = new CopyOnWriteArrayList<>();
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> {
+                    asked.add(port);
+                    return InetSocketAddress.createUnresolved("localhost", port + 10000);
+                })
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("0.0.0.0").build());
+
+            assertEquals(List.of(0, 40123), asked);
+            assertEquals(50123, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void aMappingThatFailsAfterTheStartKeepsTheListenerClaimed() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":40123,\"interceptUrl\":\"http://0.0.0.0:40123\","
+                + "\"caCertPem\":\"CERT\",\"caKeyPem\":\"SECRET-CA-KEY\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> {
+                    if (port != 0) {
+                        throw new IllegalArgumentException("port " + port + " is not mapped");
+                    }
+                    return InetSocketAddress.createUnresolved("localhost", 1);
+                })
+                .build())) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> rift.intercept(InterceptOptions.builder().host("0.0.0.0").generateCa().build()));
+            assertTrue(e.getMessage().contains("http://0.0.0.0:40123"), e.getMessage());
+            assertTrue(e.getMessage().contains("port 40123 is not mapped"), e.getMessage());
+            assertFalse(e.getMessage().contains("SECRET-CA-KEY"), "a generated CA's private key must never reach an error");
+
+            // The engine is running the listener and allows one: a retry is refused here, not sent.
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.builder().build()));
+            assertEquals(1, server.received().stream().filter(r -> r.path().equals("/intercept")).count());
+        }
+    }
+
+    @Test
+    void aMalformedStartResponseNeverEchoesTheGeneratedCaKey() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"caCertPem\":\"CERT\",\"caKeyPem\":\"SECRET-CA-KEY\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> rift.intercept(InterceptOptions.builder().generateCa().build()));
+            assertTrue(e.getCause().getMessage().contains("caKeyPem"), "names the keys it did get");
+            assertFalse(e.getMessage().contains("SECRET-CA-KEY"), e.getMessage());
+            assertFalse(e.getCause().getMessage().contains("SECRET-CA-KEY"), e.getCause().getMessage());
+        }
+    }
+
+    @Test
+    void aRemappedIpv6HostIsBracketedInTheUri() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://[::]:9000\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> InetSocketAddress.createUnresolved("::1", port + 10000))
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.builder().host("::").build());
+
+            assertEquals(URI.create("http://[::1]:19000"), intercept.uri());
+        }
+    }
+
+    @Test
+    void aLoopbackBindOnAConnectedEngineWarns() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://127.0.0.1:9000\"}");
+        List<String> warnings = captureWarnings(() -> {
+            try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+                rift.intercept(InterceptOptions.builder().build());
+            }
+        });
+        assertEquals(1, warnings.size(), warnings.toString());
+        assertTrue(warnings.get(0).contains("127.0.0.1") && warnings.get(0).contains("host(\"0.0.0.0\")"),
+                warnings.get(0));
+    }
+
+    @Test
+    void aWildcardBindDoesNotWarn() {
+        server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://0.0.0.0:9000\"}");
+        List<String> warnings = captureWarnings(() -> {
+            try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+                rift.intercept(InterceptOptions.builder().host("0.0.0.0").build());
+            }
+        });
+        assertEquals(List.of(), warnings);
+    }
+
+    /** {@code System.Logger} delegates to java.util.logging; captures RiftImpl's WARNING records. */
+    private static List<String> captureWarnings(Runnable action) {
+        Logger jul = Logger.getLogger("io.github.achirdlabs.rift.RiftImpl");
+        List<String> warnings = new CopyOnWriteArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel() == Level.WARNING) {
+                    warnings.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() { }
+
+            @Override
+            public void close() { }
+        };
+        jul.addHandler(handler);
+        try {
+            action.run();
+        } finally {
+            jul.removeHandler(handler);
+        }
+        return warnings;
+    }
+
+    @Test
+    void anAttachedEndpointIsNeverRemapped() {
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> InetSocketAddress.createUnresolved("localhost", port + 10000))
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.attach("127.0.0.1", 9443));
+
+            assertEquals("127.0.0.1", intercept.address().getHostString());
+            assertEquals(9443, intercept.address().getPort());
         }
     }
 

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Files;
 import java.util.Objects;
@@ -61,7 +62,7 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     private final DockerImageName imageName;
     private Optional<String> apiKey = Optional.empty();
     private boolean gateway = false;
-    private Integer interceptPort;
+    private Optional<InterceptListener> interceptListener = Optional.empty();
     private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
 
     /** Uses {@code zainalpour/rift-proxy:v}{@link #ENGINE_VERSION}. */
@@ -122,12 +123,63 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
      * Starts the engine's TLS-MITM intercept listener on {@code port} (via {@code RIFT_INTERCEPT_PORT})
      * and exposes it. Obtain the client-side handle with {@code client().intercept(interceptOptions())}
      * once the container is running.
+     *
+     * @throws IllegalArgumentException if {@link #withExposedInterceptPort(int)} was called: an engine
+     *         runs one intercept listener, so one started at launch refuses every runtime start
      */
     public RiftContainer withInterceptPort(int port) {
-        this.interceptPort = port;
+        useInterceptListener(new InterceptListener(port, true));
         addExposedPort(port);
         withEnv("RIFT_INTERCEPT_PORT", String.valueOf(port));
         return self();
+    }
+
+    /**
+     * Exposes {@code port} for an intercept listener started at runtime, without starting one at launch.
+     * Start it from the {@link #client()} once the container is running, binding the container's
+     * interface so Docker's port mapping reaches it, with your own CA if you have one:
+     *
+     * <pre>{@code
+     * client.intercept(InterceptOptions.builder().host("0.0.0.0").port(port).ca(certPem, keyPem).build());
+     * }</pre>
+     *
+     * <p>The returned handle's {@code address()} and {@code proxySelector()} are the mapped host and
+     * port. Use {@link #withInterceptPort(int)} instead for a listener the engine starts at launch.
+     *
+     * @throws IllegalArgumentException if {@link #withInterceptPort(int)} was called: an engine runs
+     *         one intercept listener, so one started at launch refuses every runtime start
+     */
+    public RiftContainer withExposedInterceptPort(int port) {
+        useInterceptListener(new InterceptListener(port, false));
+        addExposedPort(port);
+        return self();
+    }
+
+    /** The engine's one intercept listener: on {@code port}, started at launch or at runtime. */
+    private record InterceptListener(int port, boolean atLaunch) { }
+
+    private void useInterceptListener(InterceptListener listener) {
+        if (interceptListener.isPresent() && interceptListener.get().atLaunch() != listener.atLaunch()) {
+            throw new IllegalArgumentException("withInterceptPort (a listener started at launch) and"
+                    + " withExposedInterceptPort (one started at runtime) cannot be combined: the engine runs"
+                    + " one intercept listener");
+        }
+        this.interceptListener = Optional.of(listener);
+    }
+
+    /**
+     * Where the {@link #client()} reaches an intercept listener the engine bound on {@code port}: the
+     * mapped host and port, whatever the imposter mode, because a {@code CONNECT} proxy cannot ride the
+     * gateway. Refuses a port that is not exposed, which the client asks before starting the listener.
+     * Package-private for tests.
+     */
+    InetSocketAddress interceptAddressFor(int port) {
+        if (!getExposedPorts().contains(port)) {
+            throw new IllegalArgumentException("intercept port " + port + " is not exposed on this rift container"
+                    + " (Docker maps only ports exposed before it starts): call withExposedInterceptPort("
+                    + (port == 0 ? "<port>" : port) + ") and start the listener on that port");
+        }
+        return new InetSocketAddress(getHost(), getMappedPort(port));
     }
 
     /**
@@ -135,10 +187,9 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
      * the mapped host:port. Pass to {@code client().intercept(...)}. Valid only once the container is started.
      */
     public InterceptOptions interceptOptions() {
-        if (interceptPort == null) {
-            throw new IllegalStateException("no intercept listener configured — call withInterceptPort(...) first");
-        }
-        return InterceptOptions.attach(getHost(), getMappedPort(interceptPort));
+        InterceptListener listener = interceptListener.filter(InterceptListener::atLaunch).orElseThrow(() ->
+                new IllegalStateException("no intercept listener configured — call withInterceptPort(...) first"));
+        return InterceptOptions.attach(getHost(), getMappedPort(listener.port()));
     }
 
     /**
@@ -229,11 +280,16 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     /**
      * A {@link Rift} client wired to this container: the {@code hostResolver} seam is set so
      * {@code imposter.uri()} resolves through Docker's port mapping (fixed-port mode) or the gateway
-     * prefix (gateway mode) with zero user code. Valid only once the container is started. Each call
+     * prefix (gateway mode) with zero user code, and an intercept started at runtime on a port exposed
+     * with {@link #withExposedInterceptPort(int)} is reached through Docker's mapping. Valid only once the container is started. Each call
      * returns a new client; the caller owns it and must {@link Rift#close() close} it.
      */
     public Rift client() {
-        URI admin = adminUri();
+        return Rift.connect(connectOptions(adminUri()));
+    }
+
+    /** The {@link #client()}'s options against the admin API at {@code admin}. Package-private for tests. */
+    ConnectOptions connectOptions(URI admin) {
         ConnectOptions.Builder options = ConnectOptions.builder(admin);
         apiKey.ifPresent(options::apiKey);
         // Gateway traffic reaches the imposter through the admin listener, so it takes the admin
@@ -242,7 +298,8 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
                 ? (protocol, port) -> URI.create(admin + "/__rift/" + port)
                 : (protocol, port) -> HostAuthority.uri(protocol, getHost(), getMappedPort(port));
         options.hostResolver(resolver);
-        return Rift.connect(options.build());
+        options.interceptAddress(this::interceptAddressFor);
+        return options.build();
     }
 
 }

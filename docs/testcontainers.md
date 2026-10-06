@@ -82,6 +82,29 @@ void mocksAnHttpsDependency() throws Exception {
 }
 ```
 
+To start the listener at runtime instead — with your own committed CA, for instance — use
+`withExposedInterceptPort(port)`: the port is exposed but no listener is launched (one launched
+listener would refuse every runtime start with a `409`, so the two modes cannot be combined). Start
+it from the client bound to the container's interface; `client()` maps the handle to Docker's port
+whatever the imposter mode, gateway included:
+
+```java
+@Container
+static final RiftContainer rift = new RiftContainer().withExposedInterceptPort(8889);
+
+@Test
+void mocksAnHttpsDependencyWithMyCa() throws Exception {
+    try (Rift client = rift.client()) {
+        Intercept intercept = client.intercept(InterceptOptions.builder()
+                .host("0.0.0.0")                 // the container's interface, not its loopback
+                .port(8889)                      // the exposed port; 0 or an unexposed one is refused
+                .ca(certPem, keyPem)
+                .build());
+        // intercept.address() is the mapped host:port; engineAddress() holds http://0.0.0.0:8889
+    }
+}
+```
+
 See [docs/intercept.md](intercept.md) for rules, trust material, and shared-CA setups.
 
 ## Outbound TLS trust (proxying an origin behind a private CA)

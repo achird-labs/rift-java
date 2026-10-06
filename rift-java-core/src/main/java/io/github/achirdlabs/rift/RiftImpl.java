@@ -18,11 +18,14 @@ import io.github.achirdlabs.rift.transport.RemoteTransport;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
 import java.lang.System.Logger.Level;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntFunction;
+import java.util.function.UnaryOperator;
 
 final class RiftImpl implements Rift {
 
@@ -415,6 +418,7 @@ final class RiftImpl implements Rift {
         if (!interceptStarted.compareAndSet(false, true)) {
             throw new IllegalStateException("intercept already started for this engine");
         }
+        JsonValue response;
         try {
             if (options.isAttach()) {
                 // No listener to start: probe the already-running one (started at engine launch via
@@ -422,14 +426,63 @@ final class RiftImpl implements Rift {
                 transport.interceptListRules();
                 return new InterceptImpl(transport, options.host(), options.port(), this::requireEngineSupportOf);
             }
-            JsonValue response = transport.startIntercept(options.toJson());
-            return new InterceptImpl(transport, response, this::requireEngineSupportOf);
+            // Asked before the start, so a mapping that cannot reach the port (an unexposed container
+            // port) refuses with nothing started to orphan.
+            if (!localEngine) {
+                this.options.interceptAddress().ifPresent(mapping -> mapping.apply(options.port()));
+            }
+            response = transport.startIntercept(options.toJson());
         } catch (RuntimeException e) {
             // The listener didn't actually start — reset so a genuine failure is retryable, while a
             // concurrent/second call was still blocked by the CAS above.
             interceptStarted.set(false);
             throw e;
         }
+        try {
+            InterceptImpl intercept = new InterceptImpl(transport, response, interceptDial(), this::requireEngineSupportOf);
+            if (!localEngine && intercept.engineBoundToLoopback()) {
+                // Fine for an engine run beside this client, unreachable for one in a container or on
+                // another host; which it is cannot be told from here, so this warns rather than refuses.
+                LOG.log(Level.WARNING, "the rift engine bound its intercept listener to " + intercept.engineAddress()
+                        .map(URI::getHost).orElse("loopback") + ", which answers only on the engine's own machine;"
+                        + " if the engine runs in a container or on another host, start it with"
+                        + " InterceptOptions.builder().host(\"0.0.0.0\")");
+            }
+            return intercept;
+        } catch (RuntimeException e) {
+            // The engine is already running the listener and allows one, so the latch stays set: a
+            // retry would only be refused.
+            throw new IllegalStateException("the rift engine started an intercept listener at "
+                    + reportedInterceptUrl(response) + " but this client cannot use it (" + e.getMessage()
+                    + "); the engine runs one listener per process, so it stays until the engine stops", e);
+        }
+    }
+
+    /**
+     * Where this client dials a listener the engine reports binding to: as reported for an engine the
+     * SDK runs itself; on a connected engine, the {@link ConnectOptions.Builder#interceptAddress}
+     * mapping, or else the reported address with a wildcard bind replaced by the admin host.
+     */
+    private UnaryOperator<InetSocketAddress> interceptDial() {
+        if (localEngine) {
+            return UnaryOperator.identity();
+        }
+        Optional<IntFunction<InetSocketAddress>> override = options.interceptAddress();
+        if (override.isPresent()) {
+            IntFunction<InetSocketAddress> mapping = override.get();
+            return bound -> mapping.apply(bound.getPort());
+        }
+        String adminHost = options.adminUri().getHost();
+        return bound -> bound.getAddress() != null && bound.getAddress().isAnyLocalAddress()
+                ? new InetSocketAddress(adminHost, bound.getPort())
+                : bound;
+    }
+
+    /** The start response's {@code interceptUrl}, never the whole body: it can carry a generated CA's private key. */
+    private static String reportedInterceptUrl(JsonValue response) {
+        return response instanceof JsonObject obj && obj.get("interceptUrl") instanceof JsonString url
+                ? url.value()
+                : "(an address the engine did not report)";
     }
 
     @Override
