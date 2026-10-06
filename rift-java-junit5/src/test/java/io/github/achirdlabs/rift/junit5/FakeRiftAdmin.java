@@ -43,6 +43,7 @@ final class FakeRiftAdmin implements AutoCloseable {
     final AtomicInteger interceptStarts = new AtomicInteger();
     final AtomicInteger interceptRuleAdds = new AtomicInteger();
     final AtomicInteger interceptRuleClears = new AtomicInteger();
+    final AtomicInteger interceptStops = new AtomicInteger();
     /** The body of the last {@code POST /intercept}, or null if none was sent. */
     volatile String lastInterceptStart;
 
@@ -91,6 +92,10 @@ final class FakeRiftAdmin implements AutoCloseable {
     private String route(String method, String path) {
         if (path.equals("/config")) {
             return "{\"version\":\"0.13.1\",\"commit\":\"test\"}";
+        }
+        if (path.equals("/intercept") && method.equals("DELETE")) {
+            interceptStops.incrementAndGet();
+            return "";
         }
         if (path.equals("/intercept") && method.equals("POST")) {
             interceptStarts.incrementAndGet();

@@ -347,6 +347,13 @@ final class FfiCalls {
         }
     }
 
+    void stopIntercept() {
+        ensureLive();
+        if (ffi.stopIntercept(handle) != 0) {
+            throw engineError();
+        }
+    }
+
     String interceptCaPem() {
         ensureLive();
         MemorySegment seg = ffi.interceptCaPem(handle);

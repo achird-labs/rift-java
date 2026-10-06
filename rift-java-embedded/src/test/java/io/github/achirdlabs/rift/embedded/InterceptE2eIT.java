@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -198,16 +199,63 @@ class InterceptE2eIT {
     }
 
     @Test
-    void onlyOneInterceptPerEngine() {
+    void oneInterceptAtATimeButClosingFreesTheEngineForAnother() throws Exception {
         try (Rift rift = embedded()) {
             Intercept first = rift.intercept();
+            assertThrows(IllegalStateException.class, rift::intercept, "a second intercept while one runs is rejected");
+            first.close();
+
+            Intercept second = rift.intercept();
             try {
-                assertThrows(IllegalStateException.class, rift::intercept,
-                        "a second intercept on the same engine is rejected");
+                second.serve("example.com", RiftDsl.status(418));
+                assertEquals(418, getThrough(second), "the restarted listener serves");
             } finally {
-                first.close();
+                second.close();
             }
         }
+    }
+
+    @Test
+    void aRestartWithTheSameCaKeepsTheAnchor() throws Exception {
+        String certPem = resource("/test-inmemory-ca-cert.pem");
+        String keyPem = resource("/test-inmemory-ca-key.pem");
+        try (Rift rift = embedded()) {
+            rift.intercept(InterceptOptions.builder().ca(certPem, keyPem).build()).close();
+            Intercept again = rift.intercept(InterceptOptions.builder().ca(certPem, keyPem).build());
+            try {
+                assertEquals(parseCert(certPem), parseCert(again.trust().caPem()));
+            } finally {
+                again.close();
+            }
+        }
+    }
+
+    @Test
+    void aRestartWithoutACaMintsANewOne() throws Exception {
+        try (Rift rift = embedded()) {
+            Intercept first = rift.intercept();
+            String firstCa = first.trust().caPem();
+            first.close();
+            Intercept second = rift.intercept();
+            try {
+                assertNotEquals(parseCert(firstCa), parseCert(second.trust().caPem()),
+                        "the engine drops a stopped listener's CA; trust must be re-read after a restart");
+            } finally {
+                second.close();
+            }
+        }
+    }
+
+    /** The status of an HTTPS GET to example.com through {@code intercept}, trusting its CA. */
+    private static int getThrough(Intercept intercept) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(intercept.trust().sslContext())
+                .proxy(intercept.proxySelector())
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .build();
+        return client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("https://example.com/"))
+                        .timeout(java.time.Duration.ofSeconds(10)).GET().build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString()).statusCode();
     }
 
     @Test

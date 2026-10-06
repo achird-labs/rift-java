@@ -213,11 +213,19 @@ public interface RiftTransport extends AutoCloseable {
 
     /**
      * Starts the intercept (TLS-MITM) listener with the given {@code {host,port,caCertPath,
-     * caKeyPath}} options, returning {@code {interceptPort,interceptUrl}}. One intercept per
-     * engine; the caller (see {@code RiftImpl}) enforces that invariant before this is ever
+     * caKeyPath}} options, returning {@code {interceptPort,interceptUrl}}. One running intercept
+     * per engine; the caller (see {@code RiftImpl}) enforces that invariant before this is ever
      * called, so a transport need not guard against a second call itself.
      */
     JsonValue startIntercept(JsonValue options);
+
+    /**
+     * Stops the intercept listener; the engine drops its rules and CA with it, and a later {@link
+     * #startIntercept} may start another. Stopping a stopped listener succeeds.
+     */
+    default void stopIntercept() {
+        throw new UnsupportedOperationException("this transport cannot stop an intercept listener (stopIntercept)");
+    }
 
     /** Adds one ({@code JsonObject}) or many ({@code JsonArray}) intercept rules. */
     void interceptAddRules(JsonValue rules);

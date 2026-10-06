@@ -523,6 +523,12 @@ public final class RemoteTransport implements RiftTransport {
     }
 
     @Override
+    public void stopIntercept() {
+        // Always 204, idempotent (rift >= 0.13.0, rift#493).
+        executeVoid("DELETE", "/intercept", null, OptionalInt.empty());
+    }
+
+    @Override
     public String interceptCaPem() {
         // application/x-pem-file, not JSON — read the body as raw text rather than parsing it.
         HttpResponse<String> response = send("GET", "/intercept/ca.pem", null);

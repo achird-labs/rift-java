@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -44,6 +45,11 @@ final class InterceptImpl implements Intercept {
     private final Optional<URI> engineAddress;
     private final InetSocketAddress engineBound;
     private final CaMaterial caMaterial;
+    /** Whether this handle started the listener (and so stops it), rather than attaching to one. */
+    private final boolean owned;
+    /** Tells the owning {@link RiftImpl} the engine is free for another intercept. */
+    private final Runnable onClosed;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private volatile InterceptTrust trust;
 
@@ -58,7 +64,7 @@ final class InterceptImpl implements Intercept {
             "rejects the rule ('did not match any variant')", "collapse the header to one value");
 
     InterceptImpl(RiftTransport transport, JsonValue startResponse) {
-        this(transport, startResponse, UnaryOperator.identity(), requirement -> { });
+        this(transport, startResponse, UnaryOperator.identity(), requirement -> { }, () -> { });
     }
 
     /**
@@ -66,9 +72,11 @@ final class InterceptImpl implements Intercept {
      * where this client reaches it, which differs when the engine is on another machine.
      */
     InterceptImpl(RiftTransport transport, JsonValue startResponse, UnaryOperator<InetSocketAddress> dial,
-            Consumer<RiftImpl.EngineRequirement> engineGate) {
+            Consumer<RiftImpl.EngineRequirement> engineGate, Runnable onClosed) {
         this.transport = transport;
         this.engineGate = engineGate;
+        this.owned = true;
+        this.onClosed = onClosed;
         if (!(startResponse instanceof JsonObject obj)
                 || !(obj.get("interceptPort") instanceof JsonNumber port)
                 || !(obj.get("interceptUrl") instanceof JsonString url)) {
@@ -95,14 +103,16 @@ final class InterceptImpl implements Intercept {
 
     /** Attach mode, with the engine-version check {@link RiftImpl} supplies. */
     InterceptImpl(RiftTransport transport, String host, int port, Consumer<RiftImpl.EngineRequirement> engineGate) {
-        this(transport, host, port, null, engineGate);
+        this(transport, host, port, null, engineGate, () -> { });
     }
 
     /** Attach mode, carrying the CA the caller started the listener with ({@code null} when not given). */
     InterceptImpl(RiftTransport transport, String host, int port, CaMaterial ca,
-            Consumer<RiftImpl.EngineRequirement> engineGate) {
+            Consumer<RiftImpl.EngineRequirement> engineGate, Runnable onClosed) {
         this.transport = transport;
         this.engineGate = engineGate;
+        this.owned = false;
+        this.onClosed = onClosed;
         this.uri = HostAuthority.httpUri(host, port);
         this.address = new InetSocketAddress(host, port);
         this.engineAddress = Optional.empty();
@@ -168,16 +178,19 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public InterceptRule serve(String host, IsSpec response) {
+        requireOpen();
         return addServeRule(host, List.of(), response, RuleKind.SERVE);
     }
 
     @Override
     public InterceptRule forward(String host, String hostPort) {
+        requireOpen();
         return addForwardRule(host, List.of(), parsePort(hostPort), RuleKind.FORWARD);
     }
 
     @Override
     public InterceptRule redirectTo(String host, Imposter imposter) {
+        requireOpen();
         // REDIRECT is an SDK-level label only: the wire action is identical to forward()'s (see
         // RuleKind), so this rule is indistinguishable from a plain forward() once round-tripped.
         return addForwardRule(host, List.of(), imposter.port(), RuleKind.REDIRECT);
@@ -185,11 +198,13 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public InterceptRuleBuilder rule() {
+        requireOpen();
         return new InterceptRuleBuilder(this);
     }
 
     // Shared by the host-only methods above and by InterceptRuleBuilder (predicate-scoped, host-optional).
     InterceptRule addServeRule(String host, List<Predicate> predicates, IsSpec response, RuleKind kind) {
+        requireOpen();
         JsonObject serve = toServeStub(response);
         if (serve.get("headers") instanceof JsonObject headers
                 && headers.fields().values().stream().anyMatch(v -> v instanceof JsonArray)) {
@@ -202,6 +217,7 @@ final class InterceptImpl implements Intercept {
     }
 
     InterceptRule addForwardRule(String host, List<Predicate> predicates, int port, RuleKind kind) {
+        requireOpen();
         JsonObject action = JsonObject.builder()
                 .put("forward", JsonObject.builder().put("port", JsonNumber.of(port)).build())
                 .build();
@@ -245,6 +261,7 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public List<InterceptRule> rules() {
+        requireOpen();
         JsonValue listed = transport.interceptListRules();
         if (!(listed instanceof JsonArray array)) {
             throw new CommunicationError(
@@ -279,6 +296,7 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public void clearRules() {
+        requireOpen();
         transport.interceptClearRules();
     }
 
@@ -289,6 +307,8 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public InterceptTrust trust() {
+        // A restart without a supplied CA mints a new one, so a stopped listener's trust is stale.
+        requireOpen();
         InterceptTrust t = trust;
         if (t == null) {
             synchronized (this) {
@@ -302,12 +322,40 @@ final class InterceptImpl implements Intercept {
         return t;
     }
 
+    /**
+     * Synchronized so a concurrent caller waits for the outcome rather than returning before a stop
+     * that may yet fail. The handle counts as closed only once the transport call succeeded: a failure
+     * leaves it open and the engine claimed, so close() can be retried.
+     */
     @Override
-    public void close() {
-        // The intercept listener itself has no per-instance stop over this SPI — it is torn down
-        // only when the owning engine (and thus its Rift/RiftTransport) is closed. Clearing rules
-        // is the best-effort cleanup available here.
-        clearRules();
+    public synchronized void close() {
+        if (closed.get()) {
+            return;
+        }
+        boolean engineFreed = true;
+        if (owned) {
+            try {
+                transport.stopIntercept();
+            } catch (UnsupportedOperationException e) {
+                // A transport that cannot stop a listener: clear its rules, as before stop existed. The
+                // listener keeps running, so the engine stays claimed.
+                transport.interceptClearRules();
+                engineFreed = false;
+            }
+        } else {
+            // An attached listener belongs to whoever launched it: leave it running, rules cleared.
+            transport.interceptClearRules();
+        }
+        closed.set(true);
+        if (engineFreed) {
+            onClosed.run();
+        }
+    }
+
+    private void requireOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("intercept is closed");
+        }
     }
 
     /**

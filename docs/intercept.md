@@ -10,11 +10,12 @@ Intercept intercept = rift.intercept();               // default options
 Intercept intercept = rift.intercept(InterceptOptions.builder().port(8443).build());
 ```
 
-At most one intercept listener is allowed per engine. A second `rift.intercept()` call on the
-same `Rift` throws `IllegalStateException` before touching the engine; a different `Rift` handle
-to the same engine is refused by the engine itself (HTTP 409, surfaced as an `EngineError`). A
-call that fails to start (e.g. a bad committed CA — see below) leaves intercept available to
-retry; it does not poison the engine.
+One intercept listener runs per engine at a time. A second `rift.intercept()` call on the same
+`Rift` while one is open throws `IllegalStateException` before touching the engine; a different
+`Rift` handle to the same engine is refused by the engine itself (HTTP 409, surfaced as an
+`EngineError`). `intercept.close()` stops the listener and frees the engine for another
+`rift.intercept(...)` — with a different CA, say. A call that fails to start (e.g. a bad committed
+CA — see below) leaves intercept available to retry; it does not poison the engine.
 
 Works on every transport: embedded starts the listener over FFM, and a connected/spawned engine
 starts it over the admin API (rift ≥ 0.13.3). The bind `host` must be an **IP literal** (e.g.
@@ -35,8 +36,8 @@ engine's ports are remapped — a container, a port-forward — set
   reports a loopback bind.
 - The mapping is asked about the requested port **before** the listener starts, so a mapping that
   cannot reach it (an unexposed container port, or port `0`) refuses with nothing started. Should it
-  fail *after* the start, the error names the running listener: the engine runs one, so it stays
-  until the engine stops and a retry is refused.
+  fail *after* the start, the listener is stopped and the error names it, so a retry can start
+  another; only if that stop fails too does the listener stay, and a retry is refused.
 - `interceptAddress` is separate from the imposter `hostResolver`: the listener is a `CONNECT`
   proxy, never an imposter's HTTP base URI, so a gateway-style imposter mapping does not apply.
 - A listener the engine starts **at launch** (`--intercept-port`) binds the admin interface, which
@@ -143,8 +144,12 @@ List<InterceptRule> rules = intercept.rules();   // in the order they were added
 intercept.clearRules();                          // removes every rule; the listener stays up
 ```
 
-`intercept.close()` clears rules too; the listener itself is torn down when the owning `Rift`
-closes.
+`intercept.close()` **stops** a listener it started (rift ≥ 0.13.0) — rules and CA go with it — and
+frees the engine for another `rift.intercept(...)`. A restart without a supplied CA mints a **new**
+CA, so take `trust()` from the new handle; a closed handle refuses `trust()` and rule calls rather
+than hand out the old anchor. Closing an **attached** handle only clears its rules: the listener
+belongs to whoever launched it (a container, `--intercept-port`). `close()` is idempotent, and a
+failed stop leaves the handle open to retry.
 
 ## Trusting the intercept's CA
 

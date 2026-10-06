@@ -54,7 +54,7 @@ final class RiftFfi {
     private final MethodHandle interceptClearRules;
     private final MethodHandle interceptListRules;
     private final MethodHandle interceptCaPem;
-    private final MethodHandle interceptExportTruststore;
+    private final MethodHandle stopIntercept;
 
     private RiftFfi(SymbolLookup lookup, Linker linker) {
         this.start = handle(lookup, linker, "rift_start",
@@ -133,8 +133,8 @@ final class RiftFfi {
                 FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         this.interceptCaPem = handle(lookup, linker, "rift_intercept_ca_pem",
                 FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-        this.interceptExportTruststore = handle(lookup, linker, "rift_intercept_export_truststore",
-                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        this.stopIntercept = handle(lookup, linker, "rift_stop_intercept",
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     }
 
     private static MethodHandle handle(SymbolLookup lookup, Linker linker, String name, FunctionDescriptor descriptor) {
@@ -157,7 +157,7 @@ final class RiftFfi {
             "rift_flow_state_put", "rift_flow_state_delete", "rift_space_add_stub", "rift_space_list_stubs",
             "rift_space_delete", "rift_space_recorded", "rift_serve_admin", "rift_build_info", "rift_last_error",
             "rift_free", "rift_start_intercept", "rift_intercept_add_rules", "rift_intercept_clear_rules",
-            "rift_intercept_list_rules", "rift_intercept_ca_pem", "rift_intercept_export_truststore");
+            "rift_intercept_list_rules", "rift_intercept_ca_pem", "rift_stop_intercept");
 
     static RiftFfi bind(SymbolLookup lookup, Linker linker) {
         return bind(lookup, linker, "the loaded native library");
@@ -348,8 +348,8 @@ final class RiftFfi {
         return (MemorySegment) invoke(interceptCaPem, handle);
     }
 
-    int interceptExportTruststore(MemorySegment handle, MemorySegment format, MemorySegment password, MemorySegment outPath) {
-        return (int) invoke(interceptExportTruststore, handle, format, password, outPath);
+    int stopIntercept(MemorySegment handle) {
+        return (int) invoke(stopIntercept, handle);
     }
 
     /** Reads a returned C string. Delegates to {@link FfmCompat} for the two-JDK method rename. */

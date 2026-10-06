@@ -273,8 +273,11 @@ than one. It builds on the core [`Recording` API](recording.md).
 ## Intercept (`@RiftIntercept`)
 
 `@RiftIntercept` starts a TLS-MITM intercept listener for the test class. The listener and its CA
-live for the class; only its rules reset per test (per the `@RiftTest` `Reset` policy). Declare rules
-with a `@RiftInterceptRules` static method and get the live handle with `@InjectIntercept`:
+live for the class, and `afterAll` stops the listener — on a shared `Transport.CONNECT` engine that
+frees its one intercept slot for the next class instead of leaving it to answer `409` (an
+`attach = true` listener is left running: its launcher owns it). Only its rules reset per test (per
+the `@RiftTest` `Reset` policy). Declare rules with a `@RiftInterceptRules` static method and get the
+live handle with `@InjectIntercept`:
 
 ```java
 @RiftTest(transport = Transport.EMBEDDED)

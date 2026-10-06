@@ -9,6 +9,7 @@ import java.lang.foreign.SymbolLookup;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,5 +47,21 @@ class FfiProbeTest {
                 "message must list every missing symbol: " + msg);
         assertTrue(msg.contains("missing 2 of"), "message must report the count: " + msg);
         assertTrue(msg.contains("/path/to/librift_ffi.dylib"), "message must name the source library: " + msg);
+    }
+
+    @Test
+    void stopInterceptIsRequiredAndTheUnusedTruststoreExportIsNot() {
+        // rift_stop_intercept backs Intercept.close(); the SDK writes truststores itself, so a library
+        // without rift_intercept_export_truststore must not be refused for it.
+        Set<String> absent = Set.of("rift_stop_intercept", "rift_intercept_export_truststore");
+        SymbolLookup partial = name -> absent.contains(name) ? Optional.empty() : Optional.of(MemorySegment.NULL);
+
+        EngineUnavailable ex = assertThrows(EngineUnavailable.class,
+                () -> RiftFfi.bind(partial, Linker.nativeLinker(), "/path/to/librift_ffi.dylib"));
+
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("rift_stop_intercept"), msg);
+        assertFalse(msg.contains("rift_intercept_export_truststore"), msg);
+        assertTrue(msg.contains("missing 1 of"), msg);
     }
 }
