@@ -195,6 +195,9 @@ final class InterceptRules implements InterceptRuleSet {
             if (!rift.stateOps().isEmpty()) {
                 undeliverable.add("_rift.stateOps (setState/incrementState/deleteState/clearFlowState)");
             }
+            if (rift.conditional().isPresent()) {
+                undeliverable.add("_rift.conditional (conditional)");
+            }
             rift.extra().keySet().forEach(key -> undeliverable.add("_rift." + key));
         });
         IsResponse ir = is.is();

@@ -105,8 +105,8 @@ not registered:
 
 - any behavior — `after`/`waitMs`, `decorate`, `repeat`, `copy`, `lookup`, `shellTransform`;
 - any `_rift` extension — `templated()`, a script, a fault (`withLatencyFault`,
-  `withErrorFault`, `withTcpFault`), or flow-state writes (`setState`, `incrementState`,
-  `deleteState`, `clearFlowState`);
+  `withErrorFault`, `withTcpFault`), flow-state writes (`setState`, `incrementState`,
+  `deleteState`, `clearFlowState`), or conditional GET (`conditional()`);
 - a binary body (`withBinaryBody`), which the serve action can only carry as its base64 text.
 
 ```java

@@ -19,8 +19,8 @@ public interface InterceptRuleSet {
      * &ge; 0.18.0; on an older engine it is refused here (unless the version check is off), since
      * that engine would reject the rule. A response using anything else — any behavior ({@code
      * wait}/{@code decorate}/{@code repeat}/{@code copy}/{@code lookup}/{@code shellTransform}), any
-     * {@code _rift} extension ({@code templated}, {@code script}, or a latency/error/TCP fault), or a
-     * binary body — is rejected here rather than silently dropped. Use {@link #redirectTo} to reach an imposter, which has full stub fidelity.
+     * {@code _rift} extension ({@code templated}, {@code script}, a latency/error/TCP fault, flow-state
+     * writes or {@code conditional}), or a binary body — is rejected here rather than silently dropped. Use {@link #redirectTo} to reach an imposter, which has full stub fidelity.
      *
      * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a
      *         construct the serve action cannot deliver; the rule is not registered

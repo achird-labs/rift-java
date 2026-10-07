@@ -68,6 +68,13 @@ class InterceptServeGuardTest {
         return thrown;
     }
 
+    @Test
+    void rejectsConditional() {
+        // The serve action cannot carry _rift, so validators and 304s would never happen (#263).
+        assertTrue(rejected(status(200).withTextBody("b").conditional())
+                .getMessage().contains("_rift.conditional"));
+    }
+
     // --- AC1: every construct in the issue's reproduction table is rejected, and registers nothing ---
 
     @Test
@@ -247,7 +254,7 @@ class InterceptServeGuardTest {
     void guardCoversEveryComponentOfTheModelItInspects() {
         assertComponents(Response.Is.class, "is", "behaviors", "rift", "extra");
         assertComponents(IsResponse.class, "statusCode", "headers", "body", "mode", "extra");
-        assertComponents(RiftResponseExtension.class, "fault", "script", "templated", "stateOps", "extra");
+        assertComponents(RiftResponseExtension.class, "fault", "script", "templated", "stateOps", "conditional", "extra");
         assertComponents(RiftFaultConfig.class, "latency", "error", "tcp");
         assertComponents(Behaviors.class, "entries");
         // The guard tests `mode() == BINARY`, so a third mode would pass through as if it were text.

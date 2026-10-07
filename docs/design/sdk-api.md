@@ -536,6 +536,20 @@ IsSpec incrementState(String key)                        // {"op":"increment","b
 IsSpec incrementState(String key, long by)
 IsSpec deleteState(String key)                           // {"op":"delete"}
 IsSpec clearFlowState()                                  // {"op":"clearFlow"}
+// declarative conditional GET (_rift.conditional, rift >= 0.20.0; #263). A 2xx GET/HEAD answer gets a
+// strong ETag over the served bytes and a Last-Modified; If-None-Match / If-Modified-Since that match
+// get a bodyless 304. The engine computes the ETag (no explicit-ETag form exists) and replaces any
+// ETag/Last-Modified header set here. Engine-version gated at create/replaceAll (conditional:false,
+// the engine's off state, is not) — like every per-feature gate, not on Imposter.addStub/replaceStubs;
+// refused on an intercept serve rule. The last call wins.
+IsSpec conditional()                                     // true: ETag + Last-Modified = stub load time
+IsSpec conditional(Instant lastModified)                 // {"lastModified":"Mon, 05 Jan 2026 08:09:10 GMT"}
+IsSpec conditionalWithoutEtag()                          // {"etag":false}
+IsSpec conditionalWithoutEtag(Instant lastModified)      // {"etag":false,"lastModified":"…"}
+// A fixed lastModified is an IMF-fixdate (two-digit day, GMT, whole seconds) served verbatim — not
+// RFC_1123_DATE_TIME, which writes a one-digit day. Read back as RiftResponseExtension.conditional():
+// Optional<RiftConditional>, sealed Enabled(boolean) | Validators(Optional<Boolean> etag,
+// Optional<String> lastModified), absent fields kept absent so the engine's echo round-trips.
 // probabilistic _rift faults (chainable, composable):
 IsSpec withLatencyFault(double probability, Duration min, Duration max)
 IsSpec withLatencyFault(double probability, Duration fixed)
