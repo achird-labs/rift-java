@@ -52,6 +52,16 @@ public record ApplyResult(List<Integer> created, List<Integer> replaced, List<In
     }
 
     /**
+     * The shape before {@code toggled} (rift-java 0.3.5), kept for source and binary compatibility;
+     * {@code toggled} is empty.
+     */
+    public ApplyResult(List<Integer> created, List<Integer> replaced, List<Integer> stubPatched,
+                       List<Integer> deleted, List<ApplyFailure> failed, List<String> warnings,
+                       Optional<InterceptCounts> intercept) {
+        this(created, replaced, stubPatched, List.of(), deleted, failed, warnings, intercept);
+    }
+
+    /**
      * One imposter the engine could not apply.
      *
      * @param port    the imposter's port; empty when none can be attributed — a config that declared
