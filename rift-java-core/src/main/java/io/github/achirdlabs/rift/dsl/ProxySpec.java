@@ -58,22 +58,29 @@ public final class ProxySpec implements ResponseSpec, BehaviorChain<ProxySpec> {
         this.behaviors = behaviors;
     }
 
-    /** A fresh proxy targeting {@code url}, with the engine's default proxy mode. */
+    /**
+     * A fresh proxy targeting {@code url} that sends no {@code mode}, so the engine's default applies:
+     * {@code proxyOnce} from rift 0.21.0 (Mountebank's default). An older engine forwarded every request
+     * when the proxy had no {@code predicateGenerators}; call {@link #proxyTransparent()} for that.
+     */
     static ProxySpec to(String url) {
         return new ProxySpec(url, "", List.of(), false, Map.of(), Optional.empty(), Optional.empty(), List.of());
     }
 
-    /** Proxies each matching request and records only the first response as a permanent stub. */
+    /**
+     * Forwards the first matching request and records its response as a stub, which answers every
+     * later match: record once, then replay.
+     */
     public ProxySpec proxyOnce() {
         return withMode("proxyOnce");
     }
 
-    /** Proxies every matching request, always forwarding live (no recording). */
+    /** Forwards every matching request live and records each response, for a later replay. */
     public ProxySpec proxyAlways() {
         return withMode("proxyAlways");
     }
 
-    /** Proxies every matching request without ever recording a new stub. */
+    /** Forwards every matching request live and records nothing. */
     public ProxySpec proxyTransparent() {
         return withMode("proxyTransparent");
     }

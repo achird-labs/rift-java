@@ -327,7 +327,12 @@ public final class RiftDsl {
         return IsSpec.is(Integer.toString(code));
     }
 
-    /** Starts building a proxy response forwarding matched requests to {@code url}. */
+    /**
+     * Starts building a proxy response forwarding matched requests to {@code url}. Without a mode
+     * chooser ({@code proxyOnce()}/{@code proxyAlways()}/{@code proxyTransparent()}) the engine's
+     * default applies, which is {@code proxyOnce} from rift 0.21.0: see {@link ProxySpec#proxyTransparent()}
+     * to keep forwarding every request.
+     */
     public static ProxySpec proxyTo(String url) {
         return ProxySpec.to(url);
     }
