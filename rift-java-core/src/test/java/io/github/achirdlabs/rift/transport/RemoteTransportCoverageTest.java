@@ -390,7 +390,7 @@ class RemoteTransportCoverageTest {
 
     @Test
     void applyConfigWithoutAReportIsRefused() {
-        // Today's engines answer PUT /imposters with the imposter list only (rift#1304 adds the report).
+        // Engines before 0.20.0 answer PUT /imposters with the imposter list only (rift#1304 added the report).
         try (FakeAdminServer s = new FakeAdminServer()) {
             s.respond("PUT /imposters", 200, "{\"imposters\":[{\"port\":4545,\"protocol\":\"http\"}]}");
             try (Rift rift = connect(s)) {
@@ -399,6 +399,7 @@ class RemoteTransportCoverageTest {
                         () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
                 assertTrue(e.getMessage().contains("replaceAll"), e.getMessage());
                 assertTrue(e.getMessage().contains("reconciled"), "it says the apply itself happened: " + e.getMessage());
+                assertTrue(e.getMessage().contains("0.20.0"), "it names the engine that reports: " + e.getMessage());
             }
         }
     }

@@ -386,11 +386,11 @@ final class RiftImpl implements Rift {
     public ApplyResult applyConfig(JsonValue config) {
         JsonValue reply = transport.applyConfig(config);
         if (!(reply instanceof JsonObject obj) || !(obj.has("created") || obj.has("failed"))) {
-            // The engine applied the config but answered with its imposter list: no report to read,
+            // An engine before 0.20.0 applied the config but answered with its imposter list: no report to read,
             // and a report of nothing would be the silent-zero result this replaced.
             throw new EngineUnavailable("the rift engine applied the config (the imposters were reconciled) but its"
-                    + " admin API does not report what changed (achird-labs/rift#1304); use replaceAll(...) when"
-                    + " the report is not needed");
+                    + " admin API does not report what changed; that needs rift engine >= 0.20.0. Use"
+                    + " replaceAll(...) when the report is not needed");
         }
         return ApplyResult.read(reply);
     }
