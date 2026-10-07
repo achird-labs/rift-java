@@ -15,7 +15,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -23,13 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Real TLS-MITM over the embedded engine: an intercept {@code serve} rule answers an HTTPS request to a
  * host the client never actually contacts. The whole flow is localhost — the client dials the intercept
  * proxy, which terminates TLS with a cert signed by the intercept CA (trusted via {@code sslContext()})
- * and returns the rule's canned response. Skips without {@code -Drift.ffi.lib}.
+ * and returns the rule's canned response. Gated by {@link EmbeddedTestLibrary}.
  */
 class InterceptE2eIT {
 
@@ -37,10 +35,7 @@ class InterceptE2eIT {
 
     @BeforeAll
     static void requireLibrary() {
-        String p = System.getProperty("rift.ffi.lib");
-        assumeTrue(p != null && !p.isBlank() && Files.exists(Path.of(p)),
-                "set -Drift.ffi.lib to run the intercept integration test");
-        lib = Path.of(p);
+        lib = EmbeddedTestLibrary.require();
     }
 
     private static Rift embedded() {

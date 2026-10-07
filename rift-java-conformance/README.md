@@ -71,6 +71,10 @@ RIFT_IT=1 ./mvnw -pl rift-java-conformance -am verify \
   -Drift.corpus.root=/path/to/sdk-conformance-v0.19.0
 ```
 
+On JDK 21 or 22+, `-am` also builds `rift-java-embedded` (or `-embedded-jdk21`), whose integration
+tests treat `RIFT_IT=1` as a promise of a live engine: name a library (`-Drift.ffi.lib` or
+`RIFT_FFI_LIB`) or run this lane on JDK 17, where neither embedded module is built.
+
 Over the embedded transport (JDK 21 or 22+, with a `librift_ffi` for your platform):
 
 ```bash
@@ -83,7 +87,10 @@ CI runs these in the `conformance` job (see `.github/workflows/ci.yml`), a matri
 JDKs, and OSes: `SPAWN` on ubuntu/JDK 17; `EMBEDDED` on ubuntu (JDK 22 and JDK 21 preview) and
 macOS (JDK 22, `darwin-aarch64`); Windows is `EMBEDDED`/experimental (`continue-on-error`) until it
 is green for two consecutive weeks. Each embedded lane fetches its platform's `librift_ffi` from the
-version-locked engine release and exposes it via `RIFT_FFI_LIB`.
+version-locked engine release and exposes it via `RIFT_FFI_LIB`. Because `-am` builds
+`rift-java-embedded` (or `-embedded-jdk21`) in the same reactor, those lanes also run its integration
+tests (`EmbeddedTransportIT`, `EmbeddedWiringIT`, `InterceptE2eIT`) against that library: they read
+`-Drift.ffi.lib` or `RIFT_FFI_LIB`, and with `RIFT_IT=1` and neither set they fail rather than skip.
 
 ## Adding a fixture to the DSL registry
 
