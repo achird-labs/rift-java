@@ -64,4 +64,18 @@ class FfiProbeTest {
         assertFalse(msg.contains("rift_intercept_export_truststore"), msg);
         assertTrue(msg.contains("missing 1 of"), msg);
     }
+
+    @Test
+    void aLibraryWithoutAtomicRuleReplaceStillBindsAndSaysWhatTheReplaceNeeds() {
+        // rift_intercept_replace_rules is 0.20.0; an older library must still load for everything else.
+        SymbolLookup older = name -> name.equals("rift_intercept_replace_rules")
+                ? Optional.empty() : Optional.of(MemorySegment.ofAddress(1L));
+
+        RiftFfi ffi = RiftFfi.bind(older, Linker.nativeLinker(), "/path/to/librift_ffi.dylib");
+
+        EngineUnavailable ex = assertThrows(EngineUnavailable.class,
+                () -> ffi.interceptReplaceRules(MemorySegment.NULL, MemorySegment.NULL));
+        assertTrue(ex.getMessage().contains("rift >= 0.20.0"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("rift_intercept_replace_rules"), ex.getMessage());
+    }
 }

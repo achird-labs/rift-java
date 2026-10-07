@@ -546,6 +546,12 @@ public final class RemoteTransport implements RiftTransport {
     }
 
     @Override
+    public void interceptReplaceRules(JsonValue rules) {
+        // A bare array: the route takes a rule or an array of rules, no {"rules": ...} wrapper.
+        executeVoid("PUT", "/intercept/rules", rules.toJson(), OptionalInt.empty());
+    }
+
+    @Override
     public JsonValue interceptListRules() {
         return executeJson("GET", "/intercept/rules", null, OptionalInt.empty());
     }

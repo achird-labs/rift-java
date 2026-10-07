@@ -5,12 +5,15 @@ import io.github.achirdlabs.rift.EmbeddedOptions;
 import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
+import io.github.achirdlabs.rift.InterceptRuleSet;
 import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.Recording;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.SpawnOptions;
 import io.github.achirdlabs.rift.TruststoreFormat;
 import io.github.achirdlabs.rift.dsl.ImposterSpec;
+import io.github.achirdlabs.rift.error.EngineError;
+import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Stub;
@@ -36,10 +39,12 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The {@code @RiftTest} JUnit 5 extension: starts one {@link Rift} engine per test class, creates
@@ -63,6 +68,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
 
     private static final ExtensionContext.Namespace NAMESPACE = ExtensionContext.Namespace.create(RiftTestExtension.class);
     private static final String STORE_KEY = "riftTestContext";
+    private static final System.Logger LOG = System.getLogger(RiftTestExtension.class.getName());
     static final int MAX_DUMP = 20;
 
     /** Programmatic configuration (Tier-2); {@code null} in annotation mode. */
@@ -173,8 +179,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
         if (riftTestContext.reset() == Reset.PER_TEST) {
             riftTestContext.resetConfiguredImposters();
             if (riftTestContext.intercept() != null) {
-                riftTestContext.intercept().clearRules();
-                applyInterceptRules(context.getRequiredTestClass(), riftTestContext);
+                reapplyInterceptRules(context.getRequiredTestClass(), riftTestContext);
             }
         }
     }
@@ -447,37 +452,95 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
     }
 
     private static void applyInterceptRules(Class<?> testClass, RiftTestContext ctx) {
-        for (Method method : AnnotationSupport.findAnnotatedMethods(
-                testClass, RiftInterceptRules.class, HierarchyTraversalMode.TOP_DOWN)) {
-            if (!Modifier.isStatic(method.getModifiers())) {
-                throw new IllegalStateException("@RiftInterceptRules method " + method + " must be static");
-            }
-            Object[] args = resolveRulesArgs(method, ctx);
-            method.trySetAccessible();
-            try {
-                method.invoke(null, args);
-            } catch (ReflectiveOperationException e) {
-                Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ite ? ite.getCause() : e;
-                throw new IllegalStateException("failed to apply @RiftInterceptRules method " + method.getName()
-                        + ": " + cause.getMessage(), cause);
-            }
+        Intercept intercept = requireIntercept(ctx);
+        for (Method method : rulesMethods(testClass)) {
+            invokeRulesMethod(method, ctx, intercept);
         }
     }
 
-    private static Object[] resolveRulesArgs(Method method, RiftTestContext ctx) {
+    /**
+     * Re-applies the rules after a per-test reset. When no rules method needs the live {@link
+     * Intercept} (each declares an {@link InterceptRuleSet} at most), the set is swapped in one
+     * {@code replaceRules} (rift &ge; 0.20.0), so a request in flight never meets an empty set. An
+     * engine that cannot replace makes every later reset of the class clear and re-add instead.
+     */
+    private static void reapplyInterceptRules(Class<?> testClass, RiftTestContext ctx) {
+        Intercept intercept = requireIntercept(ctx);
+        List<Method> methods = rulesMethods(testClass);
+        boolean anyNeedsTheIntercept = methods.stream()
+                .flatMap(m -> Arrays.stream(m.getParameterTypes()))
+                .anyMatch(type -> type == Intercept.class);
+        if (!anyNeedsTheIntercept && !ctx.replaceRulesRefused()) {
+            AtomicBoolean declared = new AtomicBoolean(false);
+            try {
+                intercept.replaceRules(set -> {
+                    declared.set(true);
+                    for (Method method : methods) {
+                        invokeRulesMethod(method, ctx, set);
+                    }
+                });
+                return;
+            } catch (InvalidDefinition | EngineError | UnsupportedOperationException e) {
+                // Only a refusal that positively means "cannot replace" falls back: the version gate,
+                // which fires before the rules are declared; a 404 for the route, from an older engine
+                // let past the gate (versionCheck WARN/OFF) — the listener is up, so the newer engine's
+                // "not running" 404 cannot be it; or a transport without the operation. A rule the
+                // engine rejects, or a rules method that throws, is the test's error to see.
+                boolean unsupported = e instanceof UnsupportedOperationException
+                        || (e instanceof InvalidDefinition && !declared.get())
+                        || (e instanceof EngineError engine && engine.code() == 404);
+                if (!unsupported) {
+                    throw e;
+                }
+                ctx.refuseReplaceRules();
+                LOG.log(System.Logger.Level.WARNING, "@RiftInterceptRules: the engine cannot replace the rule set in"
+                        + " one step, so " + testClass.getSimpleName() + " resets its rules by clearing and adding"
+                        + " them again (a request in flight may meet no rules): " + e.getMessage());
+            }
+        }
+        intercept.clearRules();
+        applyInterceptRules(testClass, ctx);
+    }
+
+    private static List<Method> rulesMethods(Class<?> testClass) {
+        List<Method> methods = AnnotationSupport.findAnnotatedMethods(
+                testClass, RiftInterceptRules.class, HierarchyTraversalMode.TOP_DOWN);
+        for (Method method : methods) {
+            if (!Modifier.isStatic(method.getModifiers())) {
+                throw new IllegalStateException("@RiftInterceptRules method " + method + " must be static");
+            }
+        }
+        return methods;
+    }
+
+    private static void invokeRulesMethod(Method method, RiftTestContext ctx, InterceptRuleSet rules) {
+        Object[] args = resolveRulesArgs(method, ctx, rules);
+        method.trySetAccessible();
+        try {
+            method.invoke(null, args);
+        } catch (ReflectiveOperationException e) {
+            Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ite ? ite.getCause() : e;
+            throw new IllegalStateException("failed to apply @RiftInterceptRules method " + method.getName()
+                    + ": " + cause.getMessage(), cause);
+        }
+    }
+
+    private static Object[] resolveRulesArgs(Method method, RiftTestContext ctx, InterceptRuleSet rules) {
         Parameter[] params = method.getParameters();
         Object[] args = new Object[params.length];
         for (int i = 0; i < params.length; i++) {
             Parameter p = params[i];
             if (p.getType() == Intercept.class) {
                 args[i] = requireIntercept(ctx);
+            } else if (p.getType() == InterceptRuleSet.class) {
+                args[i] = rules;
             } else if (p.getType() == Rift.class) {
                 args[i] = ctx.rift();
             } else if (p.isAnnotationPresent(InjectImposter.class)) {
                 args[i] = ctx.imposter(p.getAnnotation(InjectImposter.class).value());
             } else {
                 throw new IllegalStateException("@RiftInterceptRules parameter " + p
-                        + " is not resolvable (expected Intercept, Rift, or @InjectImposter Imposter)");
+                        + " is not resolvable (expected InterceptRuleSet, Intercept, Rift, or @InjectImposter Imposter)");
             }
         }
         return args;

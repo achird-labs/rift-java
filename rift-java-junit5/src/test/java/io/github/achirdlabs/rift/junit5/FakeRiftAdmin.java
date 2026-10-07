@@ -43,11 +43,24 @@ final class FakeRiftAdmin implements AutoCloseable {
     final AtomicInteger interceptStarts = new AtomicInteger();
     final AtomicInteger interceptRuleAdds = new AtomicInteger();
     final AtomicInteger interceptRuleClears = new AtomicInteger();
+    final AtomicInteger interceptRuleReplaces = new AtomicInteger();
     final AtomicInteger interceptStops = new AtomicInteger();
     /** The body of the last {@code POST /intercept}, or null if none was sent. */
     volatile String lastInterceptStart;
+    /** The body of the last {@code PUT /intercept/rules}, or null if none was sent. */
+    volatile String lastInterceptReplace;
+    /** The status {@code PUT /intercept/rules} answers; a 400 is the engine refusing a rule. */
+    volatile int interceptReplaceStatus = 200;
+
+    /** The engine version {@code GET /config} reports. */
+    private final String version;
 
     FakeRiftAdmin() {
+        this("0.13.1");
+    }
+
+    FakeRiftAdmin(String version) {
+        this.version = version;
         try {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         } catch (IOException e) {
@@ -80,10 +93,17 @@ final class FakeRiftAdmin implements AutoCloseable {
         if (path.equals("/intercept") && method.equals("POST")) {
             lastInterceptStart = body;
         }
+        if (path.equals("/intercept/rules") && method.equals("PUT")) {
+            lastInterceptReplace = body;
+        }
         String response = route(method, path);
+        int status = path.equals("/intercept/rules") && method.equals("PUT") ? interceptReplaceStatus : 200;
+        if (status != 200) {
+            response = "{\"errors\":[{\"code\":\"" + status + "\",\"message\":\"Invalid intercept rule JSON\"}]}";
+        }
         byte[] out = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
-        exchange.sendResponseHeaders(200, out.length);
+        exchange.sendResponseHeaders(status, out.length);
         try (var os = exchange.getResponseBody()) {
             os.write(out);
         }
@@ -91,7 +111,7 @@ final class FakeRiftAdmin implements AutoCloseable {
 
     private String route(String method, String path) {
         if (path.equals("/config")) {
-            return "{\"version\":\"0.13.1\",\"commit\":\"test\"}";
+            return "{\"version\":\"" + version + "\",\"commit\":\"test\"}";
         }
         if (path.equals("/intercept") && method.equals("DELETE")) {
             interceptStops.incrementAndGet();
@@ -109,6 +129,10 @@ final class FakeRiftAdmin implements AutoCloseable {
             if (method.equals("DELETE")) {
                 interceptRuleClears.incrementAndGet();
                 return "{}";
+            }
+            if (method.equals("PUT")) {
+                interceptRuleReplaces.incrementAndGet();
+                return "[]";
             }
             return "[]"; // GET
         }

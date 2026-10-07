@@ -47,6 +47,12 @@ final class RiftImpl implements Rift {
     /** The first engine release whose intercept serve action accepts a repeated header (rift#936). */
     static final String INTERCEPT_MULTI_VALUE_HEADERS_SINCE = "0.18.0";
 
+    /** The first engine release that replaces the intercept rule set atomically (rift#1272). */
+    static final String INTERCEPT_REPLACE_RULES_SINCE = "0.20.0";
+
+    /** The first engine release whose intercept forward rule reads a target {@code host}/{@code scheme} (rift#1273). */
+    static final String INTERCEPT_FORWARD_TARGET_SINCE = "0.20.0";
+
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
     private final RiftTransport transport;

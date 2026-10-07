@@ -5,6 +5,7 @@ import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonNumber;
+import io.github.achirdlabs.rift.json.JsonNull;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
@@ -32,10 +33,9 @@ import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 /**
- * {@link Intercept} over a {@link RiftTransport}: every method is a thin JSON-shape translation
- * layer around {@code transport.intercept*}, matching the engine's {@code InterceptRule}/{@code
- * InterceptAction} wire model (host + predicates + one of {@code {"serve":...}}/{@code
- * {"forward":{"port":...}}}) — see {@code intercept_rules.rs} in the rift engine.
+ * {@link Intercept} over a {@link RiftTransport}: a thin layer around {@code transport.intercept*}.
+ * Rules are built in the engine's wire shape by {@link InterceptRules}, which adds each as it is
+ * declared; {@link #replaceRules(Consumer)} stages them instead and installs the set in one call.
  */
 final class InterceptImpl implements Intercept {
 
@@ -59,9 +59,13 @@ final class InterceptImpl implements Intercept {
      */
     private final Consumer<RiftImpl.EngineRequirement> engineGate;
 
-    private static final RiftImpl.EngineRequirement MULTI_VALUE_HEADERS = new RiftImpl.EngineRequirement(
-            RiftImpl.INTERCEPT_MULTI_VALUE_HEADERS_SINCE, "multi-value intercept serve headers",
-            "rejects the rule ('did not match any variant')", "collapse the header to one value");
+    /** Adds each declared rule to the engine as it is declared. */
+    private final InterceptRules rules;
+
+    private static final RiftImpl.EngineRequirement REPLACE_RULES = new RiftImpl.EngineRequirement(
+            RiftImpl.INTERCEPT_REPLACE_RULES_SINCE, "intercept rule replace",
+            "has no PUT /intercept/rules (rift_intercept_replace_rules) and answers 404",
+            "clear the rules and add them again (clearRules, then serve/forward/redirectTo)");
 
     InterceptImpl(RiftTransport transport, JsonValue startResponse) {
         this(transport, startResponse, UnaryOperator.identity(), requirement -> { }, () -> { });
@@ -75,6 +79,7 @@ final class InterceptImpl implements Intercept {
             Consumer<RiftImpl.EngineRequirement> engineGate, Runnable onClosed) {
         this.transport = transport;
         this.engineGate = engineGate;
+        this.rules = new InterceptRules(rule -> transport.interceptAddRules(rule.raw()), engineGate, this::requireOpen);
         this.owned = true;
         this.onClosed = onClosed;
         if (!(startResponse instanceof JsonObject obj)
@@ -111,6 +116,7 @@ final class InterceptImpl implements Intercept {
             Consumer<RiftImpl.EngineRequirement> engineGate, Runnable onClosed) {
         this.transport = transport;
         this.engineGate = engineGate;
+        this.rules = new InterceptRules(rule -> transport.interceptAddRules(rule.raw()), engineGate, this::requireOpen);
         this.owned = false;
         this.onClosed = onClosed;
         this.uri = HostAuthority.httpUri(host, port);
@@ -178,85 +184,116 @@ final class InterceptImpl implements Intercept {
 
     @Override
     public InterceptRule serve(String host, IsSpec response) {
-        requireOpen();
-        return addServeRule(host, List.of(), response, RuleKind.SERVE);
+        return rules.serve(host, response);
     }
 
     @Override
-    public InterceptRule forward(String host, String hostPort) {
-        requireOpen();
-        return addForwardRule(host, List.of(), parsePort(hostPort), RuleKind.FORWARD);
+    public InterceptRule forward(String host, String target) {
+        return rules.forward(host, target);
     }
 
     @Override
     public InterceptRule redirectTo(String host, Imposter imposter) {
-        requireOpen();
-        // REDIRECT is an SDK-level label only: the wire action is identical to forward()'s (see
-        // RuleKind), so this rule is indistinguishable from a plain forward() once round-tripped.
-        return addForwardRule(host, List.of(), imposter.port(), RuleKind.REDIRECT);
+        return rules.redirectTo(host, imposter);
     }
 
     @Override
     public InterceptRuleBuilder rule() {
+        return rules.rule();
+    }
+
+    @Override
+    public List<InterceptRule> replaceRules(Consumer<? super InterceptRuleSet> declare) {
         requireOpen();
-        return new InterceptRuleBuilder(this);
-    }
-
-    // Shared by the host-only methods above and by InterceptRuleBuilder (predicate-scoped, host-optional).
-    InterceptRule addServeRule(String host, List<Predicate> predicates, IsSpec response, RuleKind kind) {
-        requireOpen();
-        JsonObject serve = toServeStub(response);
-        if (serve.get("headers") instanceof JsonObject headers
-                && headers.fields().values().stream().anyMatch(v -> v instanceof JsonArray)) {
-            engineGate.accept(MULTI_VALUE_HEADERS);
-        }
-        JsonObject action = JsonObject.builder().put("serve", serve).build();
-        JsonObject rule = ruleJson(host, predicates, action);
-        transport.interceptAddRules(rule);
-        return new InterceptRule(host, kind, rule);
-    }
-
-    InterceptRule addForwardRule(String host, List<Predicate> predicates, int port, RuleKind kind) {
-        requireOpen();
-        JsonObject action = JsonObject.builder()
-                .put("forward", JsonObject.builder().put("port", JsonNumber.of(port)).build())
-                .build();
-        JsonObject rule = ruleJson(host, predicates, action);
-        transport.interceptAddRules(rule);
-        return new InterceptRule(host, kind, rule);
-    }
-
-    /**
-     * The engine's {@code InterceptRule} wire shape: an <em>optional</em> {@code host} (absent = match
-     * any intercepted host), the {@code predicates} matched like stub predicates (omitted when empty),
-     * and the action — see {@code intercept_rules.rs}.
-     */
-    private static JsonObject ruleJson(String host, List<Predicate> predicates, JsonObject action) {
-        JsonObject.Builder builder = JsonObject.builder();
-        if (host != null) {
-            builder.put("host", new JsonString(host));
-        }
-        if (!predicates.isEmpty()) {
-            builder.put("predicates", new JsonArray(
-                    predicates.stream().map(p -> (JsonValue) JsonValue.parse(p.toJson())).toList()));
-        }
-        return builder.put("action", action).build();
-    }
-
-    /**
-     * Extracts the trailing port number from a {@code host:port} (or bare-port) string. The
-     * engine's {@code forward} action only ever targets a numeric localhost imposter port (see
-     * {@code ForwardTarget { port: u16 }} in {@code intercept_rules.rs}) — any host component here
-     * is for this method's own convenience only and is never sent over the wire.
-     */
-    static int parsePort(String hostPort) {
-        int colon = hostPort.lastIndexOf(':');
-        String portPart = colon >= 0 ? hostPort.substring(colon + 1) : hostPort;
+        engineGate.accept(REPLACE_RULES);
+        List<InterceptRule> staged = new ArrayList<>();
+        AtomicBoolean staging = new AtomicBoolean(true);
+        InterceptRules set = new InterceptRules(staged::add, engineGate, () -> {
+            requireOpen();
+            if (!staging.get()) {
+                throw new IllegalStateException("this rule set belonged to a replaceRules call that has returned");
+            }
+        });
         try {
-            return Integer.parseInt(portPart);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("not a valid host:port (or bare port): " + hostPort, e);
+            declare.accept(set);
+        } finally {
+            staging.set(false);
         }
+        transport.interceptReplaceRules(new JsonArray(staged.stream().map(InterceptRule::raw).toList()));
+        return List.copyOf(staged);
+    }
+
+    @Override
+    public List<InterceptRule> replaceRules(List<InterceptRule> rules) {
+        requireOpen();
+        engineGate.accept(REPLACE_RULES);
+        List<InterceptRule> copy = List.copyOf(rules);
+        transport.interceptReplaceRules(new JsonArray(copy.stream().map(InterceptRule::raw).toList()));
+        return copy;
+    }
+
+    @Override
+    public boolean removeRule(InterceptRule rule) {
+        requireOpen();
+        engineGate.accept(REPLACE_RULES);
+        JsonValue target = canonical(rule.raw());
+        List<InterceptRule> installed = rules();
+        List<InterceptRule> kept = installed.stream().filter(r -> !canonical(r.raw()).equals(target)).toList();
+        if (kept.size() == installed.size()) {
+            return false;
+        }
+        replaceRules(kept);
+        return true;
+    }
+
+    /**
+     * A rule as the engine would echo it, minus the serde defaults: {@code GET /intercept/rules}
+     * renders {@code "host":null}, {@code "predicates":[]}, {@code "headers":{}} and {@code
+     * "body":null} that the SDK never sends, and re-serializes predicates.
+     */
+    static JsonValue canonical(JsonValue raw) {
+        if (!(raw instanceof JsonObject rule)) {
+            return raw;
+        }
+        JsonObject.Builder out = JsonObject.builder();
+        rule.fields().forEach((key, value) -> {
+            switch (key) {
+                case "host" -> {
+                    if (!(value instanceof JsonNull)) {
+                        out.put(key, value);
+                    }
+                }
+                case "predicates" -> {
+                    if (value instanceof JsonArray predicates && !predicates.items().isEmpty()) {
+                        out.put(key, new JsonArray(predicates.items().stream()
+                                .map(p -> (JsonValue) JsonValue.parse(Predicate.fromJson(p.toJson()).toJson()))
+                                .toList()));
+                    } else if (!(value instanceof JsonArray)) {
+                        out.put(key, value);
+                    }
+                }
+                case "action" -> out.put(key, canonicalAction(value));
+                default -> out.put(key, value);
+            }
+        });
+        return out.build();
+    }
+
+    private static JsonValue canonicalAction(JsonValue action) {
+        if (!(action instanceof JsonObject obj) || !(obj.get("serve") instanceof JsonObject serve)) {
+            return action;
+        }
+        JsonObject.Builder stub = JsonObject.builder();
+        serve.fields().forEach((key, value) -> {
+            boolean emptyHeaders = key.equals("headers") && value instanceof JsonObject h && h.fields().isEmpty();
+            boolean nullBody = key.equals("body") && value instanceof JsonNull;
+            if (!emptyHeaders && !nullBody) {
+                stub.put(key, value);
+            }
+        });
+        JsonObject.Builder out = JsonObject.builder();
+        obj.fields().forEach((key, value) -> out.put(key, key.equals("serve") ? stub.build() : value));
+        return out.build();
     }
 
     @Override
@@ -356,109 +393,5 @@ final class InterceptImpl implements Intercept {
         if (closed.get()) {
             throw new IllegalStateException("intercept is closed");
         }
-    }
-
-    /**
-     * Projects an {@link IsSpec} down to the engine's flat {@code ServeStub} shape: a numeric
-     * {@code statusCode}, {@code headers} (a single value as a string, several as an array, which
-     * rift &ge; 0.18.0 serves as one header line each), and a plain-text {@code body} (see
-     * {@code ServeStub} in {@code intercept_rules.rs}) — narrower than the full {@code is} response
-     * shape a stub uses (a structured JSON body, behaviors, faults). Anything
-     * beyond status/headers/body is <em>rejected</em> rather than dropped — see
-     * {@link #requireDeliverable}.
-     *
-     * @throws InvalidDefinition if the response carries a construct the serve action cannot deliver
-     */
-    private static JsonObject toServeStub(IsSpec response) {
-        if (!(response.build() instanceof Response.Is is)) {
-            throw new IllegalStateException("unreachable: IsSpec.build() always returns Response.Is");
-        }
-        requireDeliverable(is);
-        IsResponse ir = is.is();
-        JsonObject.Builder builder = JsonObject.builder();
-        builder.put("statusCode", JsonNumber.of(statusAsInt(ir.statusCode())));
-        if (!ir.headers().isEmpty()) {
-            JsonObject.Builder headers = JsonObject.builder();
-            ir.headers().forEach((name, values) -> {
-                if (values.size() == 1) {
-                    headers.put(name, new JsonString(values.get(0)));
-                } else if (values.size() > 1) {
-                    headers.put(name, new JsonArray(values.stream().<JsonValue>map(JsonString::new).toList()));
-                }
-            });
-            builder.put("headers", headers.build());
-        }
-        ir.body().ifPresent(body -> builder.put("body", new JsonString(bodyAsText(body))));
-        return builder.build();
-    }
-
-    /**
-     * Rejects a response the intercept {@code serve} action cannot deliver.
-     *
-     * <p>The engine's {@code ServeStub} is only {@code {statusCode, headers, body}}, and its
-     * deserializer does not use {@code deny_unknown_fields} —
-     * so a richer response posted here is accepted with a {@code 200} and then silently ignored at
-     * request time. That is worse than a rejection: a fault-injection test written against a
-     * {@code serve} rule stays green while asserting on the success response it never asked for.
-     *
-     * <p>Every offending construct is collected in one pass so a caller learns about all of them at
-     * once rather than one exception per round trip. Ordering is deterministic: behaviors keep their
-     * declaration order and headers are insertion-ordered by {@code JsonSupport.orderedCopy}.
-     *
-     * @throws InvalidDefinition naming every offending construct, and pointing at
-     *         {@link Intercept#redirectTo}, which reaches a real imposter and so has full stub fidelity
-     */
-    static void requireDeliverable(Response.Is is) {
-        List<String> undeliverable = new ArrayList<>();
-        is.behaviors().entries().forEach(behavior -> undeliverable.add("_behaviors." + behavior.key()));
-        is.rift().ifPresent(rift -> {
-            rift.fault().ifPresent(fault -> {
-                if (fault.latency().isPresent()) {
-                    undeliverable.add("_rift.fault.latency (withLatencyFault)");
-                }
-                if (fault.error().isPresent()) {
-                    undeliverable.add("_rift.fault.error (withErrorFault)");
-                }
-                if (fault.tcp().isPresent()) {
-                    undeliverable.add("_rift.fault.tcp (withTcpFault)");
-                }
-            });
-            if (rift.script().isPresent()) {
-                undeliverable.add("_rift.script");
-            }
-            if (rift.templated()) {
-                undeliverable.add("_rift.templated (templated)");
-            }
-            if (!rift.stateOps().isEmpty()) {
-                undeliverable.add("_rift.stateOps (setState/incrementState/deleteState/clearFlowState)");
-            }
-            rift.extra().keySet().forEach(key -> undeliverable.add("_rift." + key));
-        });
-        IsResponse ir = is.is();
-        if (ir.mode() == ResponseMode.BINARY) {
-            undeliverable.add("a binary body (_mode=binary, withBinaryBody)");
-        }
-        is.extra().keySet().forEach(key -> undeliverable.add("response key '" + key + "'"));
-        ir.extra().keySet().forEach(key -> undeliverable.add("is response key '" + key + "'"));
-
-        if (!undeliverable.isEmpty()) {
-            throw new InvalidDefinition("intercept serve cannot deliver " + String.join(", ", undeliverable)
-                    + " — the engine's serve action carries only statusCode, headers and body, so"
-                    + " the rule would be registered and then answer a response you did not ask for."
-                    + " Use redirectTo(imposter) for full stub fidelity.");
-        }
-    }
-
-    private static int statusAsInt(String statusCode) {
-        try {
-            return Integer.parseInt(statusCode);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(
-                    "intercept serve() requires a numeric status code, got: " + statusCode, e);
-        }
-    }
-
-    private static String bodyAsText(JsonValue body) {
-        return body instanceof JsonString s ? s.value() : body.toJson();
     }
 }

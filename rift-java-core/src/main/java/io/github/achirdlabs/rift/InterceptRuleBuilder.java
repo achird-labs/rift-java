@@ -20,12 +20,12 @@ import java.util.Objects;
  */
 public final class InterceptRuleBuilder {
 
-    private final InterceptImpl intercept;
+    private final InterceptRules rules;
     private String host;                          // null = catch-all (engine host: None)
     private List<Predicate> predicates = List.of();
 
-    InterceptRuleBuilder(InterceptImpl intercept) {
-        this.intercept = intercept;
+    InterceptRuleBuilder(InterceptRules rules) {
+        this.rules = rules;
     }
 
     /** Scopes the rule to one host; omit for a catch-all rule matching any intercepted host. */
@@ -51,16 +51,21 @@ public final class InterceptRuleBuilder {
      *         construct the serve action cannot deliver; the rule is not registered
      */
     public InterceptRule serve(IsSpec response) {
-        return intercept.addServeRule(host, predicates, response, RuleKind.SERVE);
+        return rules.addServeRule(host, predicates, response, RuleKind.SERVE);
     }
 
-    /** Forwards matching requests to {@code hostPort} (a {@code host:port} on localhost). */
-    public InterceptRule forward(String hostPort) {
-        return intercept.addForwardRule(host, predicates, InterceptImpl.parsePort(hostPort), RuleKind.FORWARD);
+    /**
+     * Forwards matching requests to {@code target}: a port, {@code host:port}, or {@code
+     * http(s)://host:port}. See {@link InterceptRuleSet#forward} for the forms and the engine they need.
+     *
+     * @throws IllegalArgumentException if {@code target} is not one of those forms
+     */
+    public InterceptRule forward(String target) {
+        return rules.addForwardRule(host, predicates, target);
     }
 
     /** Forwards matching requests to {@code imposter}'s own port. */
     public InterceptRule redirectTo(Imposter imposter) {
-        return intercept.addForwardRule(host, predicates, imposter.port(), RuleKind.REDIRECT);
+        return rules.addRedirectRule(host, predicates, imposter);
     }
 }

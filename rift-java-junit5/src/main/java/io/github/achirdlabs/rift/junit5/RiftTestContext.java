@@ -39,6 +39,8 @@ final class RiftTestContext {
 
     /** Set only when {@code @RiftIntercept} is present; {@link #close()} closes it before the engine. */
     private Intercept intercept;
+    /** Set once a per-test rule replace was refused: the engine predates it, so reset by clear + add. */
+    private volatile boolean replaceRulesRefused;
 
     RiftTestContext(Rift rift, Map<String, Imposter> impostersByName, Reset reset, boolean dumpRecordedOnFailure) {
         this.rift = rift;
@@ -81,6 +83,14 @@ final class RiftTestContext {
     /** The live intercept handle, or {@code null} when the class has no {@code @RiftIntercept}. */
     Intercept intercept() {
         return intercept;
+    }
+
+    boolean replaceRulesRefused() {
+        return replaceRulesRefused;
+    }
+
+    void refuseReplaceRules() {
+        replaceRulesRefused = true;
     }
 
     /**
