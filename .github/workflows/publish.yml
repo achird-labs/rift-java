@@ -164,7 +164,10 @@ jobs:
 
   # After a release tag deploys, advance master's -SNAPSHOT so snapshot builds no longer collide with
   # (or trail) the version just released — the maven equivalent of what sbt-dynver derives for free.
-  # The GITHUB_TOKEN push does NOT re-trigger this workflow (GitHub suppresses that), so there is no loop.
+  # master is protected by the "protect master" ruleset (PR + required checks), which a repo-level
+  # ruleset cannot exempt GITHUB_TOKEN from, so the commit is pushed with RELEASE_TOKEN: the admin PAT
+  # that already pushes release tags, and admins bypass the ruleset. That push runs CI on master, but
+  # not this workflow, which triggers on tags only, so there is no loop.
   bump-snapshot:
     name: Advance the development version
     needs: publish
@@ -186,6 +189,8 @@ jobs:
           cache: maven
 
       - name: Bump master to the next -SNAPSHOT
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           RELEASED="${GITHUB_REF_NAME#v}"
@@ -218,4 +223,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): set development version to $NEXT, sync README to $RELEASED"
-          git push origin HEAD:master
+          if [ -z "${RELEASE_TOKEN}" ]; then
+            echo "::error::RELEASE_TOKEN is not set: master is protected, so the development-version bump cannot be pushed."
+            exit 1
+          fi
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" HEAD:master
