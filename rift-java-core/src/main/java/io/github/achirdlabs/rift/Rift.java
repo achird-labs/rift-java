@@ -101,10 +101,10 @@ public interface Rift extends AutoCloseable {
      * file's {@code intercept} or {@code routes} block is not. {@link #replaceAll} is the same
      * operation without a report.
      *
-     * <p>The embedded engine reports what changed. Over the admin API ({@code PUT /imposters}) the
-     * engine applies the config but cannot yet report it (achird-labs/rift#1304), so this throws
-     * {@link io.github.achirdlabs.rift.error.EngineUnavailable} <em>after</em> the reconcile — use
-     * {@link #replaceAll} there.
+     * <p>The embedded engine reports what changed, and so does the admin API ({@code PUT /imposters})
+     * from engine 0.20.0. An older remote engine applies the config but cannot report it, so this
+     * throws {@link io.github.achirdlabs.rift.error.EngineUnavailable} <em>after</em> the reconcile —
+     * use {@link #replaceAll} there.
      *
      * @return the ports changed, and in {@link ApplyResult#failed()} the imposters that could not be
      *         applied — a partial apply, with every other port already reconciled
