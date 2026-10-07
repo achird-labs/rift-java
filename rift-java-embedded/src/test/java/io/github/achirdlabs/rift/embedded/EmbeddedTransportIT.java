@@ -12,7 +12,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -22,13 +21,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * End-to-end integration of {@link EmbeddedTransport} over the REAL {@code librift_ffi} engine (loaded
- * from {@code -Drift.ffi.lib}). Exercises the direct-FFM data plane (drive a real imposter with HTTP,
- * read it back via {@code recorded()}), flow-state and spaces, {@code buildInfo}, the lazily-started
- * admin plane and the operations delegated to it, and error mapping. Skips cleanly when no lib is set.
+ * named by {@code -Drift.ffi.lib} or {@code $RIFT_FFI_LIB}). Exercises the direct-FFM data plane (drive a
+ * real imposter with HTTP, read it back via {@code recorded()}), flow-state and spaces, {@code buildInfo},
+ * the lazily-started admin plane and the operations delegated to it, and error mapping. Gated by
+ * {@link EmbeddedTestLibrary}.
  */
 class EmbeddedTransportIT {
 
@@ -37,10 +36,7 @@ class EmbeddedTransportIT {
 
     @BeforeAll
     static void requireLibrary() {
-        String p = System.getProperty("rift.ffi.lib");
-        assumeTrue(p != null && !p.isBlank() && Files.exists(Path.of(p)),
-                "set -Drift.ffi.lib to a librift_ffi cdylib to run the embedded FFM integration tests");
-        lib = Path.of(p);
+        lib = EmbeddedTestLibrary.require();
     }
 
     private static EmbeddedTransport open() {

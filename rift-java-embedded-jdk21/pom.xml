@@ -20,8 +20,9 @@
          Built from rift-java-embedded's main/test sources (added below) under release 21 with
          preview features enabled; FfmCompat resolves the two renamed FFM methods reflectively. -->
     <maven.compiler.release>21</maven.compiler.release>
-    <!-- Path to a librift_ffi cdylib; the FFM integration tests run against it and skip when unset.
-         Override with -Drift.ffi.lib=/path/to/librift_ffi.<ext>. -->
+    <!-- Path to a librift_ffi cdylib for the FFM integration tests (-Drift.ffi.lib=/path/to/librift_ffi.<ext>);
+         unset, they read $RIFT_FFI_LIB, as the SDK does. With neither they skip, unless RIFT_IT is set,
+         which promises a live engine and so fails them (EmbeddedTestLibrary). -->
     <rift.ffi.lib></rift.ffi.lib>
   </properties>
 
