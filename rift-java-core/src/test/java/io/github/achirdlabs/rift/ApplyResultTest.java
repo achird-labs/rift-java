@@ -101,6 +101,19 @@ class ApplyResultTest {
     }
 
     @Test
+    void theZeroThreeFiveConstructorStillBuildsWithNoToggles() {
+        ApplyResult result = new ApplyResult(List.of(1), List.of(2), List.of(3), List.of(4),
+                List.of(new ApplyResult.ApplyFailure(OptionalInt.of(5), "x")), List.of("w"), Optional.empty());
+
+        assertEquals(List.of(), result.toggled());
+        assertEquals(List.of(1), result.created());
+        assertEquals(List.of(2), result.replaced());
+        assertEquals(List.of(3), result.stubPatched());
+        assertEquals(List.of(4), result.deleted(), "deleted is not shifted into toggled");
+        assertEquals(List.of("w"), result.warnings());
+    }
+
+    @Test
     void eachPortFieldCountsAsAChange() {
         assertFalse(read("{\"created\":[1]}").changedNothing());
         assertFalse(read("{\"replaced\":[1]}").changedNothing());
