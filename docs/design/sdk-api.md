@@ -132,7 +132,8 @@ public interface Rift extends AutoCloseable {
   Optional<Imposter> imposter(int port);
   List<Imposter> imposters();
   void deleteAll();
-  ApplyResult applyConfig(JsonValue config); // reconcile ({imposters:[…]}) with a report of changed ports (#264):
+  ApplyResult applyConfig(JsonValue config); // reconcile ({imposters:[…]}) with a report of changed ports (#264;
+                                             // toggled = enabled-only changes, rift >= 0.20.0, #273):
                                              // embedded rift_apply_config; remote PUT /imposters, whose 200 has
                                              // the report from engine 0.20.0 (rift#1304); older → EngineUnavailable.
                                              // Not POST /admin/reload, which reads no body.

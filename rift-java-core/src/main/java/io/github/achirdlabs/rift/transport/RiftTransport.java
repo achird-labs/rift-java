@@ -48,7 +48,7 @@ public interface RiftTransport extends AutoCloseable {
     /**
      * Reconciles the engine's imposters toward {@code config} ({@code {"imposters":[...]}}) and
      * returns the engine's reply: the apply report ({@code created}/{@code replaced}/{@code
-     * stubPatched}/{@code deleted} port arrays, {@code failed}) where the engine produces one — a
+     * stubPatched}/{@code toggled}/{@code deleted} port arrays, {@code failed}) where the engine produces one — a
      * partial failure included, which is a report, not an error — or, from an engine whose admin API
      * does not yet report, its imposter list.
      */
