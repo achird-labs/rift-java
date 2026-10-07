@@ -36,9 +36,9 @@ class RiftContainerTest {
     @Test
     void defaultImageUsesPinnedEngineVersion() {
         // AC4: single-sourced from the <rift.engine.version> property via resource filtering.
-        assertEquals("0.19.0", RiftContainer.ENGINE_VERSION, "engine version resolved from filtered resource");
+        assertEquals("0.20.0", RiftContainer.ENGINE_VERSION, "engine version resolved from filtered resource");
         try (RiftContainer container = new RiftContainer()) {
-            assertEquals("zainalpour/rift-proxy:v0.19.0", container.configuredImageName());
+            assertEquals("zainalpour/rift-proxy:v0.20.0", container.configuredImageName());
         }
     }
 
@@ -155,7 +155,7 @@ class RiftContainerTest {
     @Test
     void acceptsUpstreamTrustOnA018ImageOrAnUnversionedTag() {
         // A tag that is not a version (latest, a digest, a custom build) cannot be checked, so it is let through.
-        for (String image : new String[] {"zainalpour/rift-proxy:v0.19.0", "zainalpour/rift-proxy:0.19.1",
+        for (String image : new String[] {"zainalpour/rift-proxy:v0.20.0", "zainalpour/rift-proxy:0.19.1",
                 "zainalpour/rift-proxy:latest", "acme/rift:nightly"}) {
             try (RiftContainer container = new RiftContainer(DockerImageName.parse(image))) {
                 container.withUpstreamTrust(new UpstreamTrust.SkipVerify());
