@@ -8,6 +8,7 @@ import io.github.achirdlabs.rift.model.Behaviors;
 import io.github.achirdlabs.rift.model.IsResponse;
 import io.github.achirdlabs.rift.model.Response;
 import io.github.achirdlabs.rift.model.ResponseMode;
+import io.github.achirdlabs.rift.model.RiftConditional;
 import io.github.achirdlabs.rift.model.RiftErrorFault;
 import io.github.achirdlabs.rift.model.RiftTcpFault;
 import io.github.achirdlabs.rift.model.RiftFaultConfig;
@@ -16,9 +17,14 @@ import io.github.achirdlabs.rift.model.RiftResponseExtension;
 import io.github.achirdlabs.rift.model.StateOp;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,6 +55,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     private final Optional<RiftFaultConfig> fault;
     private final boolean templated;
     private final List<StateOp> stateOps;
+    private final Optional<RiftConditional> conditional;
 
     private IsSpec(
             String statusCode,
@@ -58,7 +65,8 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
             List<Behavior> behaviors,
             Optional<RiftFaultConfig> fault,
             boolean templated,
-            List<StateOp> stateOps) {
+            List<StateOp> stateOps,
+            Optional<RiftConditional> conditional) {
         this.statusCode = statusCode;
         this.headers = headers;
         this.body = body;
@@ -67,13 +75,14 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
         this.fault = fault;
         this.templated = templated;
         this.stateOps = stateOps;
+        this.conditional = conditional;
     }
 
     /** A fresh "is" response builder at the given status code, with no headers/body/behaviors yet. */
     static IsSpec is(String statusCode) {
         return new IsSpec(
                 statusCode, Map.of(), Optional.empty(), ResponseMode.TEXT, List.of(),
-                Optional.empty(), false, List.of());
+                Optional.empty(), false, List.of(), Optional.empty());
     }
 
     /**
@@ -83,12 +92,12 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     public IsSpec withHeader(String name, String... values) {
         Map<String, List<String>> next = new LinkedHashMap<>(headers);
         next.put(name, List.of(values));
-        return new IsSpec(statusCode, next, body, mode, behaviors, fault, templated, stateOps);
+        return new IsSpec(statusCode, next, body, mode, behaviors, fault, templated, stateOps, conditional);
     }
 
     /** Sets the response body to the given JSON value directly. */
     public IsSpec withJsonBody(JsonValue value) {
-        return new IsSpec(statusCode, headers, Optional.of(value), mode, behaviors, fault, templated, stateOps);
+        return new IsSpec(statusCode, headers, Optional.of(value), mode, behaviors, fault, templated, stateOps, conditional);
     }
 
     /** Sets the response body by parsing {@code jsonText} as JSON. */
@@ -109,7 +118,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      * Mountebank's text-mode body convention).
      */
     public IsSpec withTextBody(String text) {
-        return new IsSpec(statusCode, headers, Optional.of(new JsonString(text)), mode, behaviors, fault, templated, stateOps);
+        return new IsSpec(statusCode, headers, Optional.of(new JsonString(text)), mode, behaviors, fault, templated, stateOps, conditional);
     }
 
     /**
@@ -118,7 +127,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      */
     public IsSpec withBinaryBody(byte[] bytes) {
         String encoded = Base64.getEncoder().encodeToString(bytes);
-        return new IsSpec(statusCode, headers, Optional.of(new JsonString(encoded)), ResponseMode.BINARY, behaviors, fault, templated, stateOps);
+        return new IsSpec(statusCode, headers, Optional.of(new JsonString(encoded)), ResponseMode.BINARY, behaviors, fault, templated, stateOps, conditional);
     }
 
     // The behavior chainers live on BehaviorChain. These overrides only pin their IsSpec return type
@@ -190,7 +199,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
      * engine resolves against the request (sets {@code _rift.templated}).
      */
     public IsSpec templated() {
-        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, true, stateOps);
+        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, true, stateOps, conditional);
     }
 
     /**
@@ -240,7 +249,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     private IsSpec withStateOp(StateOp op) {
         Objects.requireNonNull(op, "op");
         List<StateOp> next = Stream.concat(stateOps.stream(), Stream.of(op)).toList();
-        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, templated, next);
+        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, templated, next, conditional);
     }
 
     /** Injects a latency fault: {@code probability} of the time, delay the response by a fixed duration. */
@@ -301,15 +310,65 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
                 Optional.of(new RiftTcpFault.Probabilistic(probability, kind.name()))));
     }
 
+    /**
+     * Declarative conditional GET (rift &ge; 0.20.0): a 2xx answer to a {@code GET} or {@code HEAD}
+     * carries a strong {@code ETag} over the bytes served and a {@code Last-Modified} of when the stub
+     * was created or last changed, and a request presenting either back ({@code If-None-Match} /
+     * {@code If-Modified-Since}) gets a bodyless {@code 304}. The engine computes the {@code ETag} and
+     * replaces any {@code ETag}/{@code Last-Modified} header set here; a {@code POST}, a non-2xx status,
+     * or a stub whose method predicate excludes {@code GET}/{@code HEAD} is served without validators.
+     * Replaces any earlier {@code conditional} call.
+     */
+    public IsSpec conditional() {
+        return withConditional(new RiftConditional.Enabled(true));
+    }
+
+    /**
+     * Like {@link #conditional()}, with a fixed {@code Last-Modified} instead of the stub's load time —
+     * for a test that presents a known {@code If-Modified-Since}. Advance it whenever the body changes:
+     * an unchanged date tells a client revalidating by date that nothing changed.
+     *
+     * @param lastModified sent as an IMF-fixdate ({@code Mon, 05 Jan 2026 08:09:10 GMT}), whole seconds
+     */
+    public IsSpec conditional(Instant lastModified) {
+        return withConditional(new RiftConditional.Validators(Optional.empty(), Optional.of(httpDate(lastModified))));
+    }
+
+    /** Like {@link #conditional()}, without the {@code ETag}: clients revalidate by date alone. */
+    public IsSpec conditionalWithoutEtag() {
+        return withConditional(new RiftConditional.Validators(Optional.of(false), Optional.empty()));
+    }
+
+    /** Like {@link #conditional(Instant)}, without the {@code ETag}: clients revalidate by date alone. */
+    public IsSpec conditionalWithoutEtag(Instant lastModified) {
+        return withConditional(new RiftConditional.Validators(Optional.of(false), Optional.of(httpDate(lastModified))));
+    }
+
+    private IsSpec withConditional(RiftConditional next) {
+        return new IsSpec(statusCode, headers, body, mode, behaviors, fault, templated, stateOps, Optional.of(next));
+    }
+
+    /**
+     * The IMF-fixdate of RFC 7231 7.1.1.1, which the engine serves verbatim. Not {@code
+     * RFC_1123_DATE_TIME}: that writes a one-digit day, which a sender must not.
+     */
+    private static String httpDate(Instant instant) {
+        Objects.requireNonNull(instant, "lastModified");
+        return HTTP_DATE.format(instant.truncatedTo(ChronoUnit.SECONDS));
+    }
+
+    private static final DateTimeFormatter HTTP_DATE =
+            DateTimeFormatter.ofPattern("EEE, dd MMM uuuu HH:mm:ss 'GMT'", Locale.ROOT).withZone(ZoneOffset.UTC);
+
     private IsSpec withFault(UnaryOperator<RiftFaultConfig> mutator) {
         RiftFaultConfig current = fault.orElse(new RiftFaultConfig(Optional.empty(), Optional.empty(), Optional.empty()));
-        return new IsSpec(statusCode, headers, body, mode, behaviors, Optional.of(mutator.apply(current)), templated, stateOps);
+        return new IsSpec(statusCode, headers, body, mode, behaviors, Optional.of(mutator.apply(current)), templated, stateOps, conditional);
     }
 
     @Override
     public IsSpec withBehavior(Behavior behavior) {
         List<Behavior> next = Stream.concat(behaviors.stream(), Stream.of(behavior)).toList();
-        return new IsSpec(statusCode, headers, body, mode, next, fault, templated, stateOps);
+        return new IsSpec(statusCode, headers, body, mode, next, fault, templated, stateOps, conditional);
     }
 
     /** Builds the immutable {@link Response} this spec represents. */
@@ -324,9 +383,9 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     }
 
     private Optional<RiftResponseExtension> riftExtension() {
-        if (fault.isEmpty() && !templated && stateOps.isEmpty()) {
+        if (fault.isEmpty() && !templated && stateOps.isEmpty() && conditional.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new RiftResponseExtension(fault, Optional.empty(), templated, stateOps, Map.of()));
+        return Optional.of(new RiftResponseExtension(fault, Optional.empty(), templated, stateOps, conditional, Map.of()));
     }
 }

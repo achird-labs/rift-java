@@ -13,6 +13,8 @@ import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Response;
+import io.github.achirdlabs.rift.model.RiftConditional;
+import io.github.achirdlabs.rift.model.RiftResponseExtension;
 import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RemoteTransport;
 import io.github.achirdlabs.rift.transport.RiftTransport;
@@ -46,6 +48,9 @@ final class RiftImpl implements Rift {
 
     /** The first engine release whose intercept serve action accepts a repeated header (rift#936). */
     static final String INTERCEPT_MULTI_VALUE_HEADERS_SINCE = "0.18.0";
+
+    /** The first engine release that answers conditional GETs from {@code _rift.conditional} (rift#1280). */
+    static final String CONDITIONAL_SINCE = "0.20.0";
 
     /** The first engine release that replaces the intercept rule set atomically (rift#1272). */
     static final String INTERCEPT_REPLACE_RULES_SINCE = "0.20.0";
@@ -264,6 +269,11 @@ final class RiftImpl implements Rift {
             requirements.add(new EngineRequirement(STATE_OPS_SINCE, "stateOps on an is response",
                     "drops them silently", "replace them with a script"));
         }
+        if (hasConditional(def)) {
+            requirements.add(new EngineRequirement(CONDITIONAL_SINCE, "conditional on an is response",
+                    "ignores it and answers every request 200 without an ETag or Last-Modified",
+                    "remove the conditional"));
+        }
         return requirements;
     }
 
@@ -280,6 +290,14 @@ final class RiftImpl implements Rift {
                 .flatMap(stub -> stub.responses().stream())
                 .anyMatch(r -> r instanceof Response.Is is
                         && is.rift().map(rift -> !rift.stateOps().isEmpty()).orElse(false));
+    }
+
+    /** Any {@code is} response with conditional GET on; {@code false} is the engine's own off state. */
+    private static boolean hasConditional(ImposterDefinition def) {
+        return def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                .anyMatch(r -> r instanceof Response.Is is && is.rift().flatMap(RiftResponseExtension::conditional)
+                        .filter(c -> !c.equals(new RiftConditional.Enabled(false))).isPresent());
     }
 
     private static boolean hasProxyOrInjectBehaviors(ImposterDefinition def) {
