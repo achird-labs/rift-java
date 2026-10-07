@@ -180,6 +180,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: master
+          # Otherwise checkout leaves GITHUB_TOKEN in git's http.extraheader, which git sends even to
+          # a URL carrying RELEASE_TOKEN, so the push below goes out as GITHUB_TOKEN and the master
+          # ruleset refuses it (GH013, v0.3.7).
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
