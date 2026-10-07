@@ -23,11 +23,12 @@ class ApplyResultTest {
     @Test
     void portArraysAreReadAsPorts() {
         ApplyResult result = read("{\"message\":\"Reloaded 3 imposter(s)\",\"created\":[4545,4546],"
-                + "\"replaced\":[4547],\"stubPatched\":[],\"deleted\":[4600]}");
+                + "\"replaced\":[4547],\"stubPatched\":[],\"toggled\":[4548],\"deleted\":[4600]}");
 
         assertEquals(List.of(4545, 4546), result.created());
         assertEquals(List.of(4547), result.replaced());
         assertEquals(List.of(), result.stubPatched());
+        assertEquals(List.of(4548), result.toggled());
         assertEquals(List.of(4600), result.deleted());
         assertEquals(List.of(), result.failed());
         assertEquals(List.of(), result.warnings());
@@ -37,8 +38,17 @@ class ApplyResultTest {
 
     @Test
     void anUnchangedConfigReportsNothingChanged() {
+        ApplyResult result = read("{\"created\":[],\"replaced\":[],\"stubPatched\":[],\"toggled\":[],\"deleted\":[]}");
+
+        assertTrue(result.changedNothing());
+    }
+
+    @Test
+    void aReportFromBeforeToggledWasSentReadsAsNoToggles() {
+        // Engines before 0.20.0 (rift#1304) computed toggled but never serialized it.
         ApplyResult result = read("{\"created\":[],\"replaced\":[],\"stubPatched\":[],\"deleted\":[]}");
 
+        assertEquals(List.of(), result.toggled());
         assertTrue(result.changedNothing());
     }
 
@@ -95,6 +105,7 @@ class ApplyResultTest {
         assertFalse(read("{\"created\":[1]}").changedNothing());
         assertFalse(read("{\"replaced\":[1]}").changedNothing());
         assertFalse(read("{\"stubPatched\":[1]}").changedNothing());
+        assertFalse(read("{\"toggled\":[1]}").changedNothing(), "a pause or resume is a change applied in place");
         assertFalse(read("{\"deleted\":[1]}").changedNothing());
         assertTrue(read("{\"failed\":[\"4545: bind failed\"]}").changedNothing(),
                 "failures are not changes: changedNothing() says nothing about them");
@@ -110,6 +121,8 @@ class ApplyResultTest {
         assertThrows(CommunicationError.class, () -> read("{\"warnings\":[1]}"));
         assertThrows(CommunicationError.class, () -> read("{\"intercept\":[]}"));
         assertThrows(CommunicationError.class, () -> read("{\"created\":[-1]}"));
+        assertThrows(CommunicationError.class, () -> read("{\"toggled\":1}"));
+        assertThrows(CommunicationError.class, () -> read("{\"toggled\":[\"4545\"]}"));
         assertEquals(List.of(0, 65535), read("{\"created\":[0,65535]}").created());
         assertThrows(CommunicationError.class, () -> read("{\"created\":[65536]}"));
     }

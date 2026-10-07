@@ -17,20 +17,22 @@ import java.util.regex.Pattern;
 
 /**
  * The outcome of {@link Rift#applyConfig(JsonValue)}: the ports of the imposters the reconcile
- * created, replaced, patched in place or deleted; the ones it could not apply; and what the engine
- * reported deliberately not applying.
+ * created, replaced, patched in place, paused or resumed, or deleted; the ones it could not apply; and
+ * what the engine reported deliberately not applying.
  *
  * @param created     ports of imposters created
  * @param replaced    ports of imposters replaced wholesale
  * @param stubPatched ports of imposters whose stubs were patched in place, runtime state kept
+ * @param toggled     ports of imposters whose only change was {@code enabled} (paused or resumed);
+ *                    rift &ge; 0.20.0, always empty from an older engine
  * @param deleted     ports of imposters deleted because the config no longer declares them
  * @param failed      imposters the engine could not apply; the other ports are reconciled regardless
  * @param warnings    parts of the request the engine deliberately did not apply
  * @param intercept   how many intercept rules a reload kept, when the engine reports it
  */
 public record ApplyResult(List<Integer> created, List<Integer> replaced, List<Integer> stubPatched,
-                          List<Integer> deleted, List<ApplyFailure> failed, List<String> warnings,
-                          Optional<InterceptCounts> intercept) {
+                          List<Integer> toggled, List<Integer> deleted, List<ApplyFailure> failed,
+                          List<String> warnings, Optional<InterceptCounts> intercept) {
 
     /** {@code "<port>: <message>"}, the engine's rendering of one failure over HTTP. */
     private static final Pattern PORT_PREFIX = Pattern.compile("(\\d{1,5}): (.*)", Pattern.DOTALL);
@@ -42,6 +44,7 @@ public record ApplyResult(List<Integer> created, List<Integer> replaced, List<In
         created = List.copyOf(created);
         replaced = List.copyOf(replaced);
         stubPatched = List.copyOf(stubPatched);
+        toggled = List.copyOf(toggled);
         deleted = List.copyOf(deleted);
         failed = List.copyOf(failed);
         warnings = List.copyOf(warnings);
@@ -67,17 +70,19 @@ public record ApplyResult(List<Integer> created, List<Integer> replaced, List<In
     public record InterceptCounts(int rulesSeeded, int rulesRuntime) { }
 
     /**
-     * Whether the reconcile created, replaced, patched and deleted nothing. Says nothing about {@link
+     * Whether the reconcile created, replaced, patched, toggled and deleted nothing. Says nothing about {@link
      * #failed()}: a config whose every imposter failed also changed nothing.
      */
     public boolean changedNothing() {
-        return created.isEmpty() && replaced.isEmpty() && stubPatched.isEmpty() && deleted.isEmpty();
+        return created.isEmpty() && replaced.isEmpty() && stubPatched.isEmpty() && toggled.isEmpty()
+                && deleted.isEmpty();
     }
 
     /**
-     * Reads the engine's apply report. The four port fields are arrays of ports on every surface; an
-     * absent one is empty. Failures are {@code "<port>: <message>"} strings over HTTP and {@code
-     * {port, error}} objects over the C-ABI, port {@code 0} meaning an auto-assigned config.
+     * Reads the engine's apply report. The five port fields are arrays of ports on every surface; an
+     * absent one is empty ({@code toggled} is absent before rift 0.20.0). Failures are {@code
+     * "<port>: <message>"} strings over HTTP and {@code {port, error}} objects over the C-ABI, port
+     * {@code 0} meaning an auto-assigned config.
      *
      * @throws CommunicationError if the body is not a JSON object, or a field is not the shape the
      *         engine sends — a count where it sends ports, say: no all-zeros result may stand in for a
@@ -88,7 +93,7 @@ public record ApplyResult(List<Integer> created, List<Integer> replaced, List<In
             throw new CommunicationError("rift engine's apply report was not a JSON object: " + value.toJson());
         }
         return new ApplyResult(ports(obj, "created"), ports(obj, "replaced"), ports(obj, "stubPatched"),
-                ports(obj, "deleted"), failures(obj), warnings(obj), interceptCounts(obj));
+                ports(obj, "toggled"), ports(obj, "deleted"), failures(obj), warnings(obj), interceptCounts(obj));
     }
 
     private static List<Integer> ports(JsonObject obj, String key) {

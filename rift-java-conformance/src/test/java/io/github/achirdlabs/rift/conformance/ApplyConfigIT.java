@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 import static io.github.achirdlabs.rift.conformance.LiveEngine.engine;
 import static io.github.achirdlabs.rift.conformance.LiveEngine.gated;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -41,8 +42,35 @@ class ApplyConfigIT {
         });
     }
 
+    @TestFactory
+    Stream<DynamicTest> aPauseAndAResumeAreReportedAsToggled() {
+        return gated("applyConfig reports an enabled-only change as toggled, both ways", () -> {
+            try (Rift rift = engine()) {
+                int port = freePort();
+                rift.applyConfig(config(port));
+
+                ApplyResult paused = rift.applyConfig(config(port, false));
+                assertEquals(List.of(port), paused.toggled());
+                assertEquals(List.of(), paused.created());
+                assertEquals(List.of(), paused.replaced());
+                assertEquals(List.of(), paused.stubPatched());
+                assertEquals(List.of(), paused.deleted());
+                assertFalse(paused.changedNothing(), "a pause is a change");
+
+                ApplyResult resumed = rift.applyConfig(config(port, true));
+                assertEquals(List.of(port), resumed.toggled());
+                assertEquals(List.of(), resumed.replaced(), "a resume is not a replace");
+            }
+        });
+    }
+
     private static JsonValue config(int port) {
+        return config(port, true);
+    }
+
+    private static JsonValue config(int port, boolean enabled) {
         return JsonValue.parse("{\"imposters\":[{\"port\":" + port + ",\"protocol\":\"http\",\"name\":\"applied\","
+                + "\"enabled\":" + enabled + ","
                 + "\"stubs\":[{\"responses\":[{\"is\":{\"statusCode\":204}}]}]}]}");
     }
 

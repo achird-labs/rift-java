@@ -277,11 +277,12 @@ class RemoteTransportCoverageTest {
         // POST /admin/reload never reads a body: it reloads the engine's own sources. PUT /imposters
         // reconciles toward the argument, the HTTP twin of rift_apply_config.
         try (FakeAdminServer s = new FakeAdminServer()) {
-            s.respond("PUT /imposters", 200,
-                    "{\"imposters\":[],\"created\":[2],\"replaced\":[1],\"stubPatched\":[],\"deleted\":[3]}");
+            s.respond("PUT /imposters", 200, "{\"imposters\":[],\"created\":[2],\"replaced\":[1],"
+                    + "\"stubPatched\":[],\"toggled\":[4],\"deleted\":[3]}");
             try (Rift rift = connect(s)) {
                 var result = rift.applyConfig(JsonValue.parse("{\"imposters\":[]}"));
                 assertEquals(java.util.List.of(2), result.created());
+                assertEquals(java.util.List.of(4), result.toggled());
                 assertEquals(java.util.List.of(3), result.deleted());
             }
             assertTrue(s.received().stream().anyMatch(r -> r.method().equals("PUT") && r.path().equals("/imposters")));
