@@ -83,8 +83,11 @@ that host through the intercept proxy:
 // Answer inline — the real host is never contacted.
 intercept.serve("example.com", RiftDsl.status(418));
 
-// Forward to a plain host:port on localhost, still terminating TLS at the intercept.
+// Forward to a port on the engine's own machine, still terminating TLS at the intercept.
 intercept.forward("payments.internal", "localhost:9443");
+
+// Forward to another host — here a Testcontainers network alias — over https (rift ≥ 0.20.0).
+intercept.forward("api.partner.com", "https://partner-mock:8443");
 
 // Forward to one of this SDK's own imposters, by port.
 intercept.redirectTo("api.partner.com", partnerImposter);
@@ -115,6 +118,28 @@ intercept.serve("example.com", status(200).withTextBody("b").withTcpFault(Fault.
 intercept.redirectTo("example.com", faultyImposter);
 ```
 
+### Forward targets
+
+`forward(host, target)` and `rule().forward(target)` take one of three forms:
+
+| Target | Goes to | Engine |
+|---|---|---|
+| `"9443"`, `"localhost:9443"`, `"127.0.0.1:9443"`, `"[::1]:9443"`, `"http://localhost:9443"` | that port on the engine's own machine, over http | any |
+| `"partner-mock:4600"`, `"10.0.0.7:8080"`, `"[fd00::7]:4600"`, `"http://partner-mock:4600"` | that host, over http | rift ≥ 0.20.0 |
+| `"https://partner-mock:8443"`, `"https://localhost:9443"` | that host, over https | rift ≥ 0.20.0 |
+
+The port is required (1–65535); a path, query or user info is refused with an
+`IllegalArgumentException`. An older engine ignores a target host or scheme and forwards to
+`127.0.0.1` over http instead, so the SDK refuses such a rule there with an `InvalidDefinition`
+(unless the version check is off). An `https` target is verified against the engine's outbound
+trust — `SpawnOptions.upstreamTrust(...)` for a spawned or embedded engine,
+`RiftContainer.withUpstreamTrust(...)` for a container — with the target host as the server name, so
+`https://localhost:9443` keeps `localhost` and needs a certificate issued for it.
+
+Since rift 0.20.0 the forwarded request keeps the client's original `Host` header (before, the
+imposter saw `127.0.0.1:<port>`), so one imposter behind `forward` or `redirectTo` can tell several
+intercepted hosts apart with a `Host` header predicate.
+
 `redirectTo` rides the same
 wire-level `forward` action as `forward` itself, pointed at `imposter.port()`; a rule read back
 from `intercept.rules()` therefore only ever reports `RuleKind.SERVE` or `RuleKind.FORWARD` — the
@@ -143,6 +168,32 @@ A rule read back via `intercept.rules()` exposes its predicates through `Interce
 List<InterceptRule> rules = intercept.rules();   // in the order they were added
 intercept.clearRules();                          // removes every rule; the listener stays up
 ```
+
+### Changing rules while traffic flows
+
+Rules match first-to-last, so adding a rule can never override one already installed, and
+`clearRules()` followed by new rules leaves a moment in which a request meets no rule at all.
+`replaceRules` swaps the whole set in one engine call (rift ≥ 0.20.0): a request in flight meets
+either the old rules or the new ones.
+
+```java
+// Declare the new set; nothing reaches the engine until the lambda returns, and nothing at all
+// if it throws (an undeliverable serve, say), so the old rules stay.
+intercept.replaceRules(rules -> {
+    rules.serve("cdn.example.com", status(503));
+    rules.redirectTo("api.partner.com", partnerImposter);
+});
+
+// Re-install a filtered or reordered list.
+intercept.replaceRules(intercept.rules().subList(1, intercept.rules().size()));
+
+// Remove one rule — one returned by serve/forward/redirectTo, or read back from rules().
+intercept.removeRule(healthRule);
+```
+
+`removeRule` reads the rules and replaces them, so it is not atomic against a rule another client
+adds at the same moment. On an engine older than 0.20.0, `replaceRules` and `removeRule` throw an
+`InvalidDefinition` naming the version they need.
 
 `intercept.close()` **stops** a listener it started (rift ≥ 0.13.0) — rules and CA go with it — and
 frees the engine for another `rift.intercept(...)`. A restart without a supplied CA mints a **new**
@@ -361,6 +412,9 @@ via `http.proxyHost`/`http.proxyPort`-style properties rather than a `ProxySelec
   one. Either route through the intercept exclusively for the duration of the test, or configure
   the intercept's own upstream via `forward`/`redirectTo` rules so it, not the client, talks to
   the real proxy.
+- **A `Host` predicate written for an older engine.** From rift 0.20.0 a forwarded request keeps the
+  client's `Host`, so an imposter stub matching `Host: 127.0.0.1:<port>` stops matching; match the
+  intercepted hostname instead. `Proxy-Authorization` and `Proxy-Connection` are not forwarded.
 - **No engine-side echo of `REDIRECT`.** As noted above, rules fetched back via
   `intercept.rules()` can't distinguish a `redirectTo` rule from a plain `forward` rule — both
   report `RuleKind.FORWARD`. Track the association client-side if your test needs it.

@@ -237,6 +237,14 @@ public interface RiftTransport extends AutoCloseable {
     /** Adds one ({@code JsonObject}) or many ({@code JsonArray}) intercept rules. */
     void interceptAddRules(JsonValue rules);
 
+    /**
+     * Replaces the whole intercept rule set with {@code rules} (a JSON array; empty clears) in one
+     * step; a refusal leaves the old set in place. rift &ge; 0.20.0; the caller checks the version.
+     */
+    default void interceptReplaceRules(JsonValue rules) {
+        throw new UnsupportedOperationException("this transport cannot replace intercept rules (interceptReplaceRules)");
+    }
+
     /** The current intercept rules, as a JSON array. */
     JsonValue interceptListRules();
 

@@ -1,12 +1,11 @@
 package io.github.achirdlabs.rift;
 
-import io.github.achirdlabs.rift.dsl.IsSpec;
-
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * A live intercept (TLS-MITM forward-proxy) listener: point an HTTPS client's proxy at
@@ -19,7 +18,7 @@ import java.util.Optional;
  * per engine — a second call while one is open throws {@link IllegalStateException}, and {@link
  * #close()} frees the engine for another.
  */
-public interface Intercept extends AutoCloseable {
+public interface Intercept extends InterceptRuleSet, AutoCloseable {
 
     /** The intercept listener's bound address, for {@code http.proxyHost}/{@code http.proxyPort}-style configuration. */
     InetSocketAddress address();
@@ -40,35 +39,41 @@ public interface Intercept extends AutoCloseable {
     ProxySelector proxySelector();
 
     /**
-     * Adds a rule answering requests to {@code host} directly with {@code response}, without
-     * contacting the real host.
+     * Replaces every intercept rule with the ones {@code declare} adds to the set it is given, in a
+     * single engine call ({@code PUT /intercept/rules}, rift &ge; 0.20.0): a request arriving
+     * meanwhile meets either the old rules or the new ones, never a partial or empty set. Rules match
+     * first-to-last, so this is also the only way to put a rule ahead of one already installed.
+     * Declaring nothing clears the rules.
      *
-     * <p>The engine's serve action carries only a numeric {@code statusCode}, {@code headers} and a
-     * text {@code body}. A repeated header is sent as one header line per value, which needs rift
-     * &ge; 0.18.0; on an older engine it is refused here (unless the version check is off), since
-     * that engine would reject the rule. A
-     * response using anything else — any behavior ({@code wait}/{@code decorate}/{@code repeat}/{@code
-     * copy}/{@code lookup}/{@code shellTransform}), any {@code _rift} extension ({@code templated},
-     * {@code script}, or a latency/error/TCP fault), or a binary body — is rejected here rather than
-     * silently dropped. Use {@link #redirectTo} to reach an imposter, which has full stub fidelity.
+     * <p>{@code declare} only describes the rules; nothing reaches the engine until it returns, and
+     * nothing at all if it throws, so the old rules stay. The set must not be used after it returns.
+     * Every rule installed this way counts as added at runtime, including one first seeded from the
+     * engine's config file, which a later {@code POST /admin/reload} then seeds again ahead of it.
      *
-     * @throws io.github.achirdlabs.rift.error.InvalidDefinition if {@code response} carries a
-     *         construct the serve action cannot deliver; the rule is not registered
+     * @return the rules installed, as their declaring calls returned them (a {@link
+     *         RuleKind#REDIRECT} stays one)
+     * @throws io.github.achirdlabs.rift.error.InvalidDefinition if the engine is older than 0.20.0
+     *         (before {@code declare} runs), or a declared rule is refused
      */
-    InterceptRule serve(String host, IsSpec response);
-
-    /** Adds a rule forwarding requests to {@code host} on to {@code hostPort} (a {@code host:port} on localhost). */
-    InterceptRule forward(String host, String hostPort);
-
-    /** Adds a rule forwarding requests to {@code host} on to {@code imposter}'s own port. */
-    InterceptRule redirectTo(String host, Imposter imposter);
+    List<InterceptRule> replaceRules(Consumer<? super InterceptRuleSet> declare);
 
     /**
-     * Begins a predicate-scoped rule with an optional host — the engine's full rule shape (match by
-     * path/method/headers/body like a stub, and/or a catch-all with no host), beyond the host-only
-     * {@link #serve}/{@link #forward}/{@link #redirectTo} above. See {@link InterceptRuleBuilder}.
+     * Replaces every intercept rule with {@code rules}, in order, in a single engine call — for
+     * re-installing a filtered or reordered {@link #rules()}. Needs rift &ge; 0.20.0.
+     *
+     * @return the rules installed: {@code rules}, as an unmodifiable copy
      */
-    InterceptRuleBuilder rule();
+    List<InterceptRule> replaceRules(List<InterceptRule> rules);
+
+    /**
+     * Removes every installed rule equal to {@code rule} (one returned by a rule-adding call, or by
+     * {@link #rules()}), keeping the others in order. Rules are compared as the engine stores them,
+     * ignoring the defaults its listing adds. Reads the rules and replaces them, so it needs rift
+     * &ge; 0.20.0, and a rule another client adds in between is lost.
+     *
+     * @return whether a rule was removed; when none matched, the rules are left untouched
+     */
+    boolean removeRule(InterceptRule rule);
 
     /** The current intercept rules, in the order they were added. */
     List<InterceptRule> rules();

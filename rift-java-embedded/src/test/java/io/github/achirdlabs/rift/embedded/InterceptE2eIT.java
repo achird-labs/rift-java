@@ -1,6 +1,7 @@
 package io.github.achirdlabs.rift.embedded;
 
 import io.github.achirdlabs.rift.EmbeddedOptions;
+import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.InterceptRule;
@@ -17,8 +18,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -128,6 +131,63 @@ class InterceptE2eIT {
                 intercept.close();
             }
         }
+    }
+
+    @Test
+    void replaceRulesSwapsTheSetInOneStep() throws Exception {
+        try (Rift rift = embedded(); Intercept intercept = rift.intercept()) {
+            intercept.serve("example.com", RiftDsl.status(418));
+            HttpClient client = proxied(intercept);
+            assertEquals(418, get(client, "https://example.com/"));
+
+            List<InterceptRule> installed = intercept.replaceRules(set -> set.serve("example.com", RiftDsl.status(451)));
+
+            assertEquals(451, get(client, "https://example.com/"), "the replacement answers, not the old rule");
+            assertEquals(1, intercept.rules().size(), "replaced, not appended: " + intercept.rules());
+            assertEquals(List.of(RuleKind.SERVE), installed.stream().map(InterceptRule::kind).toList());
+        }
+    }
+
+    @Test
+    void removeRuleTakesOutTheRuleTheEngineEchoesAndLeavesTheOthers() {
+        try (Rift rift = embedded(); Intercept intercept = rift.intercept()) {
+            // A predicate-scoped catch-all and a serve with a body: the engine's echo renders defaults
+            // (host:null, headers:{}) these were never sent with.
+            InterceptRule scoped = intercept.rule().when(RiftDsl.onGet("/x")).serve(RiftDsl.status(200).withTextBody("x"));
+            intercept.serve("b.example", RiftDsl.status(204));
+
+            assertTrue(intercept.removeRule(scoped), "the rule returned by serve() matches its echo");
+
+            List<InterceptRule> left = intercept.rules();
+            assertEquals(1, left.size(), "only the removed rule went: " + left);
+            assertEquals("b.example", left.get(0).host());
+            assertFalse(intercept.removeRule(scoped), "already gone: nothing to remove");
+        }
+    }
+
+    @Test
+    void aRedirectedRequestKeepsTheSutsHost() throws Exception {
+        try (Rift rift = embedded(); Intercept intercept = rift.intercept()) {
+            // rift 0.20.0 forwards the SUT's own Host; before it the imposter saw 127.0.0.1:<port>.
+            Imposter imposter = rift.create(RiftDsl.imposter("host-aware")
+                    .stub(RiftDsl.onGet("/").withHeader("Host", "example.com").willReturn(RiftDsl.status(418))));
+            intercept.redirectTo("example.com", imposter);
+
+            assertEquals(418, get(proxied(intercept), "https://example.com/"));
+        }
+    }
+
+    private static HttpClient proxied(Intercept intercept) {
+        return HttpClient.newBuilder()
+                .sslContext(intercept.trust().sslContext())
+                .proxy(intercept.proxySelector())
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private static int get(HttpClient client, String uri) throws Exception {
+        return client.send(HttpRequest.newBuilder(URI.create(uri)).timeout(Duration.ofSeconds(10)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode();
     }
 
     @Test

@@ -501,6 +501,26 @@ class RemoteInterceptTest {
     }
 
     @Test
+    void replaceRulesPutsABareArray() {
+        server.respond("PUT /intercept/rules", 200, "[{\"host\":\"a.example\",\"predicates\":[],"
+                + "\"action\":{\"forward\":{\"port\":1}}}]");
+        JsonValue rules = JsonValue.parse("[{\"host\":\"a.example\",\"action\":{\"forward\":{\"port\":1}}}]");
+
+        transport.interceptReplaceRules(rules);
+
+        var put = server.received().stream().filter(r -> r.method().equals("PUT")).findFirst().orElseThrow();
+        assertEquals("/intercept/rules", put.path());
+        assertEquals(rules, JsonValue.parse(put.body()), "a bare array: the route takes no {\"rules\":...} wrapper");
+    }
+
+    @Test
+    void aReplaceWithNoListenerIsAnError() {
+        server.respond("PUT /intercept/rules", 404, "{\"error\":\"intercept listener not running\"}");
+        assertThrows(io.github.achirdlabs.rift.error.RiftException.class,
+                () -> transport.interceptReplaceRules(JsonValue.parse("[]")));
+    }
+
+    @Test
     void listRulesGetsInterceptRules() {
         transport.interceptListRules();
         assertTrue(sawRequest("GET", "/intercept/rules"));

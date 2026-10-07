@@ -205,7 +205,7 @@ class InterceptServeGuardTest {
                         Optional.of(new RiftScriptConfig(
                                 Optional.empty(), Optional.of("return 1;"), Optional.empty(), Optional.empty())),
                         false)));
-        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withScript))
+        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptRules.requireDeliverable(withScript))
                 .getMessage().contains("_rift.script"));
 
         Response.Is withIsExtra = new Response.Is(
@@ -213,7 +213,7 @@ class InterceptServeGuardTest {
                         Map.of("_futureKnob", new JsonString("x"))),
                 Behaviors.EMPTY,
                 Optional.empty());
-        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withIsExtra))
+        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptRules.requireDeliverable(withIsExtra))
                 .getMessage().contains("is response key '_futureKnob'"));
 
         // The top-level sibling-key escape hatch, distinct from the one inside `is` above: reachable
@@ -223,7 +223,7 @@ class InterceptServeGuardTest {
                 Behaviors.EMPTY,
                 Optional.empty(),
                 Map.of("_futureSibling", new JsonString("x")));
-        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withResponseExtra))
+        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptRules.requireDeliverable(withResponseExtra))
                 .getMessage().contains("response key '_futureSibling'"));
 
         // An unmodeled _rift key (rift 0.18.0's dataset, #226) read back from an engine.
@@ -231,7 +231,7 @@ class InterceptServeGuardTest {
                 new IsResponse("200", Map.of(), Optional.of(new JsonString("b")), ResponseMode.TEXT),
                 Behaviors.EMPTY,
                 Optional.of(RiftResponseExtension.EMPTY.withExtra("dataset", new JsonString("x"))));
-        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptImpl.requireDeliverable(withRiftExtra))
+        assertTrue(assertThrows(InvalidDefinition.class, () -> InterceptRules.requireDeliverable(withRiftExtra))
                 .getMessage().contains("_rift.dataset"));
     }
 
@@ -253,14 +253,14 @@ class InterceptServeGuardTest {
         // The guard tests `mode() == BINARY`, so a third mode would pass through as if it were text.
         assertEquals(List.of("TEXT", "BINARY"),
                 Stream.of(ResponseMode.values()).map(Enum::name).toList(),
-                "ResponseMode gained a value — InterceptImpl.requireDeliverable must classify it (#207)");
+                "ResponseMode gained a value — InterceptRules.requireDeliverable must classify it (#207)");
     }
 
     private static void assertComponents(Class<?> record, String... expected) {
         assertEquals(List.of(expected),
                 Stream.of(record.getRecordComponents()).map(RecordComponent::getName).toList(),
                 record.getSimpleName() + " changed shape — every component must be either emitted by"
-                        + " InterceptImpl.toServeStub or rejected by requireDeliverable (#207)");
+                        + " InterceptRules.toServeStub or rejected by requireDeliverable (#207)");
     }
 
     // --- AC3: the accepted set is unchanged, byte for byte ---

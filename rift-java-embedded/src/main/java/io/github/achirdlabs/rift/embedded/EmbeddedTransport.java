@@ -319,6 +319,11 @@ public final class EmbeddedTransport implements RiftTransport {
     }
 
     @Override
+    public void interceptReplaceRules(JsonValue rules) {
+        calls.interceptReplaceRules(rules);
+    }
+
+    @Override
     public void stopIntercept() {
         calls.stopIntercept();
     }

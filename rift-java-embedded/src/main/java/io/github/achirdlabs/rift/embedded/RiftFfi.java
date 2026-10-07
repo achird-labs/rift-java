@@ -12,6 +12,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /** Raw FFM binding to the rift C-ABI v2 ({@code librift_ffi}). One downcall handle per symbol. */
 final class RiftFfi {
@@ -55,6 +56,8 @@ final class RiftFfi {
     private final MethodHandle interceptListRules;
     private final MethodHandle interceptCaPem;
     private final MethodHandle stopIntercept;
+    /** rift &ge; 0.20.0 only; empty on an older library. */
+    private final Optional<MethodHandle> interceptReplaceRules;
 
     private RiftFfi(SymbolLookup lookup, Linker linker) {
         this.start = handle(lookup, linker, "rift_start",
@@ -135,6 +138,22 @@ final class RiftFfi {
                 FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         this.stopIntercept = handle(lookup, linker, "rift_stop_intercept",
                 FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        this.interceptReplaceRules = optionalHandle(lookup, linker, "rift_intercept_replace_rules",
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    }
+
+    /**
+     * A symbol newer than the C-ABI v2 floor: absent from an older library, which must still load for
+     * everything else. Calling it on such a library throws {@link EngineUnavailable} (see {@link #require}).
+     */
+    private static Optional<MethodHandle> optionalHandle(SymbolLookup lookup, Linker linker, String name,
+            FunctionDescriptor descriptor) {
+        return lookup.find(name).map(symbol -> linker.downcallHandle(symbol, descriptor));
+    }
+
+    private static MethodHandle require(Optional<MethodHandle> handle, String operation, String since, String symbol) {
+        return handle.orElseThrow(() -> new EngineUnavailable(
+                operation + " requires rift >= " + since + ": the loaded native library is missing " + symbol));
     }
 
     private static MethodHandle handle(SymbolLookup lookup, Linker linker, String name, FunctionDescriptor descriptor) {
@@ -350,6 +369,11 @@ final class RiftFfi {
 
     int stopIntercept(MemorySegment handle) {
         return (int) invoke(stopIntercept, handle);
+    }
+
+    int interceptReplaceRules(MemorySegment handle, MemorySegment rulesJson) {
+        MethodHandle replace = require(interceptReplaceRules, "intercept rule replace", "0.20.0", "rift_intercept_replace_rules");
+        return (int) invoke(replace, handle, rulesJson);
     }
 
     /** Reads a returned C string. Delegates to {@link FfmCompat} for the two-JDK method rename. */

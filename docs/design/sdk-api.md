@@ -275,6 +275,7 @@ public interface RiftTransport extends AutoCloseable {
   // intercept
   JsonValue startIntercept(JsonValue options);
   void interceptAddRules(JsonValue rules);
+  default void interceptReplaceRules(JsonValue rules);  // PUT /intercept/rules | rift_intercept_replace_rules (>= 0.20.0)
   JsonValue interceptListRules(); void interceptClearRules();
   String interceptCaPem();
   // events
@@ -884,15 +885,21 @@ park a pool thread every other admin call needs.
 ## 9. Intercept (TLS-MITM) — typed surface
 
 ```java
-public interface Intercept extends AutoCloseable {
+public interface InterceptRuleSet {                 // declares rules; Intercept adds each, replaceRules stages them (#262)
+  InterceptRule serve(String host, IsSpec response); // rule: answer host directly
+  InterceptRule forward(String host, String target); // "port" | "host:port" | "http(s)://host:port" — host/https need rift >= 0.20.0
+  InterceptRule redirectTo(String host, Imposter imposter);
+  InterceptRuleBuilder rule();                       // predicate-scoped + optional-host: rule().host(h).when(match).serve/forward/redirectTo
+}
+
+public interface Intercept extends InterceptRuleSet, AutoCloseable {
   InetSocketAddress address();                       // for ProxySelector / http.proxyHost
   URI uri();
   Optional<URI> engineAddress();                     // the engine's reported bind address; empty when attached
   ProxySelector proxySelector();                     // convenience for java.net.http clients
-  InterceptRule serve(String host, IsSpec response); // rule: answer host directly
-  InterceptRule forward(String host, String hostPort);
-  InterceptRule redirectTo(String host, Imposter imposter);
-  InterceptRuleBuilder rule();                       // predicate-scoped + optional-host: rule().host(h).when(match).serve/forward/redirectTo
+  List<InterceptRule> replaceRules(Consumer<? super InterceptRuleSet> declare);  // one atomic swap (rift >= 0.20.0)
+  List<InterceptRule> replaceRules(List<InterceptRule> rules);                   // re-install a filtered/reordered rules()
+  boolean removeRule(InterceptRule rule);            // rules() -> filter (echo-normalized) -> replace; not atomic vs. a concurrent add
   List<InterceptRule> rules(); void clearRules();
   InterceptTrust trust();
   Optional<CaMaterial> caMaterial();                 // generateCa() only: record CaMaterial(certPem, keyPem)
@@ -921,6 +928,14 @@ body. A repeated header goes out as one line per value, which needs rift ≥ 0.1
 engine it is refused with `InvalidDefinition` unless the version check is off (#231). Anything
 else — behaviors, any `_rift` extension (templating, script, faults, `stateOps`), a binary body —
 is rejected with `InvalidDefinition` rather than silently dropped (#207).
+
+`replaceRules` stages the declared rules (every `serve` check applies) and sends them in one `PUT
+/intercept/rules` / `rift_intercept_replace_rules`; an engine before 0.20.0 is refused with
+`InvalidDefinition` before the lambda runs, and an embedded library without the symbol still loads
+(the call throws `EngineUnavailable`). A `forward` target with a host or `https` scheme is gated the
+same way; a loopback http target keeps the port-only wire every engine reads. The JUnit 5 extension
+re-applies an `InterceptRuleSet` rules method per test with one `replaceRules`, falling back to clear
++ add on an older engine (#262).
 
 Remote transport maps to `/intercept/*` admin endpoints (rift ≥ 0.13.3 `POST /intercept` starts a
 listener at runtime, #493); embedded maps to `rift_start_intercept` / `rift_intercept_*`.

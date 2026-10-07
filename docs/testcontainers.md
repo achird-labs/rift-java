@@ -121,6 +121,27 @@ void mocksAnHttpsDependencyWithMyCa() throws Exception {
 }
 ```
 
+### Forwarding to another container
+
+From rift 0.20.0 a `forward` rule can name its target's host, so the intercept listener can hand a
+host to a mock running in a second container on the same network, by its alias:
+
+```java
+static final Network NETWORK = Network.newNetwork();
+
+@Container
+static final RiftContainer rift = new RiftContainer().withInterceptPort(8888).withNetwork(NETWORK);
+
+@Container
+static final RiftContainer partner = new RiftContainer().withNetwork(NETWORK).withNetworkAliases("partner-mock");
+
+// ... with an imposter on port 4600 in `partner`:
+intercept.forward("api.partner.com", "partner-mock:4600");     // or "https://partner-mock:8443"
+```
+
+The imposter receives the client's original `Host` (`api.partner.com`), not the alias. See
+[forward targets](intercept.md#forward-targets) for the accepted forms.
+
 See [docs/intercept.md](intercept.md) for rules, trust material, and shared-CA setups.
 
 ## Outbound TLS trust (proxying an origin behind a private CA)

@@ -335,6 +335,15 @@ final class FfiCalls {
         }
     }
 
+    void interceptReplaceRules(JsonValue rules) {
+        ensureLive();
+        try (Arena args = Arena.ofConfined()) {
+            if (ffi.interceptReplaceRules(handle, FfmCompat.allocateCString(args, rules.toJson())) != 0) {
+                throw engineError();
+            }
+        }
+    }
+
     JsonValue interceptListRules() {
         ensureLive();
         return readJsonAndFree(ffi.interceptListRules(handle));
