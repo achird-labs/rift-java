@@ -231,6 +231,12 @@ variable, a `PATH` lookup, a local version cache, then a download from the relea
 version defaults to the engine the SDK is pinned to and tested against (`<rift.engine.version>`),
 not the compatibility floor — override with `SpawnOptions.builder().version("X.Y.Z")`.
 
+`SpawnOptions.apiKey(key)` locks the spawned engine's admin API to a key, which the returned client
+sends (it reaches the engine as `MB_APIKEY`, not on the command line). `metricsPort(n)` moves the
+engine's Prometheus listener off its default 9090, which two spawned engines would otherwise contend
+for (the loser runs without metrics, and says so only in its log). `EmbeddedOptions` takes `metricsPort`, `allowInjection` and `requireAdminAuth` for the in-process
+admin server the same way.
+
 ### JUnit 5
 
 ```java

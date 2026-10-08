@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Immutable configuration for {@link Rift#embedded(EmbeddedOptions)}: where to find the
@@ -23,6 +24,9 @@ public final class EmbeddedOptions {
     private final int adminPort;
     private final Optional<String> apiKey;
     private final Optional<UpstreamTrust> upstreamTrust;
+    private final Optional<Boolean> allowInjection;
+    private final Optional<Boolean> requireAdminAuth;
+    private final OptionalInt metricsPort;
 
     private EmbeddedOptions(
             Optional<Path> libraryPath,
@@ -31,7 +35,10 @@ public final class EmbeddedOptions {
             String adminHost,
             int adminPort,
             Optional<String> apiKey,
-            Optional<UpstreamTrust> upstreamTrust) {
+            Optional<UpstreamTrust> upstreamTrust,
+            Optional<Boolean> allowInjection,
+            Optional<Boolean> requireAdminAuth,
+            OptionalInt metricsPort) {
         this.libraryPath = libraryPath;
         this.versionCheck = versionCheck;
         this.serveAdminEagerly = serveAdminEagerly;
@@ -39,6 +46,9 @@ public final class EmbeddedOptions {
         this.adminPort = adminPort;
         this.apiKey = apiKey;
         this.upstreamTrust = upstreamTrust;
+        this.allowInjection = allowInjection;
+        this.requireAdminAuth = requireAdminAuth;
+        this.metricsPort = metricsPort;
     }
 
     public static Builder builder() {
@@ -76,6 +86,21 @@ public final class EmbeddedOptions {
         return upstreamTrust;
     }
 
+    /** Whether the admin plane accepts script-bearing stubs, if set; see {@link Builder#allowInjection(boolean)}. */
+    public Optional<Boolean> allowInjection() {
+        return allowInjection;
+    }
+
+    /** Whether the engine refuses an unauthenticated off-loopback admin plane, if set; see {@link Builder#requireAdminAuth(boolean)}. */
+    public Optional<Boolean> requireAdminAuth() {
+        return requireAdminAuth;
+    }
+
+    /** The engine's metrics port, if set; see {@link Builder#metricsPort(int)}. */
+    public OptionalInt metricsPort() {
+        return metricsPort;
+    }
+
     public static final class Builder {
 
         private Optional<Path> libraryPath = Optional.empty();
@@ -85,6 +110,9 @@ public final class EmbeddedOptions {
         private int adminPort = 0;
         private Optional<String> apiKey = Optional.empty();
         private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
+        private Optional<Boolean> allowInjection = Optional.empty();
+        private Optional<Boolean> requireAdminAuth = Optional.empty();
+        private OptionalInt metricsPort = OptionalInt.empty();
 
         private Builder() {
         }
@@ -197,9 +225,61 @@ public final class EmbeddedOptions {
             return this;
         }
 
+        /**
+         * Whether the in-process admin server accepts stubs carrying scripts ({@code inject},
+         * {@code decorate}, {@code shellTransform}, a {@code wait} function) — {@code allowInjection}
+         * on {@code rift_serve_admin}. Unset, the engine's default applies: refused. {@link
+         * Rift#replaceAll} is routed through that server, so on the embedded engine it refuses a
+         * script-bearing imposter unless this is set; {@link Rift#create} and {@link Rift#applyConfig}
+         * run over the C-ABI and are not gated. Keep it off when {@link #adminHost(String)} is
+         * not loopback unless {@link #apiKey(String)} is set: it lets whoever reaches the admin API
+         * run code in this process.
+         *
+         * <p>Requires an engine that advertises the option in its {@code serveOptions} (rift &ge;
+         * 0.17.0), or starting the admin server fails with {@link
+         * io.github.achirdlabs.rift.error.EngineUnavailable}. 0.15 and 0.16 take the key without
+         * advertising it, and an engine before them drops it without a word, so absence from that
+         * list is refused rather than guessed at.
+         */
+        public Builder allowInjection(boolean allowInjection) {
+            this.allowInjection = Optional.of(allowInjection);
+            return this;
+        }
+
+        /**
+         * Makes the engine refuse to serve its admin API off loopback without an {@link
+         * #apiKey(String)} — {@code requireAdminAuth} on {@code rift_serve_admin}. With the default
+         * loopback {@link #adminHost(String)} it changes nothing. Advertisement is checked as for
+         * {@link #allowInjection(boolean)}.
+         */
+        public Builder requireAdminAuth(boolean requireAdminAuth) {
+            this.requireAdminAuth = Optional.of(requireAdminAuth);
+            return this;
+        }
+
+        /**
+         * Serves the engine's Prometheus registry at {@code http://<adminHost>:<metricsPort>/metrics}
+         * — not gated by {@link #apiKey(String)}. Unset, the embedded engine runs no metrics listener.
+         * Setting it starts the in-process admin server when the engine starts, as {@link
+         * #serveAdminEagerly(boolean)} does, since the listener comes up with it — so a port that is
+         * taken fails {@link Rift#embedded(EmbeddedOptions)} itself (unlike a spawned engine, which
+         * runs on without metrics). Advertisement is checked as for {@link #allowInjection(boolean)}.
+         *
+         * @throws IllegalArgumentException if {@code metricsPort} is outside {@code 1..65535}: the
+         *                                  port the engine bound is reported nowhere, so an
+         *                                  OS-assigned one could not be found
+         */
+        public Builder metricsPort(int metricsPort) {
+            if (metricsPort < 1 || metricsPort > 65_535) {
+                throw new IllegalArgumentException("metricsPort must be in 1..65535, was " + metricsPort);
+            }
+            this.metricsPort = OptionalInt.of(metricsPort);
+            return this;
+        }
+
         public EmbeddedOptions build() {
             return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey,
-                    upstreamTrust);
+                    upstreamTrust, allowInjection, requireAdminAuth, metricsPort);
         }
     }
 }

@@ -25,6 +25,7 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -394,6 +395,9 @@ public final class EmbeddedTransport implements RiftTransport {
                 // (An explicit null would also parse — serde maps it to None for an Option — so this
                 // is idiom, not a correctness requirement.)
                 .putIfPresent("apiKey", options.apiKey().map(JsonString::new));
+        options.allowInjection().ifPresent(allow -> payload.put("allowInjection", JsonBool.of(allow)));
+        options.requireAdminAuth().ifPresent(require -> payload.put("requireAdminAuth", JsonBool.of(require)));
+        options.metricsPort().ifPresent(port -> payload.put("metricsPort", JsonNumber.of(port)));
         options.upstreamTrust().ifPresent(trust -> payload.put(serveOptionKey(trust), serveOptionValue(trust)));
         return payload.build();
     }
@@ -427,16 +431,26 @@ public final class EmbeddedTransport implements RiftTransport {
      * so it can be pinned without an engine.
      */
     static void requireAdvertised(EmbeddedOptions options, Supplier<JsonValue> buildInfo) {
-        if (options.upstreamTrust().isEmpty()) {
+        List<ServeOption> requested = new ArrayList<>();
+        options.allowInjection().ifPresent(v -> requested.add(new ServeOption("allowInjection", "0.17.0", "allowInjection")));
+        options.requireAdminAuth().ifPresent(v -> requested.add(new ServeOption("requireAdminAuth", "0.17.0", "requireAdminAuth")));
+        options.metricsPort().ifPresent(v -> requested.add(new ServeOption("metricsPort", "0.17.0", "metricsPort")));
+        options.upstreamTrust().ifPresent(trust -> requested.add(new ServeOption(serveOptionKey(trust), "0.18.0", "upstreamTrust")));
+        if (requested.isEmpty()) {
             return;
         }
-        String key = serveOptionKey(options.upstreamTrust().get());
         Set<String> advertised = EngineInfo.read(buildInfo.get()).serveOptions();
-        if (!advertised.contains(key)) {
-            throw new EngineUnavailable(key + " needs a rift engine >= 0.18.0; this engine advertises serveOptions "
-                    + advertised + ". Upgrade the engine, or drop EmbeddedOptions.upstreamTrust.");
+        for (ServeOption option : requested) {
+            if (!advertised.contains(option.key())) {
+                throw new EngineUnavailable(option.key() + " needs a rift engine >= " + option.since()
+                        + "; this engine advertises serveOptions " + advertised + ". Upgrade the engine, or drop"
+                        + " EmbeddedOptions." + option.setter() + ".");
+            }
         }
     }
+
+    /** A {@code rift_serve_admin} key, the first engine that takes it, and the {@link EmbeddedOptions} setter that asked for it. */
+    private record ServeOption(String key, String since, String setter) { }
 
     /**
      * Binding wider than loopback with no api key is honoured — refusing would break a container or

@@ -24,7 +24,9 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,7 +65,9 @@ public final class RiftProcess {
 
         ProcessBuilder builder = new ProcessBuilder(command);
         opts.workingDir().ifPresent(dir -> builder.directory(dir.toFile()));
-        builder.environment().putAll(opts.env());
+        // An MB_APIKEY inherited from this JVM would lock the engine against a client that has no key.
+        builder.environment().remove("MB_APIKEY");
+        builder.environment().putAll(environment(opts));
 
         Deque<String> logTail = new ArrayDeque<>();
         Process process;
@@ -85,7 +89,7 @@ public final class RiftProcess {
         Runtime.getRuntime().addShutdownHook(hook);
 
         try {
-            awaitHealthy(process, adminUri, opts.startupTimeout(), logTail);
+            awaitHealthy(process, adminUri, opts.apiKey(), opts.startupTimeout(), logTail);
         } catch (RuntimeException e) {
             removeShutdownHook(hook);
             process.destroyForcibly();
@@ -185,6 +189,17 @@ public final class RiftProcess {
 
     // Package-private (not private) so RiftProcessTest can pin the argument order: the rift CLI
     // rejects the admin options unless they precede the `start` subcommand.
+    /**
+     * The environment the engine is launched with: {@link SpawnOptions#env()}, plus the admin key as
+     * {@code MB_APIKEY} — there rather than {@code --api-key} because a command line is visible to
+     * every user of the machine.
+     */
+    static Map<String, String> environment(SpawnOptions opts) {
+        Map<String, String> env = new LinkedHashMap<>(opts.env());
+        opts.apiKey().ifPresent(key -> env.put("MB_APIKEY", key));
+        return env;
+    }
+
     static List<String> buildCommand(Path binary, SpawnOptions opts, int port, Path pidFile) {
         // The rift CLI takes its admin-API options as GLOBAL options that must precede the
         // subcommand (`rift [OPTIONS] start`); clap rejects them when placed after `start`. So every
@@ -207,6 +222,13 @@ public final class RiftProcess {
         cmd.add("--pidfile");
         cmd.add(pidFile.toString());
         // SpawnOptions.build() has already rejected CaPem (the CLI has no inline form).
+        if (opts.requireAdminAuth()) {
+            cmd.add("--require-admin-auth");
+        }
+        opts.metricsPort().ifPresent(metricsPort -> {
+            cmd.add("--metrics-port");
+            cmd.add(Integer.toString(metricsPort));
+        });
         opts.upstreamTrust().ifPresent(trust -> {
             if (trust instanceof UpstreamTrust.CaFile file) {
                 cmd.add("--upstream-ca-file");
@@ -239,7 +261,8 @@ public final class RiftProcess {
         drain.start();
     }
 
-    private static void awaitHealthy(Process process, URI adminUri, Duration startupTimeout, Deque<String> logTail) {
+    private static void awaitHealthy(Process process, URI adminUri, Optional<String> apiKey, Duration startupTimeout,
+            Deque<String> logTail) {
         HttpClient client = HttpClient.newBuilder().connectTimeout(HEALTH_REQUEST_TIMEOUT).build();
         URI healthUri = adminUri.resolve("/imposters");
         Instant deadline = Instant.now().plus(startupTimeout);
@@ -248,7 +271,7 @@ public final class RiftProcess {
                 throw new EngineUnavailable("rift process exited with code " + process.exitValue()
                         + " during startup" + tailMessage(logTail));
             }
-            if (poll(client, healthUri)) {
+            if (poll(client, healthUri, apiKey)) {
                 return;
             }
             sleep(HEALTH_POLL_INTERVAL);
@@ -257,11 +280,21 @@ public final class RiftProcess {
                 + tailMessage(logTail));
     }
 
-    private static boolean poll(HttpClient client, URI healthUri) {
+    static boolean poll(HttpClient client, URI healthUri, Optional<String> apiKey) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(healthUri).timeout(HEALTH_REQUEST_TIMEOUT).GET().build();
+            // A key-protected engine answers 401 to an unauthenticated probe, which would read as never healthy.
+            HttpRequest.Builder probe = HttpRequest.newBuilder(healthUri).timeout(HEALTH_REQUEST_TIMEOUT).GET();
+            apiKey.ifPresent(key -> probe.header("Authorization", key));
+            HttpRequest request = probe.build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-            return response.statusCode() >= 200 && response.statusCode() < 300;
+            int status = response.statusCode();
+            if (status == 401 || status == 403) {
+                // Up, and refusing us: retrying until the startup timeout would only hide why.
+                throw new EngineUnavailable("the rift process answered " + status + " to its startup probe: "
+                        + (apiKey.isPresent() ? "it rejected SpawnOptions.apiKey" : "it requires an admin key, but"
+                        + " SpawnOptions.apiKey is unset"));
+            }
+            return status >= 200 && status < 300;
         } catch (IOException e) {
             return false;
         } catch (InterruptedException e) {

@@ -188,7 +188,13 @@ public final class SpawnOptions {
   // localOnly (default true), logLevel, env (Map), workingDir, mirrorUrl,
   // startupTimeout (default 15s), shutdownTimeout (default 5s), inheritLog (bool),
   // upstreamTrust (UpstreamTrust, rift >= 0.18.0 — CaFile or SkipVerify; CaPem and a declared
-  //   version below 0.18.0 are refused at build())
+  //   version below 0.18.0 are refused at build()),
+  // apiKey (String; blank refused — passed as MB_APIKEY in the engine's environment, never argv,
+  //   and sent by the returned client), requireAdminAuth (bool, --require-admin-auth, rift >= 0.17.0
+  //   checked at build(); a no-op on the default loopback bind), metricsPort (1..65535,
+  //   --metrics-port; unset = the engine's 9090, which two spawned engines contend for; a taken
+  //   port is not fatal — the engine runs without metrics). An MB_APIKEY in env() is refused at
+  //   build(), and one inherited from the JVM is not passed on.
   // Binary resolution order: binaryPath → $RIFT_BINARY_PATH → PATH (rift) →
   //   version cache (~/.cache/rift-java/binaries/rift-<ver>/) → download via release
   //   ffi-manifest.json (SHA-256 verified; RIFT_OFFLINE/RIFT_SKIP_BINARY_DOWNLOAD → fail).
@@ -200,7 +206,13 @@ public final class EmbeddedOptions {
   //   adminHost is an IP literal, IPv6 bare or bracketed, and is also the host imposters
   //   report in uri()), upstreamTrust (UpstreamTrust, rift >= 0.18.0 — needs the engine to
   //   advertise the option in EngineInfo.serveOptions, else EngineUnavailable; serves the
-  //   admin API eagerly)
+  //   admin API eagerly),
+  // allowInjection / requireAdminAuth (Optional<Boolean>; unset = engine default, i.e. scripts refused
+  //   on the admin plane — which replaceAll, events and recordedSince go through, so replaceAll of a
+  //   script-bearing imposter needs allowInjection(true); create/applyConfig are C-ABI, ungated),
+  // metricsPort (1..65535; unset = no metrics listener; serves the admin API eagerly, so a taken
+  //   port fails Rift.embedded). Each needs the engine to advertise it in EngineInfo.serveOptions
+  //   (rift >= 0.17.0), like upstreamTrust.
 }
 
 public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)
