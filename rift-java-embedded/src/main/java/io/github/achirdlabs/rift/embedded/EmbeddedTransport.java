@@ -53,6 +53,13 @@ public final class EmbeddedTransport implements RiftTransport {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final Object adminLock = new Object();
     private volatile RemoteTransport admin;
+    /**
+     * The listener this handle started over FFI, as {@code {interceptPort, interceptUrl}} (never the
+     * CA a start can return); null when none is. The engine runs one listener, but its admin plane's
+     * {@code GET /intercept} reports only one started through that plane (rift 0.21.0), and there is
+     * no FFI status symbol — so this record answers for an FFI start, the admin plane for the rest.
+     */
+    private volatile JsonValue runningIntercept;
 
     private EmbeddedTransport(Arena libArena, FfiCalls calls, EmbeddedOptions options) {
         this.libArena = libArena;
@@ -305,7 +312,32 @@ public final class EmbeddedTransport implements RiftTransport {
 
     @Override
     public JsonValue startIntercept(JsonValue options) {
-        return calls.startIntercept(options);
+        JsonValue started = calls.startIntercept(options);
+        if (started instanceof JsonObject obj) {
+            JsonObject.Builder status = JsonObject.builder();
+            if (obj.get("interceptPort") != null) {
+                status.put("interceptPort", obj.get("interceptPort"));
+            }
+            if (obj.get("interceptUrl") != null) {
+                status.put("interceptUrl", obj.get("interceptUrl"));
+            }
+            runningIntercept = status.build();
+        }
+        return started;
+    }
+
+    @Override
+    public Optional<JsonValue> interceptStatus() {
+        if (closed.get()) {
+            throw new IllegalStateException("the embedded rift engine is closed");
+        }
+        JsonValue started = runningIntercept;
+        if (started != null) {
+            return Optional.of(started);
+        }
+        // Started by another client through this engine's admin plane, if it is serving one.
+        RemoteTransport a = admin;
+        return a == null ? Optional.empty() : a.interceptStatus();
     }
 
     @Override
@@ -331,6 +363,7 @@ public final class EmbeddedTransport implements RiftTransport {
     @Override
     public void stopIntercept() {
         calls.stopIntercept();
+        runningIntercept = null;
     }
 
     @Override
@@ -474,6 +507,7 @@ public final class EmbeddedTransport implements RiftTransport {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        runningIntercept = null;
         // Always release the engine handle and unload the library even if the admin client's close
         // throws, otherwise a failure there would leak the native handle and the mapped library.
         try {

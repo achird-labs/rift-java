@@ -252,6 +252,14 @@ public interface RiftTransport extends AutoCloseable {
         throw new UnsupportedOperationException("this transport cannot stop an intercept listener (stopIntercept)");
     }
 
+    /**
+     * The running intercept listener's {@code {interceptPort, interceptUrl}}, or empty when none is
+     * running (the engine's 404 on {@code GET /intercept}).
+     */
+    default Optional<JsonValue> interceptStatus() {
+        throw new UnsupportedOperationException("this transport cannot report an intercept listener (interceptStatus)");
+    }
+
     /** Adds one ({@code JsonObject}) or many ({@code JsonArray}) intercept rules. */
     void interceptAddRules(JsonValue rules);
 

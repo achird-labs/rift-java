@@ -157,6 +157,14 @@ public interface Rift extends AutoCloseable {
      */
     Intercept intercept(InterceptOptions options);
 
+    /**
+     * The intercept listener the engine reports running, or empty when none is. Over the admin API
+     * this is {@code GET /intercept} and sees a listener started by anyone — at engine launch, by
+     * another client. On the embedded transport it reports the listener this handle started until it is
+     * closed, or one another client started through this engine's {@link #adminUri() admin plane}.
+     */
+    Optional<InterceptStatus> interceptStatus();
+
     RiftAsync async();
 
     @Override

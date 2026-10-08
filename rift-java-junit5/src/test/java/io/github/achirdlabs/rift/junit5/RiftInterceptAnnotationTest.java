@@ -8,8 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** {@code @RiftIntercept} combinations that cannot work are refused before the engine is asked. */
 class RiftInterceptAnnotationTest {
 
-    @RiftIntercept(attach = true)
-    static class AttachWithoutAPort { }
+    @RiftIntercept(attach = true, host = "rift.internal")
+    static class AttachWithAHostButNoPort { }
 
     @RiftIntercept(attach = true, port = 8888, caCert = "ca.pem", caKey = "ca-key.pem")
     static class AttachWithACa { }
@@ -36,8 +36,10 @@ class RiftInterceptAnnotationTest {
     static class InlineUnreadableKey { }
 
     @Test
-    void attachNeedsTheListenersPort() {
-        assertRefused(AttachWithoutAPort.class, "needs the running listener's port");
+    void attachAtANamedHostNeedsTheListenersPort() {
+        // Without a port the listener is discovered and reached through the engine's own report, so a
+        // host given alone would be silently ignored.
+        assertRefused(AttachWithAHostButNoPort.class, "names a host but no port");
     }
 
     @Test

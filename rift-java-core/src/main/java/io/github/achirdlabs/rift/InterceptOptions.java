@@ -65,7 +65,8 @@ public final class InterceptOptions {
      * Attach to an intercept listener something else started — the engine at launch ({@code
      * --intercept-port} / {@code RIFT_INTERCEPT_PORT}, e.g. a container's {@code withInterceptPort})
      * — at {@code host:port}, rather than starting one; {@code host}/{@code port} are the reachable
-     * endpoint (e.g. a mapped Docker port). To start a listener instead, on any transport, pass
+     * endpoint (e.g. a mapped Docker port), used verbatim — never remapped. {@link #attach()} finds the
+     * port instead. To start a listener instead, on any transport, pass
      * {@link #builder()} options to {@link Rift#intercept(InterceptOptions)} (rift &ge; 0.13.3 over the
      * admin API).
      */
@@ -85,6 +86,33 @@ public final class InterceptOptions {
         Objects.requireNonNull(host, "host");
         Objects.requireNonNull(ca, "ca");
         return new InterceptOptions(host, port, null, null, null, null, false, true, ca);
+    }
+
+    /**
+     * Attach to the intercept listener the engine reports running ({@code GET /intercept}), finding
+     * its port rather than being told it. The engine reports its own bind address, so this client
+     * reaches the listener through the same mapping a listener it starts gets: {@link
+     * ConnectOptions.Builder#interceptAddress} on a connected engine (which {@code RiftContainer}
+     * sets to the container's mapped port), else that address with a wildcard bind replaced by the
+     * admin host. {@link Rift#intercept(InterceptOptions)} throws {@link IllegalStateException} when
+     * no listener is running.
+     */
+    public static InterceptOptions attach() {
+        return new InterceptOptions(null, 0, null, null, null, null, false, true, null);
+    }
+
+    /**
+     * {@link #attach()} to a listener the caller started with {@code ca}: see {@link
+     * #attach(String, int, Intercept.CaMaterial)} for what carrying the CA buys, and the check it gets.
+     */
+    public static InterceptOptions attach(Intercept.CaMaterial ca) {
+        Objects.requireNonNull(ca, "ca");
+        return new InterceptOptions(null, 0, null, null, null, null, false, true, ca);
+    }
+
+    /** Whether these options attach to whichever listener the engine reports, rather than to a given endpoint. */
+    boolean discoversListener() {
+        return attach && host == null;
     }
 
     /** The CA given to {@link #attach(String, int, Intercept.CaMaterial)}, or null. */

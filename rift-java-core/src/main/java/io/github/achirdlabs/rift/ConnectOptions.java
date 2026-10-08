@@ -135,7 +135,9 @@ public final class ConnectOptions {
          * CONNECT} proxy, never an imposter's HTTP base URI. It is also asked about the requested port
          * before the listener starts, so throwing for a port it cannot reach (an unexposed container
          * port, or {@code 0}) refuses the start with nothing started. Not consulted for an engine the
-         * SDK runs itself, nor for an {@link InterceptOptions#attach attached} listener.
+         * SDK runs itself, nor for a listener attached at an explicit endpoint ({@link
+         * InterceptOptions#attach(String, int)}); a discovered one ({@link InterceptOptions#attach()})
+         * is mapped like a started one.
          */
         public Builder interceptAddress(IntFunction<InetSocketAddress> interceptAddress) {
             this.interceptAddress = Optional.of(Objects.requireNonNull(interceptAddress, "interceptAddress"));

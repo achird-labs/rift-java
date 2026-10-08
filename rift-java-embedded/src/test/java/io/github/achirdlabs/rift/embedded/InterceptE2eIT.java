@@ -1,12 +1,15 @@
 package io.github.achirdlabs.rift.embedded;
 
+import io.github.achirdlabs.rift.ConnectOptions;
 import io.github.achirdlabs.rift.EmbeddedOptions;
 import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
 import io.github.achirdlabs.rift.InterceptRule;
+import io.github.achirdlabs.rift.InterceptStatus;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.RuleKind;
+import io.github.achirdlabs.rift.VersionCheck;
 import io.github.achirdlabs.rift.dsl.RiftDsl;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -325,5 +329,47 @@ class InterceptE2eIT {
             Intercept ok = rift.intercept();
             ok.close();
         }
+    }
+
+    @Test
+    void interceptStatusReportsTheListenerThisHandleStartedUntilItCloses() {
+        try (Rift rift = embedded()) {
+            assertEquals(Optional.empty(), rift.interceptStatus(), "no listener before a start");
+
+            Intercept intercept = rift.intercept();
+            InterceptStatus running = rift.interceptStatus().orElseThrow();
+            assertEquals(intercept.address().getPort(), running.port());
+            assertEquals(intercept.engineAddress(), Optional.of(running.engineUrl()));
+
+            intercept.close();
+            assertEquals(Optional.empty(), rift.interceptStatus(), "closing the listener ends the report");
+
+            assertThrows(IllegalStateException.class, () -> rift.intercept(InterceptOptions.attach()),
+                    "with no listener running there is nothing to discover");
+        }
+    }
+
+    @Test
+    void interceptStatusReportsAListenerAnotherClientStartedThroughTheAdminPlane() {
+        try (Rift rift = embedded();
+                Rift viaAdmin = Rift.connect(ConnectOptions.builder(rift.adminUri()).versionCheck(VersionCheck.OFF).build())) {
+            Intercept theirs = viaAdmin.intercept();
+            InterceptStatus running = viaAdmin.interceptStatus().orElseThrow();
+            assertEquals(Optional.of(running), rift.interceptStatus());
+            assertEquals(running.port(), rift.intercept(InterceptOptions.attach()).address().getPort(),
+                    "a port-less attach on the embedded handle finds it too");
+
+            theirs.close();
+            assertEquals(Optional.empty(), rift.interceptStatus());
+        }
+    }
+
+    @Test
+    void interceptStatusOnAClosedEngineIsRefused() {
+        Rift rift = embedded();
+        rift.intercept();
+        rift.close();
+        IllegalStateException e = assertThrows(IllegalStateException.class, rift::interceptStatus);
+        assertEquals("the embedded rift engine is closed", e.getMessage());
     }
 }
