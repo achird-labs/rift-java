@@ -81,4 +81,35 @@ class ImposterFieldsRoundTripTest {
         assertTrue(viaEngineSpelling.allowCors());
         assertTrue(viaEngineSpelling.toJson().contains("\"allowCORS\":true"));
     }
+
+    @Test
+    void aDisabledImposterReadsIntoTheTypedFieldAndWritesBackOnlyWhenFalse() {
+        ImposterDefinition disabled = ImposterDefinition.fromJson("{\"port\":7200,\"protocol\":\"http\",\"enabled\":false,\"stubs\":[]}");
+        assertEquals(false, disabled.enabled());
+        assertEquals(java.util.Map.of(), disabled.extra(), "enabled is modeled, not carried in extra");
+        assertEquals("{\"port\":7200,\"protocol\":\"http\",\"enabled\":false,\"stubs\":[]}", disabled.toJson());
+    }
+
+    @Test
+    void anEnabledImposterOmitsTheKeyAsTheEngineDoes() {
+        // The engine serializes enabled only when false (skip_serializing_if = is_default_enabled).
+        ImposterDefinition explicit = ImposterDefinition.fromJson("{\"port\":7201,\"protocol\":\"http\",\"enabled\":true,\"stubs\":[]}");
+        assertEquals(true, explicit.enabled());
+        assertEquals("{\"port\":7201,\"protocol\":\"http\",\"stubs\":[]}", explicit.toJson());
+        assertEquals(true, ImposterDefinition.fromJson("{\"protocol\":\"http\",\"stubs\":[]}").enabled(), "absent means enabled");
+    }
+
+    @Test
+    void withEnabledChangesOnlyThatField() {
+        ImposterDefinition base = ImposterDefinition.fromJson("{\"port\":7202,\"protocol\":\"http\",\"name\":\"n\",\"stubs\":[]}");
+        ImposterDefinition paused = base.withEnabled(false);
+        assertEquals("{\"port\":7202,\"protocol\":\"http\",\"name\":\"n\",\"enabled\":false,\"stubs\":[]}", paused.toJson());
+        assertEquals(base, paused.withEnabled(true));
+    }
+
+    @Test
+    void enabledIsAModeledKeyAndCannotRideInExtra() {
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> new ImposterDefinition(
+                java.util.Optional.empty(), "http", java.util.List.of()).withExtra("enabled", io.github.achirdlabs.rift.json.JsonBool.FALSE));
+    }
 }

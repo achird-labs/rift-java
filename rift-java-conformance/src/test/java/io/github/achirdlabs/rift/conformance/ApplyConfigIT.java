@@ -12,6 +12,9 @@ import java.util.stream.Stream;
 
 import static io.github.achirdlabs.rift.conformance.LiveEngine.engine;
 import static io.github.achirdlabs.rift.conformance.LiveEngine.gated;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.imposter;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.onGet;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.status;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,9 +72,10 @@ class ApplyConfigIT {
     }
 
     private static JsonValue config(int port, boolean enabled) {
-        return JsonValue.parse("{\"imposters\":[{\"port\":" + port + ",\"protocol\":\"http\",\"name\":\"applied\","
-                + "\"enabled\":" + enabled + ","
-                + "\"stubs\":[{\"responses\":[{\"is\":{\"statusCode\":204}}]}]}]}");
+        // The typed field, end to end: ImposterSpec.enabled(false) is what makes the engine report toggled.
+        String imposter = imposter("applied").port(port).enabled(enabled).stub(onGet("/").willReturn(status(204)))
+                .build().toJson();
+        return JsonValue.parse("{\"imposters\":[" + imposter + "]}");
     }
 
     private static int freePort() throws Exception {

@@ -225,5 +225,12 @@ public interface Imposter {
 
     void disable();
 
+    /**
+     * Whether the imposter is answering traffic, as the engine reports it now — {@code false} after
+     * {@link #disable()}, or for one created with {@code ImposterSpec.disabled()}. Reads {@link
+     * #definition()}, so it costs a round trip.
+     */
+    boolean isEnabled();
+
     void delete();
 }

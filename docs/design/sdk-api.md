@@ -383,6 +383,7 @@ public interface Imposter {
 
   // -- lifecycle --
   void enable(); void disable();
+  boolean isEnabled();                        // definition().enabled(): the engine's current view, one GET
   void delete();                              // DELETE /imposters/:port; handle unusable after
 }
 
@@ -614,6 +615,8 @@ ImposterSpec requireClientCertificate(String... caPems)  // mutualAuth + rejectU
 // accepts every client (same OFF / placeholder / WARN-unreadable exceptions as above).
 ImposterSpec defaultForward(String upstreamUrl)
 ImposterSpec strictBehaviors()
+ImposterSpec enabled(boolean)                            // false: created paused ("enabled": false, written only then)
+ImposterSpec disabled()                                  // enabled(false)
 ImposterSpec serviceName(String name)
 ImposterSpec serviceInfo(JsonValue info)
 ImposterSpec allowCors()                                 // exists
