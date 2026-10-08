@@ -582,6 +582,11 @@ static CopySpec copyFrom(String from)                    // .into("$TOKEN").usin
 static CopySpec copyFromQuery(String name)               // copy from {"query": name}
 static CopySpec copyFromHeader(String name)              // copy from {"headers": name}
 static LookupSpec lookupKey(String from)                 // .using(...).fromCsv(path, keyColumn).into("$ROW")
+static LookupSpec lookupKeyFromQuery(String name)        // key.from {"query": name}
+static LookupSpec lookupKeyFromHeader(String name)       // key.from {"headers": name}
+//   .index(n)  key.index, Mountebank's meaning: regex 0 = whole match, n = nth capture group;
+//              jsonPath/xPath = nth selected value. Unset = first group / first value.
+//   .fromCsv(path, keyColumn, ';')  csv.delimiter (engine default ','); both emitted only when set
 ```
 
 ### 7.4 New `StubSpec` methods
