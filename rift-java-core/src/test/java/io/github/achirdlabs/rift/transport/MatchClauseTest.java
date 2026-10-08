@@ -389,6 +389,7 @@ class MatchClauseTest {
         @Override public java.util.Optional<io.github.achirdlabs.rift.json.JsonValue> flowStateGet(int port, String f, String k) { throw new UnsupportedOperationException(); }
         @Override public void flowStatePut(int port, String f, String k, io.github.achirdlabs.rift.json.JsonValue v) { throw new UnsupportedOperationException(); }
         @Override public void flowStateDelete(int port, String f, String k) { throw new UnsupportedOperationException(); }
+        @Override public void flowStateClear(int port, String f) { throw new UnsupportedOperationException(); }
         @Override public void spaceAddStub(int port, String f, io.github.achirdlabs.rift.json.JsonValue s) { throw new UnsupportedOperationException(); }
         @Override public io.github.achirdlabs.rift.json.JsonValue spaceListStubs(int port, String f) { throw new UnsupportedOperationException(); }
         @Override public io.github.achirdlabs.rift.json.JsonValue spaceRecorded(int port, String f) { throw new UnsupportedOperationException(); }

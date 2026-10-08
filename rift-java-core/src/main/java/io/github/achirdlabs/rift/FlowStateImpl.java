@@ -37,4 +37,9 @@ final class FlowStateImpl implements FlowState {
     public void delete(String key) {
         transport.flowStateDelete(port, flowId, key);
     }
+
+    @Override
+    public void clear() {
+        transport.flowStateClear(port, flowId);
+    }
 }

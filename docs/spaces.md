@@ -79,9 +79,17 @@ FlowState state = imp.flowState("acme");
 state.put("cartId", "c-123");
 Optional<JsonValue> cartId = state.get("cartId");
 state.delete("cartId");
+state.clear();                       // every key in "acme"; other flows untouched
 ```
 
-`get` returns the stored JSON value itself, the same on every transport.
+`get` returns the stored JSON value itself, the same on every transport. `clear()` is idempotent:
+clearing an absent or empty flow succeeds. The engine keeps a flow's scenario state in the same store,
+so `clear()` also returns every scenario in that flow to its initial state. On the embedded transport it needs a native library with
+`rift_flow_state_clear` (rift ≥ 0.22.0); an older one still loads, and `clear()` alone throws
+`EngineUnavailable` naming the missing symbol rather than emulating the clear key by key.
+
+`Space.delete()` is not a substitute: it tears down the space's stubs, journal and scenario state but
+leaves the flow's other key/value entries in place.
 
 ### Writing flow state from a response
 

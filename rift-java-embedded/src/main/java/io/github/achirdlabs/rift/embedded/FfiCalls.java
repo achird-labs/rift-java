@@ -274,6 +274,15 @@ final class FfiCalls {
         }
     }
 
+    void flowStateClear(int port, String flowId) {
+        ensureLive();
+        try (Arena args = Arena.ofConfined()) {
+            if (ffi.flowStateClear(handle, port, FfmCompat.allocateCString(args, flowId)) != 0) {
+                throw engineError();
+            }
+        }
+    }
+
     void spaceAddStub(int port, String flowId, JsonValue stub) {
         ensureLive();
         try (Arena args = Arena.ofConfined()) {

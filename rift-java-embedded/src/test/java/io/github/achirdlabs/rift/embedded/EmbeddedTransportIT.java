@@ -1,5 +1,6 @@
 package io.github.achirdlabs.rift.embedded;
 
+import io.github.achirdlabs.rift.error.EngineUnavailable;
 import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonObject;
@@ -115,6 +116,18 @@ class EmbeddedTransportIT {
             assertTrue(recorded.stream().anyMatch(r -> "/ping".equals(pathOf(r))),
                     "the GET /ping was recorded: " + t.recorded(port).toJson());
 
+            t.deleteImposter(port);
+        }
+    }
+
+    @Test
+    void flowStateClearOnTheZeroTwentyOneNativesIsEngineUnavailable() {
+        // TODO(rift#1328): at the engine pin bump past 0.21.0 this flips to the positive assertion —
+        // put two keys, clear(), both absent, clear() again succeeds (FlowStateIT already does so).
+        try (EmbeddedTransport t = open()) {
+            int port = portOf(t.createImposter(flowStateImposter()));
+            EngineUnavailable ex = assertThrows(EngineUnavailable.class, () -> t.flowStateClear(port, "flow-A"));
+            assertTrue(ex.getMessage().contains("rift_flow_state_clear"), ex.getMessage());
             t.deleteImposter(port);
         }
     }

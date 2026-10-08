@@ -385,6 +385,7 @@ class InterceptServeGuardTest {
         @Override public Optional<JsonValue> flowStateGet(int port, String f, String k) { throw new UnsupportedOperationException(); }
         @Override public void flowStatePut(int port, String f, String k, JsonValue v) { throw new UnsupportedOperationException(); }
         @Override public void flowStateDelete(int port, String f, String k) { throw new UnsupportedOperationException(); }
+        @Override public void flowStateClear(int port, String f) { throw new UnsupportedOperationException(); }
         @Override public void spaceAddStub(int port, String f, JsonValue s) { throw new UnsupportedOperationException(); }
         @Override public JsonValue spaceListStubs(int port, String f) { throw new UnsupportedOperationException(); }
         @Override public JsonValue spaceRecorded(int port, String f) { throw new UnsupportedOperationException(); }

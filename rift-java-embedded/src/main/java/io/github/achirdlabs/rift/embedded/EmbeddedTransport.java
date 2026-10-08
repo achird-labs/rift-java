@@ -272,6 +272,11 @@ public final class EmbeddedTransport implements RiftTransport {
     }
 
     @Override
+    public void flowStateClear(int port, String flowId) {
+        calls.flowStateClear(port, flowId);
+    }
+
+    @Override
     public void spaceAddStub(int port, String flowId, JsonValue stub) {
         calls.spaceAddStub(port, flowId, stub);
     }
