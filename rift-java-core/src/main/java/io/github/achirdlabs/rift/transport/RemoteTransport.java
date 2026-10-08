@@ -373,6 +373,11 @@ public final class RemoteTransport implements RiftTransport {
     }
 
     @Override
+    public void flowStateClear(int port, String flowId) {
+        executeVoid("DELETE", "/admin/imposters/" + port + "/flow-state/" + enc(flowId), null, OptionalInt.of(port));
+    }
+
+    @Override
     public void spaceAddStub(int port, String flowId, JsonValue stub) {
         executeVoid("POST", "/imposters/" + port + "/spaces/" + enc(flowId) + "/stubs", stub.toJson(), OptionalInt.of(port));
     }

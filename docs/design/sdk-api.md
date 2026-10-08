@@ -267,6 +267,7 @@ public interface RiftTransport extends AutoCloseable {
   Optional<JsonValue> flowStateGet(int port, String flowId, String key);
   void flowStatePut(int port, String flowId, String key, JsonValue value);
   void flowStateDelete(int port, String flowId, String key);
+  void flowStateClear(int port, String flowId);           // DELETE /admin/imposters/{port}/flow-state/{flowId} | rift_flow_state_clear (optional, >= 0.22.0)
   // spaces
   void spaceAddStub(int port, String flowId, JsonValue stub);
   JsonValue spaceListStubs(int port, String flowId);
@@ -416,6 +417,7 @@ public interface FlowState {
   void put(String key, JsonValue value);
   void put(String key, String value);
   void delete(String key);
+  void clear();                               // every key in the flow; idempotent (embedded: rift >= 0.22.0)
 }
 ```
 

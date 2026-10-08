@@ -9,6 +9,7 @@ import java.lang.foreign.SymbolLookup;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -77,5 +78,19 @@ class FfiProbeTest {
                 () -> ffi.interceptReplaceRules(MemorySegment.NULL, MemorySegment.NULL));
         assertTrue(ex.getMessage().contains("rift >= 0.20.0"), ex.getMessage());
         assertTrue(ex.getMessage().contains("rift_intercept_replace_rules"), ex.getMessage());
+    }
+
+    @Test
+    void aLibraryWithoutFlowStateClearStillBindsAndSaysWhatTheClearNeeds() {
+        // rift_flow_state_clear is newer than 0.21.0 (rift#1328); an older library must still load.
+        SymbolLookup older = name -> name.equals("rift_flow_state_clear")
+                ? Optional.empty() : Optional.of(MemorySegment.ofAddress(1L));
+
+        RiftFfi ffi = RiftFfi.bind(older, Linker.nativeLinker(), "/path/to/librift_ffi.dylib");
+
+        EngineUnavailable ex = assertThrows(EngineUnavailable.class,
+                () -> ffi.flowStateClear(MemorySegment.NULL, 4545, MemorySegment.NULL));
+        assertEquals("FlowState.clear requires rift >= 0.22.0: the loaded native library is missing rift_flow_state_clear",
+                ex.getMessage());
     }
 }

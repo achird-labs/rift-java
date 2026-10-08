@@ -58,6 +58,7 @@ final class RiftFfi {
     private final MethodHandle stopIntercept;
     /** rift &ge; 0.20.0 only; empty on an older library. */
     private final Optional<MethodHandle> interceptReplaceRules;
+    private final Optional<MethodHandle> flowStateClear;
 
     private RiftFfi(SymbolLookup lookup, Linker linker) {
         this.start = handle(lookup, linker, "rift_start",
@@ -140,6 +141,8 @@ final class RiftFfi {
                 FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         this.interceptReplaceRules = optionalHandle(lookup, linker, "rift_intercept_replace_rules",
                 FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        this.flowStateClear = optionalHandle(lookup, linker, "rift_flow_state_clear",
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     }
 
     /**
@@ -374,6 +377,11 @@ final class RiftFfi {
     int interceptReplaceRules(MemorySegment handle, MemorySegment rulesJson) {
         MethodHandle replace = require(interceptReplaceRules, "intercept rule replace", "0.20.0", "rift_intercept_replace_rules");
         return (int) invoke(replace, handle, rulesJson);
+    }
+
+    int flowStateClear(MemorySegment handle, int port, MemorySegment flowId) {
+        MethodHandle clear = require(flowStateClear, "FlowState.clear", "0.22.0", "rift_flow_state_clear");
+        return (int) invoke(clear, handle, (short) port, flowId);
     }
 
     /** Reads a returned C string. Delegates to {@link FfmCompat} for the two-JDK method rename. */

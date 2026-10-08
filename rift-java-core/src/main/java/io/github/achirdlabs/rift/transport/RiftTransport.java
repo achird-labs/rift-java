@@ -185,6 +185,9 @@ public interface RiftTransport extends AutoCloseable {
 
     void flowStateDelete(int port, String flowId, String key);
 
+    /** Removes every key in one flow. Idempotent: an absent or empty flow succeeds. */
+    void flowStateClear(int port, String flowId);
+
     void spaceAddStub(int port, String flowId, JsonValue stub);
 
     JsonValue spaceListStubs(int port, String flowId);

@@ -18,4 +18,14 @@ public interface FlowState {
     void put(String key, String value);
 
     void delete(String key);
+
+    /**
+     * Removes every key in this flow; other flows are untouched. Idempotent: clearing an absent or
+     * empty flow succeeds. The engine keeps a flow's scenario state in the same store, so this also
+     * returns every scenario in the flow to its initial state.
+     *
+     * @throws io.github.achirdlabs.rift.error.EngineUnavailable on the embedded transport when the
+     *     loaded native library predates {@code rift_flow_state_clear} (rift &lt; 0.22.0)
+     */
+    void clear();
 }

@@ -2,12 +2,14 @@ package io.github.achirdlabs.rift.transport;
 
 import io.github.achirdlabs.rift.ConnectOptions;
 import io.github.achirdlabs.rift.EngineInfo;
+import io.github.achirdlabs.rift.FlowState;
 import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.Scenarios;
 import io.github.achirdlabs.rift.VersionCheck;
 import io.github.achirdlabs.rift.error.CommunicationError;
+import io.github.achirdlabs.rift.error.ImposterNotFound;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 
@@ -215,6 +217,35 @@ class RemoteTransportCoverageTest {
             }
             assertTrue(hit(s, "PUT", "/admin/imposters/4545/flow-state/flow-1/token"));
             assertTrue(hit(s, "DELETE", "/admin/imposters/4545/flow-state/flow-1/token"));
+        }
+    }
+
+    @Test
+    void flowStateClearDeletesTheWholeFlow() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("DELETE /admin/imposters/4545/flow-state/flow%201", 200,
+                    "{\"flowId\":\"flow 1\",\"cleared\":true}");
+            try (Rift rift = connect(s)) {
+                created(s, rift).flowState("flow 1").clear();
+            }
+            List<String> deletes = s.received().stream()
+                    .filter(r -> r.method().equals("DELETE"))
+                    .map(FakeAdminServer.Received::path)
+                    .toList();
+            // The key-less form: no trailing /{key} segment, flow id percent-encoded like the keyed paths.
+            assertEquals(List.of("/admin/imposters/4545/flow-state/flow%201"), deletes);
+        }
+    }
+
+    @Test
+    void flowStateClearOnAnUnknownPortIsImposterNotFound() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("DELETE /admin/imposters/4545/flow-state/flow-1", 404,
+                    "{\"errors\":[{\"code\":\"no such resource\",\"message\":\"imposter 4545 not found\"}]}");
+            try (Rift rift = connect(s)) {
+                FlowState state = created(s, rift).flowState("flow-1");
+                assertThrows(ImposterNotFound.class, state::clear);
+            }
         }
     }
 
