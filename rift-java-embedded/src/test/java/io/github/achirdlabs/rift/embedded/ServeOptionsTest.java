@@ -169,4 +169,39 @@ class ServeOptionsTest {
                     () -> JsonValue.parse(V018_BUILD_INFO));
         }
     }
+
+    @Test
+    void carriesTheEngineLaunchOptionsUnderTheEnginesOwnNames() {
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .allowInjection(true).requireAdminAuth(true).metricsPort(19090).build()).toJson();
+        assertEquals("{\"host\":\"127.0.0.1\",\"port\":0,\"allowInjection\":true,\"requireAdminAuth\":true,"
+                + "\"metricsPort\":19090}", json);
+    }
+
+    @Test
+    void anExplicitFalseIsSentRatherThanDropped() {
+        String json = EmbeddedTransport.serveOptions(EmbeddedOptions.builder()
+                .allowInjection(false).requireAdminAuth(false).build()).toJson();
+        assertEquals("{\"host\":\"127.0.0.1\",\"port\":0,\"allowInjection\":false,\"requireAdminAuth\":false}", json);
+    }
+
+    @Test
+    void eachLaunchOptionIsCheckedForItsOwnKey() {
+        String onlyMetrics = "{\"version\": \"0.1.0\", \"serveOptions\": [\"host\", \"metricsPort\"]}";
+        EmbeddedTransport.requireAdvertised(EmbeddedOptions.builder().metricsPort(19090).build(),
+                () -> JsonValue.parse(onlyMetrics));
+        EngineUnavailable injection = assertThrows(EngineUnavailable.class, () -> EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().allowInjection(true).build(), () -> JsonValue.parse(onlyMetrics)));
+        assertTrue(injection.getMessage().contains("allowInjection"), injection.getMessage());
+        assertTrue(injection.getMessage().contains("EmbeddedOptions.allowInjection"), injection.getMessage());
+        EngineUnavailable auth = assertThrows(EngineUnavailable.class, () -> EmbeddedTransport.requireAdvertised(
+                EmbeddedOptions.builder().requireAdminAuth(true).build(), () -> JsonValue.parse(onlyMetrics)));
+        assertTrue(auth.getMessage().contains("requireAdminAuth"), auth.getMessage());
+    }
+
+    @Test
+    void noLaunchOptionSetAsksTheEngineNothing() {
+        EmbeddedTransport.requireAdvertised(EmbeddedOptions.builder().apiKey("k").build(),
+                () -> { throw new AssertionError("build info must not be read"); });
+    }
 }

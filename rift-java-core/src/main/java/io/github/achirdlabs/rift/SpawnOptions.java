@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Immutable configuration for {@link Rift#spawn(SpawnOptions)}: which {@code rift} binary to run
@@ -14,6 +15,9 @@ import java.util.Optional;
  * healthy or to shut down.
  */
 public final class SpawnOptions {
+
+    /** The first engine whose CLI takes {@code --require-admin-auth} (rift#863). */
+    private static final String REQUIRE_ADMIN_AUTH_SINCE = "0.17.0";
 
     private final Optional<Path> binaryPath;
     private final String version;
@@ -29,6 +33,9 @@ public final class SpawnOptions {
     private final Duration shutdownTimeout;
     private final boolean inheritLog;
     private final Optional<UpstreamTrust> upstreamTrust;
+    private final Optional<String> apiKey;
+    private final boolean requireAdminAuth;
+    private final OptionalInt metricsPort;
 
     private SpawnOptions(Builder b) {
         this.binaryPath = b.binaryPath;
@@ -45,6 +52,9 @@ public final class SpawnOptions {
         this.shutdownTimeout = b.shutdownTimeout;
         this.inheritLog = b.inheritLog;
         this.upstreamTrust = b.upstreamTrust;
+        this.apiKey = b.apiKey;
+        this.requireAdminAuth = b.requireAdminAuth;
+        this.metricsPort = b.metricsPort;
     }
 
     public static Builder builder() {
@@ -108,6 +118,21 @@ public final class SpawnOptions {
         return upstreamTrust;
     }
 
+    /** The admin API key the engine requires and the client sends; see {@link Builder#apiKey(String)}. */
+    public Optional<String> apiKey() {
+        return apiKey;
+    }
+
+    /** Whether the engine refuses to expose an unauthenticated admin API off loopback; see {@link Builder#requireAdminAuth(boolean)}. */
+    public boolean requireAdminAuth() {
+        return requireAdminAuth;
+    }
+
+    /** The engine's metrics port, if set; see {@link Builder#metricsPort(int)}. */
+    public OptionalInt metricsPort() {
+        return metricsPort;
+    }
+
     public static final class Builder {
 
         private Optional<Path> binaryPath = Optional.empty();
@@ -124,6 +149,9 @@ public final class SpawnOptions {
         private Duration shutdownTimeout = Duration.ofSeconds(5);
         private boolean inheritLog = false;
         private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
+        private Optional<String> apiKey = Optional.empty();
+        private boolean requireAdminAuth = false;
+        private OptionalInt metricsPort = OptionalInt.empty();
 
         private Builder() {
         }
@@ -227,9 +255,63 @@ public final class SpawnOptions {
         }
 
         /**
+         * Requires this key on every admin API request to the spawned engine (its {@code MB_APIKEY}),
+         * and sends it from the returned client as the {@code Authorization} header. Unset by
+         * default: no authentication. It reaches the engine through its environment rather than the
+         * command line, which other users of the machine can read. An {@code MB_APIKEY} this JVM
+         * inherited is not passed on, and one in {@link #env(Map)} is refused at {@link #build()}:
+         * either would lock the engine against a client that does not know the key. The engine's
+         * separate metrics listener ({@link #metricsPort(int)}) is not gated by it.
+         *
+         * @throws IllegalArgumentException if {@code apiKey} is blank — a misconfiguration, not a
+         *                                  key; omit it to run unauthenticated
+         */
+        public Builder apiKey(String apiKey) {
+            Objects.requireNonNull(apiKey, "apiKey");
+            if (apiKey.isBlank()) {
+                throw new IllegalArgumentException(
+                        "apiKey must not be blank — blank is a misconfiguration, not a key; omit it to run unauthenticated");
+            }
+            this.apiKey = Optional.of(apiKey);
+            return this;
+        }
+
+        /**
+         * Makes the engine refuse to start when its admin API would be reachable off loopback
+         * without a key ({@code --require-admin-auth}). With the defaults — {@link #localOnly(boolean)}
+         * on, {@code 127.0.0.1} — it changes nothing; it matters once the admin API binds wider. Needs
+         * a rift engine &ge; 0.17.0, checked against {@link #version(String)} at {@link #build()}.
+         */
+        public Builder requireAdminAuth(boolean requireAdminAuth) {
+            this.requireAdminAuth = requireAdminAuth;
+            return this;
+        }
+
+        /**
+         * The port the engine's Prometheus metrics listener binds ({@code --metrics-port}). Unset, the
+         * engine uses its own default, 9090 — so two spawned engines contend for it, and the one that
+         * loses runs without metrics (the engine logs it and carries on). Set a distinct port per
+         * engine you scrape. A port that is taken does not stop the engine either: it starts without
+         * metrics and says so only in its log.
+         *
+         * @throws IllegalArgumentException if {@code metricsPort} is outside {@code 1..65535}: the
+         *                                  port the engine bound is reported nowhere, so an
+         *                                  OS-assigned one could not be found
+         */
+        public Builder metricsPort(int metricsPort) {
+            if (metricsPort < 1 || metricsPort > 65_535) {
+                throw new IllegalArgumentException("metricsPort must be in 1..65535, was " + metricsPort);
+            }
+            this.metricsPort = OptionalInt.of(metricsPort);
+            return this;
+        }
+
+        /**
          * @throws IllegalArgumentException if {@link #upstreamTrust(UpstreamTrust)} is an inline PEM,
          *                                  or is set for an engine {@link #version(String)} older
-         *                                  than 0.18.0
+         *                                  than 0.18.0; or {@link #requireAdminAuth(boolean)} is on
+         *                                  for one older than 0.17.0; or {@link #env(Map)} carries
+         *                                  {@code MB_APIKEY}, which belongs in {@link #apiKey(String)}
          */
         public SpawnOptions build() {
             if (upstreamTrust.isPresent()) {
@@ -241,6 +323,14 @@ public final class SpawnOptions {
                     throw new IllegalArgumentException("upstreamTrust needs a rift engine >= " + UpstreamTrust.MIN_ENGINE_VERSION
                             + ", but version is " + version + " (the older CLI has no --upstream-ca-file flag)");
                 }
+            }
+            if (env.containsKey("MB_APIKEY")) {
+                throw new IllegalArgumentException("env carries MB_APIKEY: set it with apiKey(...) instead, so the"
+                        + " returned client sends it too");
+            }
+            if (requireAdminAuth && !EngineVersion.atLeast(version, REQUIRE_ADMIN_AUTH_SINCE)) {
+                throw new IllegalArgumentException("requireAdminAuth needs a rift engine >= " + REQUIRE_ADMIN_AUTH_SINCE
+                        + ", but version is " + version + " (the older CLI has no --require-admin-auth flag)");
             }
             return new SpawnOptions(this);
         }
