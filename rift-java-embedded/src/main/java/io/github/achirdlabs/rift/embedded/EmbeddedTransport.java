@@ -252,8 +252,8 @@ public final class EmbeddedTransport implements RiftTransport {
     }
 
     @Override
-    public void resetScenarios(int port) {
-        calls.resetScenarios(port);
+    public void resetScenarios(int port, Optional<String> flowId) {
+        calls.resetScenarios(port, flowId);
     }
 
     @Override

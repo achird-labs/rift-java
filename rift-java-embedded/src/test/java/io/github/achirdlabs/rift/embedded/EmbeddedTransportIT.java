@@ -166,6 +166,36 @@ class EmbeddedTransportIT {
     }
 
     @Test
+    void resetScenariosIsPerFlow() {
+        // The first non-NULL flow through rift_reset_scenarios: a flow-scoped reset leaves every
+        // other flow's scenario state alone, and the NULL form still resets the default flow.
+        try (EmbeddedTransport t = open()) {
+            int port = portOf(t.createImposter(JsonValue.parse("{\"protocol\":\"http\",\"stubs\":[{"
+                    + "\"scenarioName\":\"s1\",\"requiredScenarioState\":\"Started\",\"newScenarioState\":\"open\","
+                    + "\"responses\":[{\"is\":{\"statusCode\":200}}]}]}")));
+            t.setScenarioState(port, "s1", "open", Optional.empty());
+            t.setScenarioState(port, "s1", "open", Optional.of("flow-1"));
+
+            t.resetScenarios(port, Optional.of("flow-1"));
+            assertEquals("Started", scenarioState(t.scenarios(port, Optional.of("flow-1")), "s1"));
+            assertEquals("open", scenarioState(t.scenarios(port, Optional.empty()), "s1"));
+
+            t.resetScenarios(port, Optional.empty());
+            assertEquals("Started", scenarioState(t.scenarios(port, Optional.empty()), "s1"));
+        }
+    }
+
+    private static String scenarioState(JsonValue listing, String name) {
+        for (JsonValue sc : ((JsonArray) ((JsonObject) listing).get("scenarios")).items()) {
+            JsonObject o = (JsonObject) sc;
+            if (name.equals(((JsonString) o.get("name")).value())) {
+                return ((JsonString) o.get("state")).value();
+            }
+        }
+        throw new AssertionError("no scenario '" + name + "' in " + listing.toJson());
+    }
+
+    @Test
     void v2AdminLongTailDirectFfi() throws Exception {
         // #65: the v2-admin ops now run over direct FFI (rift#491). Exercise each end-to-end against
         // the real engine — no native crash, correct data.
@@ -194,7 +224,7 @@ class EmbeddedTransportIT {
             assertNotNull(t.scenarios(port, Optional.empty()));
             t.setScenarioState(port, "s1", "open", Optional.empty());
             t.setScenarioState(port, "s1", "open", Optional.of("flow-1"));
-            t.resetScenarios(port);
+            t.resetScenarios(port, Optional.empty());
             t.clearRecorded(port);
             t.clearProxyResponses(port);
             JsonValue verify = t.verify(port, JsonValue.parse(

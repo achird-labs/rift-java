@@ -63,10 +63,12 @@ concurrently:
 imp.scenarios().setState("checkout", "PAID", "acme");   // acme's scenario only
 imp.scenarios().setState("checkout", "NEW");            // the default flow
 List<Scenarios.State> acmeStates = imp.scenarios().list("acme");
+imp.scenarios().reset("acme");                          // back to initial state for acme only
 ```
 
-The three-argument `setState(name, state, flowId)` and `list(flowId)` are the flow-scoped forms; the
-shorter overloads operate on the default flow.
+The three-argument `setState(name, state, flowId)`, `list(flowId)` and `reset(flowId)` are the
+flow-scoped forms; the shorter overloads operate on the default flow. Resetting a flow that holds no
+scenario state succeeds.
 
 ## Key/value flow state
 
@@ -176,7 +178,7 @@ with the entries you asked to exclude; widening a filter is never the fallback.
 ## Flow ids are never blank
 
 Every flow-scoped call rejects a blank flow id with `IllegalArgumentException` — `space("")`,
-`flowState("  ")`, `scenarios().setState(name, state, "")`, `scenarios().list("")`,
+`flowState("  ")`, `scenarios().setState(name, state, "")`, `scenarios().list("")`, `scenarios().reset("")`,
 `MatchClause.flowId("")` and `.inSpace("")` alike.
 
 A blank id is not "the default flow". It is a distinct, silently-wrong partition: stubs written there

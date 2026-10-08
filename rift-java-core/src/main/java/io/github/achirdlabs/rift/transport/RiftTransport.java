@@ -162,7 +162,22 @@ public interface RiftTransport extends AutoCloseable {
      */
     void setScenarioState(int port, String name, String state, Optional<String> flowId);
 
-    void resetScenarios(int port);
+    /**
+     * Resets scenario state to its initial values. {@code flowId} scopes the reset to a single
+     * flow/space; {@link Optional#empty()} targets the imposter's default flow.
+     */
+    void resetScenarios(int port, Optional<String> flowId);
+
+    /**
+     * Resets the default flow's scenario state.
+     *
+     * @deprecated since 0.3.8; use {@link #resetScenarios(int, Optional)}. Kept so code compiled
+     *     against 0.3.7 still links.
+     */
+    @Deprecated(since = "0.3.8")
+    default void resetScenarios(int port) {
+        resetScenarios(port, Optional.empty());
+    }
 
     Optional<JsonValue> flowStateGet(int port, String flowId, String key);
 

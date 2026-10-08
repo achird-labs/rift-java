@@ -262,7 +262,7 @@ public interface RiftTransport extends AutoCloseable {
   // scenarios
   JsonValue scenarios(int port, Optional<String> flowId);
   void setScenarioState(int port, String name, String state, Optional<String> flowId);
-  void resetScenarios(int port);
+  void resetScenarios(int port, Optional<String> flowId);
   // flow state
   Optional<JsonValue> flowStateGet(int port, String flowId, String key);
   void flowStatePut(int port, String flowId, String key, JsonValue value);
@@ -392,6 +392,7 @@ public interface Scenarios {
   void setState(String name, String state);
   void setState(String name, String state, String flowId);  // space-scoped FSM write
   void reset();
+  void reset(String flowId);                  // space-scoped FSM reset
 }
 
 public interface Space {
@@ -434,7 +435,7 @@ warns: `ImposterSpec.build()` throws if a space stub is declared without a heade
 `flowState(inMemoryFlowState().flowIdFromHeader("X-Your-Header"))` for spaces.
 
 **Blank flow ids are rejected at the facade.** Every caller-supplied `flowId` (`Imposter.space`/
-`flowState`, `Scenarios.list`/`setState`, `MatchClause.flowId`, `StubSpec.inSpace`) must be non-null
+`flowState`, `Scenarios.list`/`setState`/`reset`, `MatchClause.flowId`, `StubSpec.inSpace`) must be non-null
 and non-blank: a blank id is never the default flow but a distinct, silently-wrong engine partition
 (and on the flow-state DELETE path a destructive misroute), so `""`/whitespace throws
 `IllegalArgumentException` and `null` throws `NullPointerException`. Any non-blank id passes through

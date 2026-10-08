@@ -222,10 +222,13 @@ final class FfiCalls {
         }
     }
 
-    void resetScenarios(int port) {
+    void resetScenarios(int port, Optional<String> flowId) {
         ensureLive();
-        if (ffi.resetScenarios(handle, port, MemorySegment.NULL) != 0) {
-            throw engineError();
+        try (Arena args = Arena.ofConfined()) {
+            MemorySegment flowIdSeg = flowId.isPresent() ? FfmCompat.allocateCString(args, flowId.get()) : MemorySegment.NULL;
+            if (ffi.resetScenarios(handle, port, flowIdSeg) != 0) {
+                throw engineError();
+            }
         }
     }
 

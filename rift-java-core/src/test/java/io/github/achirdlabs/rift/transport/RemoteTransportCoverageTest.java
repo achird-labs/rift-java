@@ -122,6 +122,28 @@ class RemoteTransportCoverageTest {
     }
 
     @Test
+    void scenariosResetFlowScoped() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("POST /imposters/4545/scenarios/reset", 200, "{}");
+            try (Rift rift = connect(s)) {
+                Imposter imp = created(s, rift);
+                imp.scenarios().reset("flow-1");
+                imp.scenarios().reset();
+            }
+            List<String> bodies = s.received().stream()
+                    .filter(r -> r.method().equals("POST")
+                            && r.path().equals("/imposters/4545/scenarios/reset"))
+                    .map(FakeAdminServer.Received::body)
+                    .toList();
+            assertEquals(2, bodies.size());
+            // The engine reads flowId from the POST body only (a ?flowId= query is ignored on POST).
+            assertEquals("{\"flowId\":\"flow-1\"}", bodies.get(0));
+            // The default-flow reset keeps the bodyless request an older engine already understands.
+            assertEquals("", bodies.get(1));
+        }
+    }
+
+    @Test
     void spacesAddListDelete() {
         try (FakeAdminServer s = new FakeAdminServer()) {
             s.respond("POST /imposters/4545/spaces/flow-1/stubs", 200, IMP);
