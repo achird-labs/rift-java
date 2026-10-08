@@ -385,6 +385,16 @@ public final class RiftDsl {
         return LookupSpec.key(from);
     }
 
+    /** Starts a {@code lookup} entry keyed by a query parameter (the object {@code key.from} form). */
+    public static LookupSpec lookupKeyFromQuery(String name) {
+        return LookupSpec.keyFromQuery(name);
+    }
+
+    /** Starts a {@code lookup} entry keyed by a request header (the object {@code key.from} form). */
+    public static LookupSpec lookupKeyFromHeader(String name) {
+        return LookupSpec.keyFromHeader(name);
+    }
+
     /** A regular-expression extraction over {@code selector} (the first capture group, or the whole match). */
     public static ExtractionSpec regex(String selector) {
         return ExtractionSpec.of("regex", selector, Optional.empty());
