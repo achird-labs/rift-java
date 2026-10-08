@@ -41,6 +41,11 @@ final class FakeRiftAdmin implements AutoCloseable {
     private final AtomicInteger nextPort = new AtomicInteger(5000);
     private final Map<Integer, ImposterState> imposters = new ConcurrentHashMap<>();
     final AtomicInteger interceptStarts = new AtomicInteger();
+    final AtomicInteger interceptStatusReads = new AtomicInteger();
+    /** The listener {@code GET /intercept} reports; 0 = none running (404). */
+    volatile int runningInterceptPort;
+    private static final String NO_LISTENER =
+            "{\"errors\":[{\"code\":\"404\",\"message\":\"intercept listener not running\"}]}";
     final AtomicInteger interceptRuleAdds = new AtomicInteger();
     final AtomicInteger interceptRuleClears = new AtomicInteger();
     final AtomicInteger interceptRuleReplaces = new AtomicInteger();
@@ -97,6 +102,15 @@ final class FakeRiftAdmin implements AutoCloseable {
             lastInterceptReplace = body;
         }
         String response = route(method, path);
+        if (response == NO_LISTENER) {
+            byte[] out = response.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(404, out.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(out);
+            }
+            return;
+        }
         int status = path.equals("/intercept/rules") && method.equals("PUT") ? interceptReplaceStatus : 200;
         if (status != 200) {
             response = "{\"errors\":[{\"code\":\"" + status + "\",\"message\":\"Invalid intercept rule JSON\"}]}";
@@ -116,6 +130,12 @@ final class FakeRiftAdmin implements AutoCloseable {
         if (path.equals("/intercept") && method.equals("DELETE")) {
             interceptStops.incrementAndGet();
             return "";
+        }
+        if (path.equals("/intercept") && method.equals("GET")) {
+            interceptStatusReads.incrementAndGet();
+            int port = runningInterceptPort;
+            return port == 0 ? NO_LISTENER
+                    : "{\"interceptPort\":" + port + ",\"interceptUrl\":\"http://127.0.0.1:" + port + "\"}";
         }
         if (path.equals("/intercept") && method.equals("POST")) {
             interceptStarts.incrementAndGet();

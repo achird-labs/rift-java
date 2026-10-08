@@ -452,6 +452,16 @@ final class RiftImpl implements Rift {
         }
         JsonValue response;
         try {
+            if (options.discoversListener()) {
+                InterceptStatus running = transport.interceptStatus().map(r -> InterceptStatus.fromJson(r, "intercept status"))
+                        .orElseThrow(() -> new IllegalStateException("no intercept listener is running on the engine"));
+                Intercept.CaMaterial ca = options.attachCa();
+                if (ca != null) {
+                    InterceptImpl.requireListenerCa(ca, transport.interceptCaPem());
+                }
+                return new InterceptImpl(transport, running, interceptDial(), ca, this::requireEngineSupportOf,
+                        () -> interceptStarted.set(false));
+            }
             if (options.isAttach()) {
                 // No listener to start: probe the already-running one (started at engine launch via
                 // --intercept-port), then bind to the given endpoint.
@@ -505,6 +515,11 @@ final class RiftImpl implements Rift {
             interceptStarted.set(false);
             throw new IllegalStateException(started + "; it was stopped", e);
         }
+    }
+
+    @Override
+    public Optional<InterceptStatus> interceptStatus() {
+        return transport.interceptStatus().map(report -> InterceptStatus.fromJson(report, "intercept status"));
     }
 
     /**

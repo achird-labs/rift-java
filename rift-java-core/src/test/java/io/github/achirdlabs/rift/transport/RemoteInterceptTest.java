@@ -3,10 +3,12 @@ package io.github.achirdlabs.rift.transport;
 import io.github.achirdlabs.rift.ConnectOptions;
 import io.github.achirdlabs.rift.Intercept;
 import io.github.achirdlabs.rift.InterceptOptions;
+import io.github.achirdlabs.rift.InterceptStatus;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.VersionCheck;
 import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.InvalidDefinition;
+import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +77,92 @@ class RemoteInterceptTest {
                     "attach must not attempt to start a listener");
             assertEquals(9443, intercept.address().getPort());
             assertEquals("127.0.0.1", intercept.address().getHostString());
+        }
+    }
+
+    @Test
+    void interceptStatusReadsTheRunningListener() {
+        server.respond("GET /intercept", 200, "{\"interceptPort\":9443,\"interceptUrl\":\"http://0.0.0.0:9443\"}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            assertEquals(Optional.of(new InterceptStatus(9443, URI.create("http://0.0.0.0:9443"))), rift.interceptStatus());
+        }
+        assertTrue(sawRequest("GET", "/intercept"));
+    }
+
+    @Test
+    void interceptStatusIsEmptyWhenTheEngineAnswers404() {
+        server.respond("GET /intercept", 404,
+                "{\"errors\":[{\"code\":\"404\",\"message\":\"intercept listener not running\"}]}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            assertEquals(Optional.empty(), rift.interceptStatus());
+        }
+    }
+
+    @Test
+    void interceptStatusPropagatesAnyOtherFailure() {
+        server.respond("GET /intercept", 500, "{\"errors\":[{\"code\":\"500\",\"message\":\"boom\"}]}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            assertThrows(RiftException.class, rift::interceptStatus);
+        }
+    }
+
+    @Test
+    void interceptStatusRefusesAResponseWithoutThePort() {
+        server.respond("GET /intercept", 200, "{\"interceptUrl\":\"http://127.0.0.1:9443\"}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            CommunicationError e = assertThrows(CommunicationError.class, rift::interceptStatus);
+            assertTrue(e.getMessage().contains("interceptPort"), e.getMessage());
+        }
+    }
+
+    @Test
+    void portlessAttachDiscoversTheListenerAndMapsItThroughTheInterceptAddressSeam() {
+        server.respond("GET /intercept", 200, "{\"interceptPort\":9443,\"interceptUrl\":\"http://0.0.0.0:9443\"}");
+        try (Rift rift = Rift.connect(ConnectOptions.builder(server.baseUri())
+                .versionCheck(VersionCheck.OFF)
+                .interceptAddress(port -> InetSocketAddress.createUnresolved("localhost", port + 10000))
+                .build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.attach());
+
+            assertTrue(sawRequest("GET", "/intercept"), "discovery asks the engine where its listener is");
+            assertTrue(server.received().stream().noneMatch(r -> r.method().equals("POST") && r.path().equals("/intercept")),
+                    "attach must not attempt to start a listener");
+            assertEquals("localhost", intercept.address().getHostString());
+            assertEquals(19443, intercept.address().getPort());
+            assertEquals(Optional.of(URI.create("http://0.0.0.0:9443")), intercept.engineAddress());
+            intercept.close();
+            assertFalse(sawRequest("DELETE", "/intercept"), "an attached listener is not ours to stop");
+        }
+    }
+
+    @Test
+    void portlessAttachReplacesAWildcardBindWithTheAdminHost() {
+        server.respond("GET /intercept", 200, "{\"interceptPort\":9443,\"interceptUrl\":\"http://0.0.0.0:9443\"}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            Intercept intercept = rift.intercept(InterceptOptions.attach());
+            assertEquals(server.baseUri().getHost(), intercept.address().getHostString());
+            assertEquals(9443, intercept.address().getPort());
+        }
+    }
+
+    @Test
+    void portlessAttachWithNoListenerRefusesAndLeavesTheEngineFreeForAnotherIntercept() {
+        server.respond("GET /intercept", 404,
+                "{\"errors\":[{\"code\":\"404\",\"message\":\"intercept listener not running\"}]}");
+        try (Rift rift = Rift.connect(
+                ConnectOptions.builder(server.baseUri()).versionCheck(VersionCheck.OFF).build())) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> rift.intercept(InterceptOptions.attach()));
+            assertEquals("no intercept listener is running on the engine", e.getMessage());
+
+            server.respond("GET /intercept", 200, "{\"interceptPort\":9443,\"interceptUrl\":\"http://127.0.0.1:9443\"}");
+            assertEquals(9443, rift.intercept(InterceptOptions.attach()).address().getPort(),
+                    "a failed discovery does not hold the one-intercept-per-engine latch");
         }
     }
 
@@ -342,6 +430,23 @@ class RemoteInterceptTest {
             // Nothing was started or claimed: attaching with the listener's real CA still works.
             Intercept.CaMaterial right = new Intercept.CaMaterial(resource("test-intercept-ca.pem"), "THE-KEY");
             assertEquals(Optional.of(right), rift.intercept(InterceptOptions.attach("127.0.0.1", 9443, right)).caMaterial());
+        }
+    }
+
+    @Test
+    void portlessAttachWithACaChecksItAgainstTheDiscoveredListener() throws Exception {
+        server.respond("GET /intercept", 200, "{\"interceptPort\":9443,\"interceptUrl\":\"http://127.0.0.1:9443\"}");
+        server.respond("GET /intercept/ca.pem", 200, resource("test-intercept-ca.pem"));
+        Intercept.CaMaterial wrong = new Intercept.CaMaterial(resource("test-inmemory-ca-cert.pem"), "THE-KEY");
+        try (Rift rift = connect()) {
+            InvalidDefinition e = assertThrows(InvalidDefinition.class, () -> rift.intercept(InterceptOptions.attach(wrong)));
+            assertTrue(e.getMessage().contains("does not match"), e.getMessage());
+
+            // The refusal released the one-intercept latch: the listener's real CA attaches.
+            Intercept.CaMaterial right = new Intercept.CaMaterial(resource("test-intercept-ca.pem"), "THE-KEY");
+            Intercept intercept = rift.intercept(InterceptOptions.attach(right));
+            assertEquals(Optional.of(right), intercept.caMaterial());
+            assertEquals(Optional.of(URI.create("http://127.0.0.1:9443")), intercept.engineAddress());
         }
     }
 

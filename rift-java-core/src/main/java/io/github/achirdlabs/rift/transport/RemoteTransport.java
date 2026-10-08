@@ -541,11 +541,25 @@ public final class RemoteTransport implements RiftTransport {
     // rift_start_intercept does over FFI. The confirmed management routes are GET/POST/DELETE
     // /intercept/rules and GET /intercept/ca.pem. To bind to a listener the engine already started at
     // launch (e.g. a RiftContainer with --intercept-port on a fixed exposed port) instead of starting
-    // a new one, use InterceptOptions.attach(host, port) — RiftImpl.intercept then probes rather than starts.
+    // a new one, use InterceptOptions.attach(host, port) — RiftImpl.intercept then probes rather than starts
+    // — or InterceptOptions.attach(), which finds the listener through GET /intercept.
 
     @Override
     public JsonValue startIntercept(JsonValue options) {
         return executeJson("POST", "/intercept", options.toJson(), OptionalInt.empty());
+    }
+
+    @Override
+    public Optional<JsonValue> interceptStatus() {
+        HttpResponse<String> response = send("GET", "/intercept", null);
+        // 404 is the engine's "no listener running", by status alone: any other failure propagates.
+        if (response.statusCode() == 404) {
+            return Optional.empty();
+        }
+        if (isSuccess(response.statusCode())) {
+            return Optional.of(parseJsonBody(response, "GET /intercept"));
+        }
+        throw mapError(response, OptionalInt.empty());
     }
 
     @Override

@@ -412,13 +412,17 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
         applyInterceptRules(testClass, ctx);
     }
 
+    /** {@link RiftIntercept#host()}'s default, which a port-less attach leaves alone. */
+    private static final String DEFAULT_INTERCEPT_HOST = "127.0.0.1";
+
     /** The options {@code config} describes, refusing a combination that cannot work. Package-private for tests. */
     static InterceptOptions interceptOptions(RiftIntercept config) {
         String caCert = resolvePlaceholder(config.caCert());
         String caKey = resolvePlaceholder(config.caKey());
         if (config.attach()) {
-            if (config.port() == 0) {
-                throw new IllegalStateException("@RiftIntercept(attach = true) needs the running listener's port");
+            if (config.port() == 0 && !config.host().equals(DEFAULT_INTERCEPT_HOST)) {
+                throw new IllegalStateException("@RiftIntercept(attach = true) names a host but no port: give the running"
+                        + " listener's port, or neither to discover it from the engine");
             }
             if (config.inlineCa()) {
                 throw new IllegalStateException("@RiftIntercept(attach = true) cannot take inlineCa: the running listener"
@@ -429,7 +433,7 @@ public final class RiftTestExtension implements BeforeAllCallback, BeforeEachCal
                 throw new IllegalStateException("@RiftIntercept(attach = true) cannot take caCert/caKey: the running"
                         + " listener already has its CA");
             }
-            return InterceptOptions.attach(config.host(), config.port());
+            return config.port() == 0 ? InterceptOptions.attach() : InterceptOptions.attach(config.host(), config.port());
         }
         InterceptOptions.Builder options = InterceptOptions.builder().host(config.host()).port(config.port());
         if (config.inlineCa()) {

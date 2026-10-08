@@ -63,6 +63,23 @@ RiftContainer rift = new RiftContainer().withInterceptPort(8888);   // engine la
 Intercept intercept = rift.client().intercept(rift.interceptOptions());   // attach to the mapped port
 ```
 
+If you don't know the port — the engine was launched by something else — let the client find it:
+
+```java
+Rift client = Rift.connect(adminUri);
+Optional<InterceptStatus> running = client.interceptStatus();        // GET /intercept; empty when none runs
+Intercept intercept = client.intercept(InterceptOptions.attach());   // attach to whatever is running
+```
+
+The port-less `attach()` asks the engine (`GET /intercept`) where its listener is bound and reaches it
+the way a listener it started is reached: through `ConnectOptions.interceptAddress` when one is set
+(a `RiftContainer` client sets it to Docker's mapped port), else at the reported address with a
+wildcard bind (`0.0.0.0`) replaced by the admin host. No listener running → `IllegalStateException`,
+and intercept stays available. The explicit `attach(host, port)` form never consults
+`interceptAddress`: the endpoint you give is used as is. On the embedded transport
+`interceptStatus()` reports the listener the handle started until it is closed, or one another client
+started through the engine's admin plane (`rift.adminUri()`).
+
 To start the listener at runtime instead — with your own CA, say — expose the port without
 launching a listener, then start it bound to the container's interface. The handle is mapped to
 Docker's port:

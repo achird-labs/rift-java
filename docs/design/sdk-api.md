@@ -146,7 +146,8 @@ public interface Rift extends AutoCloseable {
                                              // starts rift_serve_admin on first call
   // -- intercept (TLS-MITM) --
   Intercept intercept();                     // default options
-  Intercept intercept(InterceptOptions options);
+  Intercept intercept(InterceptOptions options);  // InterceptOptions.attach() discovers a running listener
+  Optional<InterceptStatus> interceptStatus();    // GET /intercept (404 → empty); embedded: own listener, else the admin plane's
 
   // -- async facade (secondary surface) --
   RiftAsync async();                         // createAsync(ImposterSpec), deleteAllAsync(), impostersAsync()
@@ -275,6 +276,7 @@ public interface RiftTransport extends AutoCloseable {
   void spaceDelete(int port, String flowId);
   // intercept
   JsonValue startIntercept(JsonValue options);
+  default Optional<JsonValue> interceptStatus();  // GET /intercept | embedded: the FFI-started listener, else the admin plane's GET /intercept
   void interceptAddRules(JsonValue rules);
   default void interceptReplaceRules(JsonValue rules);  // PUT /intercept/rules | rift_intercept_replace_rules (>= 0.20.0)
   JsonValue interceptListRules(); void interceptClearRules();

@@ -4,7 +4,6 @@ import io.github.achirdlabs.rift.dsl.IsSpec;
 import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.InvalidDefinition;
 import io.github.achirdlabs.rift.json.JsonArray;
-import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonNull;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
@@ -82,23 +81,34 @@ final class InterceptImpl implements Intercept {
         this.rules = new InterceptRules(rule -> transport.interceptAddRules(rule.raw()), engineGate, this::requireOpen);
         this.owned = true;
         this.onClosed = onClosed;
-        if (!(startResponse instanceof JsonObject obj)
-                || !(obj.get("interceptPort") instanceof JsonNumber port)
-                || !(obj.get("interceptUrl") instanceof JsonString url)) {
-            // The keys, never the body: a generateCa() response carries the CA's private key.
-            throw new CommunicationError(
-                    "rift engine's intercept start response is missing 'interceptPort'/'interceptUrl'; it has "
-                            + (startResponse instanceof JsonObject o ? o.fields().keySet() : startResponse.getClass().getSimpleName()));
-        }
-        URI reported = URI.create(url.value());
-        this.engineAddress = Optional.of(reported);
-        this.engineBound = new InetSocketAddress(reported.getHost(), port.asInt());
+        InterceptStatus reported = InterceptStatus.fromJson(startResponse, "intercept start response");
+        this.engineAddress = Optional.of(reported.engineUrl());
+        this.engineBound = new InetSocketAddress(reported.engineUrl().getHost(), reported.port());
         this.address = Objects.requireNonNull(dial.apply(engineBound), "intercept address mapping returned null");
         this.uri = HostAuthority.httpUri(address.getHostString(), address.getPort());
         // Present only when the listener was started with generateCa() (returnCaKey).
+        JsonObject obj = (JsonObject) startResponse;
         this.caMaterial = (obj.get("caCertPem") instanceof JsonString cert
                 && obj.get("caKeyPem") instanceof JsonString key)
                 ? new CaMaterial(cert.value(), key.value()) : null;
+    }
+
+    /**
+     * Attach mode, discovered: bind to the listener the engine reports running. {@code dial} maps its
+     * bind address to where this client reaches it, exactly as for a listener started here.
+     */
+    InterceptImpl(RiftTransport transport, InterceptStatus running, UnaryOperator<InetSocketAddress> dial,
+            CaMaterial ca, Consumer<RiftImpl.EngineRequirement> engineGate, Runnable onClosed) {
+        this.transport = transport;
+        this.engineGate = engineGate;
+        this.rules = new InterceptRules(rule -> transport.interceptAddRules(rule.raw()), engineGate, this::requireOpen);
+        this.owned = false;
+        this.onClosed = onClosed;
+        this.engineAddress = Optional.of(running.engineUrl());
+        this.engineBound = new InetSocketAddress(running.engineUrl().getHost(), running.port());
+        this.address = Objects.requireNonNull(dial.apply(engineBound), "intercept address mapping returned null");
+        this.uri = HostAuthority.httpUri(address.getHostString(), address.getPort());
+        this.caMaterial = ca;
     }
 
     /** Attach mode: bind to a listener already started at engine launch, at the given endpoint. */

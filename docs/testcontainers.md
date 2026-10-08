@@ -82,6 +82,12 @@ void mocksAnHttpsDependency() throws Exception {
 }
 ```
 
+`client.intercept(InterceptOptions.attach())` attaches too, without naming the port: the client
+asks the engine where its listener is (`GET /intercept`) and maps the container port it reports to
+Docker's, as the container's client does for every intercept address. It is the form to use when
+the listener was configured somewhere this code cannot see. `client.interceptStatus()` reports the
+running listener, or empty.
+
 To launch that listener with a **committed CA** — one a SUT container already trusts before it
 starts — add `withInterceptCa(certPem, keyPem)` (paths, read when the container starts, or PEM
 text). The pair is copied into the container and named to the engine; `interceptOptions()` carries

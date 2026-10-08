@@ -24,10 +24,12 @@ public @interface RiftIntercept {
 
     /**
      * Attach to a listener the engine started at launch ({@code --intercept-port}) instead of starting
-     * one, which such an engine refuses. {@link #host} and {@link #port} are then where that listener
-     * is <em>reached</em> — a fixed host port; one Docker assigns at runtime cannot be named here, so
-     * use {@code RiftContainer.interceptOptions()} for that — and {@link #port} must be set. The listener already has its CA, so {@link #caCert}, {@link
-     * #caKey} and {@link #inlineCa} are refused.
+     * one, which such an engine refuses. With {@link #port} set, {@link #host} and {@link #port} are
+     * where that listener is <em>reached</em>, used verbatim. Without it the listener is discovered
+     * ({@code GET /intercept}, {@code InterceptOptions.attach()}) and reached through the engine's own
+     * report and the connection's {@code interceptAddress} mapping; a {@link #host} given without a
+     * port is refused, as it would be ignored. The listener already has its CA, so {@link #caCert},
+     * {@link #caKey} and {@link #inlineCa} are refused.
      */
     boolean attach() default false;
 
@@ -40,7 +42,7 @@ public @interface RiftIntercept {
 
     /**
      * Bind port; {@code 0} = OS-assigned. Fix it for a container SUT that points at a stable port.
-     * With {@link #attach}, the port the running listener is reached on.
+     * With {@link #attach}, the port the running listener is reached on; {@code 0} discovers it.
      */
     int port() default 0;
 
