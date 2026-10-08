@@ -50,12 +50,14 @@ public final class ImposterSpec {
     private final Map<String, RiftScriptConfig> scripts;
     /** Absent: no client certificate. Present and empty: any certificate. Otherwise: one chaining to these. */
     private final Optional<List<String>> clientCertificateCas;
+    /** False: the imposter is created paused ({@code "enabled": false}). */
+    private final boolean enabled;
 
     ImposterSpec(String name) {
         this(name, Optional.empty(), ImposterDefinition.DEFAULT_PROTOCOL, false, false, false, List.of(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Map.of(), Optional.empty());
+                Optional.empty(), Optional.empty(), Map.of(), Optional.empty(), true);
     }
 
     private ImposterSpec(
@@ -79,7 +81,8 @@ public final class ImposterSpec {
             Optional<RiftConnectionPoolConfig> proxyPool,
             Optional<RiftScriptEngineConfig> scriptEngine,
             Map<String, RiftScriptConfig> scripts,
-            Optional<List<String>> clientCertificateCas) {
+            Optional<List<String>> clientCertificateCas,
+            boolean enabled) {
         this.name = name;
         this.port = port;
         this.protocol = protocol;
@@ -101,27 +104,28 @@ public final class ImposterSpec {
         this.scriptEngine = scriptEngine;
         this.scripts = scripts;
         this.clientCertificateCas = clientCertificateCas;
+        this.enabled = enabled;
     }
 
     /** Binds the imposter to a fixed port, rather than letting the engine assign one. */
     public ImposterSpec port(int port) {
         return new ImposterSpec(name, Optional.of(port), protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Sets the imposter's protocol (e.g. {@code "http"}, {@code "https"}, {@code "tcp"}). */
     public ImposterSpec protocol(String protocol) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Binds the imposter to a specific network interface/host. */
     public ImposterSpec host(String host) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, Optional.of(host), cert, key, defaultForward, strictBehaviors, serviceName,
-                serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /**
@@ -133,7 +137,7 @@ public final class ImposterSpec {
     public ImposterSpec https(String certPem, String keyPem) {
         return new ImposterSpec(name, port, "https", recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, Optional.of(certPem), Optional.of(keyPem), defaultForward, strictBehaviors,
-                serviceName, serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                serviceName, serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /**
@@ -186,14 +190,14 @@ public final class ImposterSpec {
     private ImposterSpec withClientCertificateCas(Optional<List<String>> cas) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, cas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, cas, enabled);
     }
 
     /** Enables recording of every request the imposter receives (sets {@code recordRequests}). */
     public ImposterSpec record() {
         return new ImposterSpec(name, port, protocol, true, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /**
@@ -208,56 +212,73 @@ public final class ImposterSpec {
     public ImposterSpec recordMatches() {
         return new ImposterSpec(name, port, protocol, recordRequests, true, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Enables permissive CORS response headers for this imposter (sets {@code allowCORS}). */
     public ImposterSpec allowCors() {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, true, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Sets the response served when no stub matches a request. */
     public ImposterSpec defaultResponse(IsSpec response) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 Optional.of(response), host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Sets the URL every unmatched request is forwarded to. */
     public ImposterSpec defaultForward(String url) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, Optional.of(url), strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
+    }
+
+    /**
+     * Whether the imposter starts serving as soon as it is created; default {@code true}. A disabled
+     * imposter is created, holds its port and keeps its stubs, but answers no traffic until {@link
+     * io.github.achirdlabs.rift.Imposter#enable()}. Through {@code applyConfig}, flipping it on an
+     * existing imposter is reported as {@code toggled}, not a replace.
+     */
+    public ImposterSpec enabled(boolean enabled) {
+        return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
+                defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
+    }
+
+    /** {@link #enabled(boolean) enabled(false)}: create the imposter paused. */
+    public ImposterSpec disabled() {
+        return enabled(false);
     }
 
     /** Rejects any behavior key the engine does not recognize, rather than ignoring it. */
     public ImposterSpec strictBehaviors() {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, true, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Names the logical service this imposter simulates (a {@code _rift}-adjacent metadata field). */
     public ImposterSpec serviceName(String serviceName) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, Optional.of(serviceName),
-                serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                serviceInfo, flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Attaches free-form service metadata. */
     public ImposterSpec serviceInfo(JsonValue info) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, Optional.of(info),
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Configures correlated flow state for this imposter's {@code _rift} scripts. */
     public ImposterSpec flowState(FlowStateSpec spec) {
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                Optional.of(spec), metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                Optional.of(spec), metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /**
@@ -273,7 +294,7 @@ public final class ImposterSpec {
         return new ImposterSpec(name, this.port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
                 flowState, Optional.of(new RiftMetricsConfig(true, port)), proxyPool, scriptEngine, scripts,
-                clientCertificateCas);
+                clientCertificateCas, enabled);
     }
 
     /**
@@ -294,7 +315,7 @@ public final class ImposterSpec {
         RiftScriptEngineConfig config = new RiftScriptEngineConfig(engine.wire(), timeout.toMillis());
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, Optional.of(config), scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, Optional.of(config), scripts, clientCertificateCas, enabled);
     }
 
     /** Registers a named script other responses can reference by {@code {"ref": name}}. */
@@ -303,7 +324,7 @@ public final class ImposterSpec {
         next.put(scriptName, script.toConfig());
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, next, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, next, clientCertificateCas, enabled);
     }
 
     /**
@@ -319,7 +340,7 @@ public final class ImposterSpec {
         RiftConnectionPoolConfig pool = new RiftConnectionPoolConfig(maxIdlePerHost, idleTimeout.toSeconds());
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, Optional.of(pool), scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, Optional.of(pool), scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Appends one or more stubs, in the given order. */
@@ -330,7 +351,7 @@ public final class ImposterSpec {
         }
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, List.copyOf(next),
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Appends already-built stubs, in the given order — e.g. the output of {@link ScenarioSpec#stubs()}. */
@@ -339,7 +360,7 @@ public final class ImposterSpec {
         next.addAll(builtStubs);
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, List.copyOf(next),
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
-                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas);
+                flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
     /** Builds the immutable {@link ImposterDefinition} this spec represents. */
@@ -362,7 +383,7 @@ public final class ImposterSpec {
                 // from the engine equals the one built here.
                 clientCertificateCas.filter(cas -> !cas.isEmpty())
                         .map(cas -> new CaCertificates(cas, cas.size() == 1)),
-                Map.of());
+                enabled, Map.of());
         if (FlowStateSupport.hasSpaceStub(def) && !FlowStateSupport.hasHeaderFlowIdSource(def)) {
             throw new IllegalArgumentException(
                     "space stubs can never match without a header flow-id source (the engine's flow-id "

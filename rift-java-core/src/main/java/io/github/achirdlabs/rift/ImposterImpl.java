@@ -86,6 +86,11 @@ final class ImposterImpl implements Imposter {
     }
 
     @Override
+    public boolean isEnabled() {
+        return definition().enabled();
+    }
+
+    @Override
     public ImposterDefinition definition() {
         return ImposterDefinition.fromJson(transport.getImposter(port).toJson());
     }

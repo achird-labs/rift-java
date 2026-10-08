@@ -32,6 +32,10 @@ import java.util.Set;
  * fixture holds; rift refuses the combinations that cannot take effect when the imposter is created.
  * {@code ImposterSpec.requireClientCertificate} builds only the two it accepts.
  *
+ * <p>{@code enabled} is {@code false} for an imposter that holds its port and stubs but answers no
+ * traffic. The engine writes the key only when it is {@code false}, and so does this codec; absent
+ * reads as {@code true}.
+ *
  * <p>{@code extra} carries any wire keys not modeled above, so unknown/future engine fields survive
  * a parse → serialize round-trip instead of being dropped. They are re-emitted after the modeled
  * keys, in insertion order. A modeled key appearing in {@code extra} is rejected at construction.
@@ -56,6 +60,7 @@ public record ImposterDefinition(
         boolean mutualAuth,
         boolean rejectUnauthorized,
         Optional<CaCertificates> ca,
+        boolean enabled,
         Map<String, JsonValue> extra) {
 
     public static final String DEFAULT_PROTOCOL = "http";
@@ -64,7 +69,7 @@ public record ImposterDefinition(
     private static final Set<String> MODELED_KEYS = Set.of(
             "port", "host", "protocol", "cert", "key", "name", "recordRequests", "recordMatches",
             "stubs", "defaultResponse", "defaultForward", "allowCORS", "allowCors", "strictBehaviors",
-            "serviceName", "serviceInfo", "_rift", "mutualAuth", "rejectUnauthorized", "ca");
+            "serviceName", "serviceInfo", "_rift", "mutualAuth", "rejectUnauthorized", "ca", "enabled");
 
     public ImposterDefinition {
         Objects.requireNonNull(port, "port");
@@ -106,13 +111,40 @@ public record ImposterDefinition(
             Map<String, JsonValue> extra) {
         this(port, host, protocol, cert, key, name, recordRequests, recordMatches, stubs, defaultResponse,
                 defaultForward, allowCors, strictBehaviors, serviceName, serviceInfo, rift, false, false,
-                Optional.empty(), extra);
+                Optional.empty(), true, extra);
+    }
+
+    /** An enabled definition — the shape before {@code enabled} was modeled (rift-java 0.3.7). */
+    public ImposterDefinition(
+            Optional<Integer> port,
+            Optional<String> host,
+            String protocol,
+            Optional<String> cert,
+            Optional<String> key,
+            Optional<String> name,
+            boolean recordRequests,
+            boolean recordMatches,
+            List<Stub> stubs,
+            Optional<IsResponse> defaultResponse,
+            Optional<String> defaultForward,
+            boolean allowCors,
+            boolean strictBehaviors,
+            Optional<String> serviceName,
+            Optional<JsonValue> serviceInfo,
+            Optional<RiftConfig> rift,
+            boolean mutualAuth,
+            boolean rejectUnauthorized,
+            Optional<CaCertificates> ca,
+            Map<String, JsonValue> extra) {
+        this(port, host, protocol, cert, key, name, recordRequests, recordMatches, stubs, defaultResponse,
+                defaultForward, allowCors, strictBehaviors, serviceName, serviceInfo, rift, mutualAuth,
+                rejectUnauthorized, ca, true, extra);
     }
 
     public ImposterDefinition(Optional<Integer> port, String protocol, List<Stub> stubs) {
         this(port, Optional.empty(), protocol, Optional.empty(), Optional.empty(), Optional.empty(),
                 false, false, stubs, Optional.empty(), Optional.empty(), false, false,
-                Optional.empty(), Optional.empty(), Optional.empty(), false, false, Optional.empty(), Map.of());
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, Optional.empty(), true, Map.of());
     }
 
     /** Parses a single imposter JSON object. Throws a typed codec error on malformed input. */
@@ -132,7 +164,14 @@ public record ImposterDefinition(
         next.put(extraKey, value);
         return new ImposterDefinition(port, host, protocol, cert, key, name, recordRequests,
                 recordMatches, stubs, defaultResponse, defaultForward, allowCors, strictBehaviors,
-                serviceName, serviceInfo, rift, mutualAuth, rejectUnauthorized, ca, next);
+                serviceName, serviceInfo, rift, mutualAuth, rejectUnauthorized, ca, enabled, next);
+    }
+
+    /** Returns a copy that is created (or, through {@code applyConfig}, set) enabled or paused. */
+    public ImposterDefinition withEnabled(boolean enabled) {
+        return new ImposterDefinition(port, host, protocol, cert, key, name, recordRequests,
+                recordMatches, stubs, defaultResponse, defaultForward, allowCors, strictBehaviors,
+                serviceName, serviceInfo, rift, mutualAuth, rejectUnauthorized, ca, enabled, extra);
     }
 
     static ImposterDefinition read(JsonObject obj) {
@@ -156,6 +195,7 @@ public record ImposterDefinition(
                 JsonSupport.optBool(obj, "mutualAuth", false),
                 JsonSupport.optBool(obj, "rejectUnauthorized", false),
                 Optional.ofNullable(obj.get("ca")).map(CaCertificates::read),
+                JsonSupport.optBool(obj, "enabled", true),
                 JsonSupport.extraFields(obj, MODELED_KEYS));
     }
 
@@ -184,6 +224,10 @@ public record ImposterDefinition(
         // for the same reason documented on allowCORS above.
         if (recordRequests) {
             builder.put("recordRequests", JsonBool.TRUE);
+        }
+        // Only when false, where the engine's own serializer puts it: an enabled imposter replays byte-identical.
+        if (!enabled) {
+            builder.put("enabled", JsonBool.FALSE);
         }
         if (recordMatches) {
             builder.put("recordMatches", JsonBool.TRUE);
