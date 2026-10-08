@@ -69,6 +69,12 @@ class FlowIdValidationTest {
     }
 
     @Test
+    void scenariosResetRejectsBlankAndNullFlowId() {
+        Scenarios sc = imposter(new ThrowingTransport()).scenarios();
+        assertRejects(() -> sc.reset(""), () -> sc.reset("   "), () -> sc.reset(null));
+    }
+
+    @Test
     void scenariosSetStateRejectsBlankAndNullFlowId() {
         Scenarios sc = imposter(new ThrowingTransport()).scenarios();
         assertRejects(
@@ -124,7 +130,7 @@ class FlowIdValidationTest {
         @Override public void disable(int port) { throw new UnsupportedOperationException(); }
         @Override public JsonValue scenarios(int port, Optional<String> f) { throw new UnsupportedOperationException(); }
         @Override public void setScenarioState(int port, String n, String s, Optional<String> f) { throw new UnsupportedOperationException(); }
-        @Override public void resetScenarios(int port) { throw new UnsupportedOperationException(); }
+        @Override public void resetScenarios(int port, Optional<String> flowId) { throw new UnsupportedOperationException(); }
         @Override public Optional<JsonValue> flowStateGet(int port, String f, String k) { throw new UnsupportedOperationException(); }
         @Override public void flowStatePut(int port, String f, String k, JsonValue v) { throw new UnsupportedOperationException(); }
         @Override public void flowStateDelete(int port, String f, String k) { throw new UnsupportedOperationException(); }

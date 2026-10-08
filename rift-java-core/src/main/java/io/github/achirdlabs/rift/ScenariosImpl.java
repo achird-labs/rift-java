@@ -52,7 +52,12 @@ final class ScenariosImpl implements Scenarios {
 
     @Override
     public void reset() {
-        transport.resetScenarios(port);
+        transport.resetScenarios(port, Optional.empty());
+    }
+
+    @Override
+    public void reset(String flowId) {
+        transport.resetScenarios(port, Optional.of(FlowIds.require(flowId)));
     }
 
     private List<State> read(Optional<String> flowId) {

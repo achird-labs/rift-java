@@ -34,6 +34,16 @@ public interface Scenarios {
      */
     void setState(String name, String state, String flowId);
 
-    /** Resets every scenario on this imposter back to its initial state. */
+    /** Resets every scenario on this imposter's default flow back to its initial state. */
     void reset();
+
+    /**
+     * Resets every scenario on this imposter back to its initial state, scoped to a single
+     * {@code flowId}/space; other flows are untouched. Resetting a flow that holds no scenario state
+     * succeeds.
+     *
+     * @throws IllegalArgumentException if {@code flowId} is blank — a blank id is never the default
+     *     flow but a distinct, silently-wrong partition, so it is rejected rather than sent verbatim
+     */
+    void reset(String flowId);
 }

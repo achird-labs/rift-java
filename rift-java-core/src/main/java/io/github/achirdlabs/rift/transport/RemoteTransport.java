@@ -333,8 +333,11 @@ public final class RemoteTransport implements RiftTransport {
     }
 
     @Override
-    public void resetScenarios(int port) {
-        executeVoid("POST", "/imposters/" + port + "/scenarios/reset", null, OptionalInt.of(port));
+    public void resetScenarios(int port, Optional<String> flowId) {
+        // The engine reads flowId from the POST body only; the default flow keeps the bodyless form.
+        String body = flowId.map(f -> JsonObject.builder().put("flowId", new JsonString(f)).build().toJson())
+                .orElse(null);
+        executeVoid("POST", "/imposters/" + port + "/scenarios/reset", body, OptionalInt.of(port));
     }
 
     @Override

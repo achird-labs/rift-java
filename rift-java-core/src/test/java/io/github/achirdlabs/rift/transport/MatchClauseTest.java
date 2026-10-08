@@ -385,7 +385,7 @@ class MatchClauseTest {
         @Override public void disable(int port) { throw new UnsupportedOperationException(); }
         @Override public io.github.achirdlabs.rift.json.JsonValue scenarios(int port, java.util.Optional<String> f) { throw new UnsupportedOperationException(); }
         @Override public void setScenarioState(int port, String n, String s, java.util.Optional<String> f) { throw new UnsupportedOperationException(); }
-        @Override public void resetScenarios(int port) { throw new UnsupportedOperationException(); }
+        @Override public void resetScenarios(int port, java.util.Optional<String> flowId) { throw new UnsupportedOperationException(); }
         @Override public java.util.Optional<io.github.achirdlabs.rift.json.JsonValue> flowStateGet(int port, String f, String k) { throw new UnsupportedOperationException(); }
         @Override public void flowStatePut(int port, String f, String k, io.github.achirdlabs.rift.json.JsonValue v) { throw new UnsupportedOperationException(); }
         @Override public void flowStateDelete(int port, String f, String k) { throw new UnsupportedOperationException(); }
