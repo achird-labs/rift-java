@@ -147,7 +147,7 @@ public interface Rift extends AutoCloseable {
   // -- intercept (TLS-MITM) --
   Intercept intercept();                     // default options
   Intercept intercept(InterceptOptions options);  // InterceptOptions.attach() discovers a running listener
-  Optional<InterceptStatus> interceptStatus();    // GET /intercept (404 → empty); embedded: own listener, else the admin plane's
+  Optional<InterceptStatus> interceptStatus();    // GET /intercept (404 → empty); embedded: the admin plane's once served, else own listener
 
   // -- async facade (secondary surface) --
   RiftAsync async();                         // createAsync(ImposterSpec), deleteAllAsync(), impostersAsync()
@@ -288,7 +288,7 @@ public interface RiftTransport extends AutoCloseable {
   void spaceDelete(int port, String flowId);
   // intercept
   JsonValue startIntercept(JsonValue options);
-  default Optional<JsonValue> interceptStatus();  // GET /intercept | embedded: the FFI-started listener, else the admin plane's GET /intercept
+  default Optional<JsonValue> interceptStatus();  // GET /intercept | embedded: the admin plane's GET /intercept once one is served (it shares the FFI slot, rift#521), else the FFI-started listener
   void interceptAddRules(JsonValue rules);
   default void interceptReplaceRules(JsonValue rules);  // PUT /intercept/rules | rift_intercept_replace_rules (>= 0.20.0)
   JsonValue interceptListRules(); void interceptClearRules();

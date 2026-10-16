@@ -365,6 +365,49 @@ class InterceptE2eIT {
     }
 
     @Test
+    void anFfiStartedListenerStoppedThroughTheAdminPlaneIsNoLongerReported() throws Exception {
+        // the C-ABI and the admin plane share one intercept slot (rift#521): the plane is the truth
+        try (Rift rift = embedded()) {
+            rift.intercept();
+            assertTrue(rift.interceptStatus().isPresent());
+
+            assertEquals(204, deleteIntercept(rift.adminUri()), "the admin plane stops the FFI-started listener");
+            assertEquals(Optional.empty(), rift.interceptStatus(), "no listener runs any more");
+        }
+    }
+
+    @Test
+    void aListenerRestartedThroughTheAdminPlaneIsReportedWithItsNewPort() throws Exception {
+        try (Rift rift = embedded();
+                Rift viaAdmin = Rift.connect(ConnectOptions.builder(rift.adminUri()).versionCheck(VersionCheck.OFF).build())) {
+            int ffiPort = rift.intercept().address().getPort();
+            assertEquals(204, deleteIntercept(rift.adminUri()));
+
+            int theirPort = viaAdmin.intercept().address().getPort();
+            org.junit.jupiter.api.Assumptions.assumeTrue(theirPort != ffiPort,
+                    "the OS handed the freed port straight back, so a stale report would look right");
+            assertEquals(theirPort, rift.interceptStatus().orElseThrow().port(),
+                    "the report follows the shared slot, not this handle's start (" + ffiPort + ")");
+        }
+    }
+
+    @Test
+    void anFfiStartAfterTheAdminPlaneIsServedIsReported() {
+        // this handle's own start, answered by the plane rather than the cached record: the one case
+        // that fails if the plane stops seeing an FFI-started listener
+        try (Rift rift = embedded()) {
+            rift.adminUri();
+            int port = rift.intercept().address().getPort();
+            assertEquals(port, rift.interceptStatus().orElseThrow().port());
+        }
+    }
+
+    private static int deleteIntercept(URI adminUri) throws Exception {
+        HttpRequest delete = HttpRequest.newBuilder(adminUri.resolve("/intercept")).timeout(Duration.ofSeconds(5)).DELETE().build();
+        return HttpClient.newHttpClient().send(delete, HttpResponse.BodyHandlers.discarding()).statusCode();
+    }
+
+    @Test
     void interceptStatusOnAClosedEngineIsRefused() {
         Rift rift = embedded();
         rift.intercept();
