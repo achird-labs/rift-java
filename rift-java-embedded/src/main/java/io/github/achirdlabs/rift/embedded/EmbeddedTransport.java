@@ -56,9 +56,11 @@ public final class EmbeddedTransport implements RiftTransport {
     private volatile RemoteTransport admin;
     /**
      * The listener this handle started over FFI, as {@code {interceptPort, interceptUrl}} (never the
-     * CA a start can return); null when none is. The engine runs one listener, but its admin plane's
-     * {@code GET /intercept} reports only one started through that plane (rift 0.21.0), and there is
-     * no FFI status symbol — so this record answers for an FFI start, the admin plane for the rest.
+     * CA a start can return); null when none is. There is no FFI status symbol, so this answers
+     * {@link #interceptStatus()} only while no admin plane is served: then nothing but this handle can
+     * change the engine's one intercept slot. Once a plane is served, its {@code GET /intercept}
+     * reads that same slot (the C-ABI and the plane have shared it since rift#521) and is the answer instead,
+     * since another client can stop or restart the listener through it.
      */
     private volatile JsonValue runningIntercept;
 
@@ -332,13 +334,11 @@ public final class EmbeddedTransport implements RiftTransport {
         if (closed.get()) {
             throw new IllegalStateException("the embedded rift engine is closed");
         }
-        JsonValue started = runningIntercept;
-        if (started != null) {
-            return Optional.of(started);
-        }
-        // Started by another client through this engine's admin plane, if it is serving one.
         RemoteTransport a = admin;
-        return a == null ? Optional.empty() : a.interceptStatus();
+        if (a != null) {
+            return a.interceptStatus();
+        }
+        return Optional.ofNullable(runningIntercept);
     }
 
     @Override

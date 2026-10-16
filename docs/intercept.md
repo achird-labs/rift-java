@@ -77,8 +77,9 @@ the way a listener it started is reached: through `ConnectOptions.interceptAddre
 wildcard bind (`0.0.0.0`) replaced by the admin host. No listener running → `IllegalStateException`,
 and intercept stays available. The explicit `attach(host, port)` form never consults
 `interceptAddress`: the endpoint you give is used as is. On the embedded transport
-`interceptStatus()` reports the listener the handle started until it is closed, or one another client
-started through the engine's admin plane (`rift.adminUri()`).
+`interceptStatus()` reports the engine's one listener, whether the handle started it or another client
+started it through the engine's admin plane (`rift.adminUri()`). A client that stops or restarts it
+through that plane is reflected too.
 
 To start the listener at runtime instead — with your own CA, say — expose the port without
 launching a listener, then start it bound to the container's interface. The handle is mapped to
