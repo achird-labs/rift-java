@@ -229,6 +229,18 @@ public final class RiftProcess {
             cmd.add("--metrics-port");
             cmd.add(Integer.toString(metricsPort));
         });
+        opts.maxBodySize().ifPresent(bytes -> {
+            cmd.add("--max-body-size");
+            cmd.add(Long.toString(bytes));
+        });
+        opts.bodyMemoryBudget().ifPresent(bytes -> {
+            cmd.add("--body-memory-budget");
+            cmd.add(Long.toString(bytes));
+        });
+        opts.journalMaxBytes().ifPresent(bytes -> {
+            cmd.add("--journal-max-bytes");
+            cmd.add(Long.toString(bytes));
+        });
         opts.upstreamTrust().ifPresent(trust -> {
             if (trust instanceof UpstreamTrust.CaFile file) {
                 cmd.add("--upstream-ca-file");

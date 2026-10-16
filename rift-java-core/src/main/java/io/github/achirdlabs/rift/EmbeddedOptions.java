@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 /**
  * Immutable configuration for {@link Rift#embedded(EmbeddedOptions)}: where to find the
@@ -27,6 +28,9 @@ public final class EmbeddedOptions {
     private final Optional<Boolean> allowInjection;
     private final Optional<Boolean> requireAdminAuth;
     private final OptionalInt metricsPort;
+    private final OptionalLong maxBodySize;
+    private final OptionalLong bodyMemoryBudget;
+    private final OptionalLong journalMaxBytes;
 
     private EmbeddedOptions(
             Optional<Path> libraryPath,
@@ -38,7 +42,10 @@ public final class EmbeddedOptions {
             Optional<UpstreamTrust> upstreamTrust,
             Optional<Boolean> allowInjection,
             Optional<Boolean> requireAdminAuth,
-            OptionalInt metricsPort) {
+            OptionalInt metricsPort,
+            OptionalLong maxBodySize,
+            OptionalLong bodyMemoryBudget,
+            OptionalLong journalMaxBytes) {
         this.libraryPath = libraryPath;
         this.versionCheck = versionCheck;
         this.serveAdminEagerly = serveAdminEagerly;
@@ -49,6 +56,9 @@ public final class EmbeddedOptions {
         this.allowInjection = allowInjection;
         this.requireAdminAuth = requireAdminAuth;
         this.metricsPort = metricsPort;
+        this.maxBodySize = maxBodySize;
+        this.bodyMemoryBudget = bodyMemoryBudget;
+        this.journalMaxBytes = journalMaxBytes;
     }
 
     public static Builder builder() {
@@ -101,6 +111,21 @@ public final class EmbeddedOptions {
         return metricsPort;
     }
 
+    /** The largest body the engine accepts, if set; see {@link Builder#maxBodySize(long)}. */
+    public OptionalLong maxBodySize() {
+        return maxBodySize;
+    }
+
+    /** The memory buffered bodies may share, if set; see {@link Builder#bodyMemoryBudget(long)}. */
+    public OptionalLong bodyMemoryBudget() {
+        return bodyMemoryBudget;
+    }
+
+    /** Each imposter's recorded-request budget, if set; see {@link Builder#journalMaxBytes(long)}. */
+    public OptionalLong journalMaxBytes() {
+        return journalMaxBytes;
+    }
+
     public static final class Builder {
 
         private Optional<Path> libraryPath = Optional.empty();
@@ -113,6 +138,9 @@ public final class EmbeddedOptions {
         private Optional<Boolean> allowInjection = Optional.empty();
         private Optional<Boolean> requireAdminAuth = Optional.empty();
         private OptionalInt metricsPort = OptionalInt.empty();
+        private OptionalLong maxBodySize = OptionalLong.empty();
+        private OptionalLong bodyMemoryBudget = OptionalLong.empty();
+        private OptionalLong journalMaxBytes = OptionalLong.empty();
 
         private Builder() {
         }
@@ -277,9 +305,59 @@ public final class EmbeddedOptions {
             return this;
         }
 
+        /**
+         * The largest request, proxied upstream response or admin body the engine accepts, in bytes;
+         * a larger one gets {@code 413} and the connection is closed. Unset, the engine's own 512 MiB
+         * applies; a value above 1 GiB needs {@link #bodyMemoryBudget(long)} too. The engine applies
+         * the limit only to imposters created after it is set, so setting it starts the in-process
+         * admin server when the engine starts, as {@link #serveAdminEagerly(boolean)} does. Needs an
+         * engine that advertises the option (rift &ge; 0.22.0), checked as for {@link
+         * #allowInjection(boolean)}.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is below 1
+         */
+        public Builder maxBodySize(long bytes) {
+            this.maxBodySize = OptionalLong.of(BodyLimits.maxBodySize(bytes));
+            return this;
+        }
+
+        /**
+         * The memory every body buffered at once may share, in bytes; past it a request gets {@code
+         * 503} with {@code Retry-After: 1}. {@code 0} is no budget. Unset, the engine's own 1 GiB
+         * applies; a non-zero budget must be at least {@link #maxBodySize(long)} (512 MiB when that is
+         * unset). Starts the admin
+         * server eagerly and is advertisement-checked, as {@code maxBodySize} is.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is negative
+         */
+        public Builder bodyMemoryBudget(long bytes) {
+            this.bodyMemoryBudget = OptionalLong.of(BodyLimits.bodyMemoryBudget(bytes));
+            return this;
+        }
+
+        /**
+         * How many bytes of recorded requests each imposter keeps, oldest evicted first. A request
+         * larger than the whole budget is recorded without its body: see {@link
+         * RecordedRequest#bodyOmitted()}. Unset, the engine's own 768 MiB applies. Starts the admin
+         * server eagerly and is advertisement-checked, as {@link #maxBodySize(long)} is.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is below 1
+         */
+        public Builder journalMaxBytes(long bytes) {
+            this.journalMaxBytes = OptionalLong.of(BodyLimits.journalMaxBytes(bytes));
+            return this;
+        }
+
+        /**
+         * @throws IllegalArgumentException if a non-zero {@link #bodyMemoryBudget(long)} is below
+         *                                  {@link #maxBodySize(long)}, or a ceiling above 1 GiB has no
+         *                                  budget: the engine refuses both
+         */
         public EmbeddedOptions build() {
+            BodyLimits.requireBudgetCoversCeiling(maxBodySize, bodyMemoryBudget);
             return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey,
-                    upstreamTrust, allowInjection, requireAdminAuth, metricsPort);
+                    upstreamTrust, allowInjection, requireAdminAuth, metricsPort, maxBodySize, bodyMemoryBudget,
+                    journalMaxBytes);
         }
     }
 }

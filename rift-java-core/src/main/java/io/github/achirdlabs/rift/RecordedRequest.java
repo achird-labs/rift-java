@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift;
 import io.github.achirdlabs.rift.codec.BodyCodecs;
 import io.github.achirdlabs.rift.codec.RiftBodyCodec;
 import io.github.achirdlabs.rift.json.JsonArray;
+import io.github.achirdlabs.rift.json.JsonBool;
 import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
@@ -23,6 +24,10 @@ import java.util.OptionalLong;
  * reads the same journal, filtered to its flow). Parsed leniently via {@link #read(JsonValue)}: any field
  * the engine omits comes back empty rather than throwing, since the exact shape recorded requests
  * take can vary by protocol and engine version.
+ *
+ * <p>{@code body} is {@code ""} for a request sent without one, and for one the engine recorded
+ * without its body because it was larger than the imposter's whole journal budget: {@link
+ * #bodyOmitted()} tells the two apart.
  */
 public record RecordedRequest(
         String method,
@@ -40,6 +45,15 @@ public record RecordedRequest(
         query = Map.copyOf(query);
         headers = Map.copyOf(headers);
         pathParams = Map.copyOf(pathParams);
+    }
+
+    /**
+     * Whether the engine recorded this request without its body, because the body was larger than
+     * the imposter's whole journal budget ({@code journalMaxBytes}, rift &ge; 0.22.0); {@link #body()}
+     * is then {@code ""}. Read from the raw entry's {@code _bodyOmitted}.
+     */
+    public boolean bodyOmitted() {
+        return raw instanceof JsonObject obj && obj.get("_bodyOmitted") instanceof JsonBool omitted && omitted.value();
     }
 
     /** Parses one {@code savedRequests} element. Never throws: unrecognized shapes come back mostly-empty. */

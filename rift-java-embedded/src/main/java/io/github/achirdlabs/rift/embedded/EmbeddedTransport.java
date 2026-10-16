@@ -398,6 +398,9 @@ public final class EmbeddedTransport implements RiftTransport {
         options.allowInjection().ifPresent(allow -> payload.put("allowInjection", JsonBool.of(allow)));
         options.requireAdminAuth().ifPresent(require -> payload.put("requireAdminAuth", JsonBool.of(require)));
         options.metricsPort().ifPresent(port -> payload.put("metricsPort", JsonNumber.of(port)));
+        options.maxBodySize().ifPresent(bytes -> payload.put("maxBodySize", JsonNumber.of(bytes)));
+        options.bodyMemoryBudget().ifPresent(bytes -> payload.put("bodyMemoryBudget", JsonNumber.of(bytes)));
+        options.journalMaxBytes().ifPresent(bytes -> payload.put("journalMaxBytes", JsonNumber.of(bytes)));
         options.upstreamTrust().ifPresent(trust -> payload.put(serveOptionKey(trust), serveOptionValue(trust)));
         return payload.build();
     }
@@ -435,6 +438,9 @@ public final class EmbeddedTransport implements RiftTransport {
         options.allowInjection().ifPresent(v -> requested.add(new ServeOption("allowInjection", "0.17.0", "allowInjection")));
         options.requireAdminAuth().ifPresent(v -> requested.add(new ServeOption("requireAdminAuth", "0.17.0", "requireAdminAuth")));
         options.metricsPort().ifPresent(v -> requested.add(new ServeOption("metricsPort", "0.17.0", "metricsPort")));
+        options.maxBodySize().ifPresent(v -> requested.add(new ServeOption("maxBodySize", "0.22.0", "maxBodySize")));
+        options.bodyMemoryBudget().ifPresent(v -> requested.add(new ServeOption("bodyMemoryBudget", "0.22.0", "bodyMemoryBudget")));
+        options.journalMaxBytes().ifPresent(v -> requested.add(new ServeOption("journalMaxBytes", "0.22.0", "journalMaxBytes")));
         options.upstreamTrust().ifPresent(trust -> requested.add(new ServeOption(serveOptionKey(trust), "0.18.0", "upstreamTrust")));
         if (requested.isEmpty()) {
             return;
