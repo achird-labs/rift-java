@@ -23,9 +23,6 @@ resolves to the same flow — so space-scoped stubs would never match. The SDK w
 imposter that uses spaces but declares no header source, because that combination is almost always a
 mistake rather than a choice.
 
-`redisFlowState(url)` swaps the in-memory store for Redis when flow state has to outlive a single
-engine or be shared across several.
-
 ## Working in a space
 
 `imposter.space(flowId)` is the flow-scoped view of the imposter:
