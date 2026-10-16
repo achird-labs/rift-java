@@ -77,9 +77,25 @@ class ImposterFieldsRoundTripTest {
         assertTrue(viaAlias.allowCors());
         assertTrue(viaAlias.toJson().contains("\"allowCORS\":true"));
 
-        ImposterDefinition viaEngineSpelling = ImposterDefinition.fromJson("{\"protocol\":\"http\",\"stubs\":[],\"allowCors\":true}");
-        assertTrue(viaEngineSpelling.allowCors());
-        assertTrue(viaEngineSpelling.toJson().contains("\"allowCORS\":true"));
+        // allowCors is what an engine before 0.22.0 exported under ?replayable=true (rift#1374 renamed it)
+        ImposterDefinition viaPre022Export = ImposterDefinition.fromJson("{\"protocol\":\"http\",\"stubs\":[],\"allowCors\":true}");
+        assertTrue(viaPre022Export.allowCors());
+        assertTrue(viaPre022Export.toJson().contains("\"allowCORS\":true"));
+    }
+
+    @Test
+    void allowCorsReadsAnyJsonValueByJavaScriptTruthiness() {
+        // rift#1453: the engine accepts any value and prints it as configured, so a view never fails to decode
+        for (String on : new String[] {"\"yes\"", "1", "-0.5", "{}", "[]", "\"false\""}) {
+            ImposterDefinition imposter = ImposterDefinition.fromJson("{\"protocol\":\"http\",\"stubs\":[],\"allowCORS\":" + on + "}");
+            assertTrue(imposter.allowCors(), on);
+            assertTrue(imposter.toJson().contains("\"allowCORS\":true"), on);
+        }
+        for (String off : new String[] {"false", "0", "0.0", "\"\"", "null"}) {
+            ImposterDefinition imposter = ImposterDefinition.fromJson("{\"protocol\":\"http\",\"stubs\":[],\"allowCORS\":" + off + "}");
+            assertEquals(false, imposter.allowCors(), off);
+            assertEquals(false, imposter.toJson().contains("allowCORS"), off);
+        }
     }
 
     @Test

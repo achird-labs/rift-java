@@ -73,6 +73,37 @@ class ImposterRecordingTest {
     }
 
     @Test
+    void ignoreHeadersTurnsAWholeFieldDeepEqualsIntoAnEqualsOverTheKeptHeaders() {
+        // rift 0.22.0 (rift#1329) records one predicate per field, a whole headers field as deepEquals
+        String export022 = "{\"protocol\":\"http\",\"port\":4545,\"stubs\":[{\"predicates\":["
+                + "{\"deepEquals\":{\"method\":\"GET\"}},{\"deepEquals\":{\"path\":\"/p\"}},"
+                + "{\"deepEquals\":{\"headers\":{\"Date\":\"Fri\",\"Accept\":\"application/json\"}}}],"
+                + "\"responses\":[{\"is\":{\"statusCode\":200,\"body\":\"hi\"}}]}]}";
+        FakeTransport t = new FakeTransport("{\"stubs\":[]}", export022);
+        Recording recording = imposter(t).startRecording("http://origin",
+                RecordSpec.builder().generateBy(RequestField.METHOD, RequestField.PATH, RequestField.HEADERS)
+                        .ignoreHeaders("date").build());
+
+        String json = recording.stop().get(0).toJson();
+        assertTrue(json.contains("{\"deepEquals\":{\"path\":\"/p\"}}"), "other fields keep deepEquals: " + json);
+        assertTrue(json.contains("{\"equals\":{\"headers\":{\"Accept\":\"application/json\"}}}"),
+                "a deepEquals would still refuse a request carrying the ignored header: " + json);
+        assertFalse(json.contains("Date"), json);
+    }
+
+    @Test
+    void ignoringEveryRecordedHeaderLeavesAPredicateThatConstrainsNothing() {
+        String export022 = "{\"protocol\":\"http\",\"port\":4545,\"stubs\":[{\"predicates\":["
+                + "{\"deepEquals\":{\"headers\":{\"Date\":\"Fri\"}}}],"
+                + "\"responses\":[{\"is\":{\"statusCode\":200,\"body\":\"hi\"}}]}]}";
+        FakeTransport t = new FakeTransport("{\"stubs\":[]}", export022);
+        Recording recording = imposter(t).startRecording("http://origin",
+                RecordSpec.builder().generateBy(RequestField.HEADERS).ignoreHeaders("Date").build());
+
+        assertTrue(recording.stop().get(0).toJson().contains("{\"equals\":{}}"));
+    }
+
+    @Test
     void snapshotExportsWithoutSwapping() {
         FakeTransport t = new FakeTransport("{\"stubs\":[]}", EXPORT);
         Recording recording = imposter(t).startRecording("http://origin");

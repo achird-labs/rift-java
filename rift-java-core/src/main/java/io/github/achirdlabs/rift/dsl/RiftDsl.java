@@ -419,11 +419,15 @@ public final class RiftDsl {
         return ExtractionSpec.of("xpath", selector, Optional.empty());
     }
 
-    /** An XPath extraction over the request body, with the given prefix-to-URI namespace bindings. */
+    /**
+     * An XPath extraction over the request body, with the given prefix-to-URI namespace bindings,
+     * written as Mountebank's {@code ns} map. Requires rift &ge; 0.22.0 (rift#1326): an older engine
+     * ignores {@code ns}, so a prefixed selector extracts nothing there.
+     */
     public static ExtractionSpec xPath(String selector, Map<String, String> namespaces) {
         JsonObject.Builder builder = JsonObject.builder();
         namespaces.forEach((prefix, uri) -> builder.put(prefix, new JsonString(uri)));
-        return ExtractionSpec.of("xpath", selector, Optional.of(builder.build()));
+        return ExtractionSpec.xPath(selector, builder.build());
     }
 
     // ------------------------------------------------------------------

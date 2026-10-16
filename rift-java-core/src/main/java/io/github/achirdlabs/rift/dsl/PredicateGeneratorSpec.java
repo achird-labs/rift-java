@@ -47,7 +47,11 @@ public final class PredicateGeneratorSpec {
         return new PredicateGeneratorSpec(fields, Optional.of(value), jsonPathSelector);
     }
 
-    /** Applies a JSONPath selector to the request body before generating the predicate. */
+    /**
+     * Records only the part of the request body {@code selector} selects, and scopes the recorded
+     * predicate with the same selector, so a replay matches on that value alone. Requires rift
+     * &ge; 0.22.0 (rift#1327): an older engine ignores {@code jsonpath} and records the whole body.
+     */
     public PredicateGeneratorSpec jsonPath(String selector) {
         return new PredicateGeneratorSpec(fields, caseSensitive, Optional.of(selector));
     }

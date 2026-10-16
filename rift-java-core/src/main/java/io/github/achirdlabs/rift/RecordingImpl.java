@@ -7,12 +7,14 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Predicate;
 import io.github.achirdlabs.rift.model.PredicateOperation;
+import io.github.achirdlabs.rift.model.PredicateParameters;
 import io.github.achirdlabs.rift.model.Stub;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -112,7 +114,39 @@ final class RecordingImpl implements Recording {
     }
 
     private Predicate stripPredicate(Predicate predicate) {
+        if (predicate.operation() instanceof PredicateOperation.DeepEquals e) {
+            Map<String, JsonValue> stripped = stripHeaders(e.fields());
+            if (stripped != e.fields()) {
+                return withKeptHeadersAsEquals(predicate.parameters(), stripped);
+            }
+        }
         return new Predicate(predicate.parameters(), stripOperation(predicate.operation()));
+    }
+
+    /**
+     * A {@code deepEquals} over {@code headers} demands the request's exact header set, so a request
+     * still carrying an ignored header would never match it. Since rift 0.22.0 a {@code headers}
+     * generator records exactly that (rift#1329), so the kept headers move to an {@code equals}, the
+     * shape the engine's own generator {@code ignore} records; the other fields stay {@code deepEquals}.
+     */
+    private static Predicate withKeptHeadersAsEquals(PredicateParameters parameters, Map<String, JsonValue> stripped) {
+        Map<String, JsonValue> rest = new LinkedHashMap<>(stripped);
+        JsonValue keptHeaders = rest.remove("headers");
+        List<Predicate> parts = new ArrayList<>();
+        if (!rest.isEmpty()) {
+            parts.add(new Predicate(parameters, new PredicateOperation.DeepEquals(rest)));
+        }
+        if (keptHeaders != null) {
+            parts.add(new Predicate(parameters, new PredicateOperation.Equals(Map.of("headers", keptHeaders))));
+        }
+        if (parts.size() == 1) {
+            return parts.get(0);
+        }
+        if (parts.isEmpty()) {
+            // every recorded header was ignored, and nothing else was recorded: the predicate constrains nothing
+            return new Predicate(parameters, new PredicateOperation.Equals(Map.of()));
+        }
+        return new Predicate(PredicateParameters.EMPTY, new PredicateOperation.And(parts));
     }
 
     private PredicateOperation stripOperation(PredicateOperation operation) {

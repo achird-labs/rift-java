@@ -363,8 +363,19 @@ public final class ImposterSpec {
                 flowState, metrics, proxyPool, scriptEngine, scripts, clientCertificateCas, enabled);
     }
 
-    /** Builds the immutable {@link ImposterDefinition} this spec represents. */
+    /**
+     * Builds the immutable {@link ImposterDefinition} this spec represents.
+     *
+     * @throws IllegalArgumentException if a stub has no response: rift &ge; 0.22.0 refuses such a
+     *         stub with a 400, as Mountebank does (rift#1372), so the imposter could not be created
+     */
     public ImposterDefinition build() {
+        for (int i = 0; i < stubs.size(); i++) {
+            if (stubs.get(i).responses().isEmpty()) {
+                throw new IllegalArgumentException("stubs[" + i + "]: 'responses' must be a non-empty array "
+                        + "— add a response with willReturn(...)");
+            }
+        }
         if (cert.isPresent() != key.isPresent()) {
             throw new IllegalArgumentException("https(...) requires both a certificate and a key, or neither");
         }
