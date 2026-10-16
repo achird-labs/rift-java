@@ -84,6 +84,15 @@ final class Corpus {
         return v.startsWith("v") ? v.substring(1) : v;
     }
 
+    /**
+     * The engine's imposter JSON Schema ({@code schema/imposter.schema.json}), shipped in the
+     * sdk-conformance tarball from rift 0.22.0 (rift#1342). Detected by presence, not by version.
+     */
+    Optional<Path> schema() {
+        Path schema = home.resolve("schema").resolve("imposter.schema.json");
+        return Files.isRegularFile(schema) ? Optional.of(schema) : Optional.empty();
+    }
+
     /** The {@code corpus/} payload directory — the replayer's working directory (contract: cwd = corpus/). */
     Path payloadRoot() {
         return home.resolve("corpus");
@@ -174,7 +183,7 @@ final class Corpus {
         return Integer.parseInt(m.group(1));
     }
 
-    private static boolean ciLaneRequiresCorpus() {
+    static boolean ciLaneRequiresCorpus() {
         String it = System.getenv("RIFT_IT");
         return it != null && !it.isBlank() && !it.equals("0");
     }

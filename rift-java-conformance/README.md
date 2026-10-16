@@ -9,12 +9,13 @@ Every official Rift SDK replays this same corpus; it is the single source of tru
 typed DSL has drifted from the engine grammar. A fixture the DSL cannot express is a **red build**
 — by design, a new corpus fixture forces the DSL to grow.
 
-## The four gates (per fixture)
+## The gates (per fixture)
 
 | Gate | Where | What it proves |
 |------|-------|----------------|
 | **1 · Parse fidelity** | `ParseFidelityTest` | `ImposterDefinition.fromJson(fixture).toJson()` is `semanticEquals` to the fixture — no key dropped, renamed, or retyped. |
 | **2 · DSL expressibility** | `DslExpressibilityTest` + `DslFixtures` | the fixture rebuilt through the typed `RiftDsl` API serializes back to the fixture (modulo the `_verify` test annotation). A runnable fixture with no `DslFixtures` entry fails. |
+| **Schema** | `SchemaConformanceTest` | what the DSL builds and what the codec writes back both validate against the engine's own imposter JSON Schema (`schema/imposter.schema.json`, draft 2020-12, shipped in the tarball from rift 0.22.0): no key the engine never reads. It also checks every model type's `MODELED_KEYS` against the schema's `$defs`, so the hand-kept lists cannot drift from the engine. A corpus without `schema/` skips it. |
 | **3 · Raw engine replay** | `CorpusReplayIT` | `rift.create(fixtureJson)` on a spawned engine serves the fixture; each stub's `_verify` request/response transcript holds. |
 | **4 · DSL engine replay** | `CorpusReplayIT` | the DSL-built imposter serves the **same** transcripts — the DSL's output is engine-equivalent, not merely JSON-equivalent. |
 

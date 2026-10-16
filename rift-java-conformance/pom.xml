@@ -37,6 +37,14 @@
       <artifactId>junit-jupiter-engine</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Draft 2020-12 validator for the engine's imposter JSON Schema (sdk-conformance schema/, #300).
+         Test-only: core stays dependency-free. Jackson comes in transitively, aligned by the root BOM. -->
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>1.5.6</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
