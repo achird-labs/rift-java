@@ -14,27 +14,23 @@ import java.util.Optional;
  */
 public final class FlowStateSpec {
 
-    private final String backend;
     private final long ttlSeconds;
     private final Optional<String> flowIdSource;
 
     private FlowStateSpec(
-            String backend,
             long ttlSeconds,
             Optional<String> flowIdSource) {
-        this.backend = backend;
         this.ttlSeconds = ttlSeconds;
         this.flowIdSource = flowIdSource;
     }
 
     static FlowStateSpec inMemory() {
-        return new FlowStateSpec(
-                "inmemory", RiftFlowStateConfig.DEFAULT_TTL_SECONDS, Optional.empty());
+        return new FlowStateSpec(RiftFlowStateConfig.DEFAULT_TTL_SECONDS, Optional.empty());
     }
 
     /** Sets how long flow state survives without being touched. */
     public FlowStateSpec ttl(Duration duration) {
-        return new FlowStateSpec(backend, duration.toSeconds(), flowIdSource);
+        return new FlowStateSpec(duration.toSeconds(), flowIdSource);
     }
 
     /**
@@ -43,11 +39,11 @@ public final class FlowStateSpec {
      * request's flow id to the port, so a space stub never matches.
      */
     public FlowStateSpec flowIdFromHeader(String name) {
-        return new FlowStateSpec(backend, ttlSeconds, Optional.of("header:" + name));
+        return new FlowStateSpec(ttlSeconds, Optional.of("header:" + name));
     }
 
     /** Builds the immutable {@link RiftFlowStateConfig} this spec represents. */
     RiftFlowStateConfig build() {
-        return new RiftFlowStateConfig(backend, ttlSeconds, flowIdSource);
+        return new RiftFlowStateConfig(ttlSeconds, flowIdSource);
     }
 }

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static io.github.achirdlabs.rift.dsl.RiftDsl.copyFrom;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.equalTo;
@@ -156,7 +157,7 @@ class DslV2WireTest {
                 .flowState(inMemoryFlowState().ttl(Duration.ofSeconds(120)))
                 .metrics(9090).build();
         var rift = def.rift().orElseThrow();
-        assertEquals("inmemory", rift.flowState().orElseThrow().backend());
+        assertEquals(Map.of(), rift.flowState().orElseThrow().extra(), "no backend key: rift 0.22.0 dropped it (rift#1463)");
         assertEquals(120L, rift.flowState().orElseThrow().ttlSeconds());
         assertEquals(9090, rift.metrics().orElseThrow().port());
         assertTrue(rift.metrics().orElseThrow().enabled());

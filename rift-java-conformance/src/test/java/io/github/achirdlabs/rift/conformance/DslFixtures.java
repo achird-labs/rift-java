@@ -4,12 +4,18 @@ import io.github.achirdlabs.rift.dsl.Fault;
 import io.github.achirdlabs.rift.dsl.RiftDsl;
 import io.github.achirdlabs.rift.dsl.Script;
 import io.github.achirdlabs.rift.dsl.StubSpec;
+import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
+import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
+import io.github.achirdlabs.rift.model.Predicate;
+import io.github.achirdlabs.rift.model.PredicateOperation;
+import io.github.achirdlabs.rift.model.PredicateParameters;
 import io.github.achirdlabs.rift.model.Stub;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -192,8 +198,31 @@ final class DslFixtures {
                         named("xpath — XML body where //user/@role == 'admin'",
                                 onRequest()
                                         .withPredicate(body(RiftDsl.equals("admin")).xPath("string(//user/@role)"))
-                                        .willReturn(status(200).withJsonBody("{\"matched\":\"xpath\"}")))))
+                                        .willReturn(status(200).withJsonBody("{\"matched\":\"xpath\"}"))),
+                        pathAndHeaderEquals("keyCaseSensitive=true — stub key X-Tenant matches the Title-Cased header",
+                                "/kcs", "X-Tenant", "acme", Optional.empty(), true, "kcs-exact"),
+                        pathAndHeaderEquals("keyCaseSensitive=true — stub key x-tenant never matches (listener stores X-Tenant)",
+                                "/kcs-nomatch-lower", "x-tenant", "acme", Optional.empty(), true, "kcs-lower"),
+                        pathAndHeaderEquals("caseSensitive=true + keyCaseSensitive=false — key relaxed, value strict",
+                                "/kcs-override", "x-tenant", "ACME", Optional.of(true), false, "kcs-override")))
                 .build();
+    }
+
+    /**
+     * One {@code equals} over {@code path} and a header, with matcher parameters (rift#1325's
+     * {@code keyCaseSensitive} stubs). The typed DSL binds one request field per predicate, so this
+     * predicate is assembled from the model; the response still comes from the DSL.
+     */
+    private static Stub pathAndHeaderEquals(String name, String path, String header, String value,
+            Optional<Boolean> caseSensitive, boolean keyCaseSensitive, String matched) {
+        Map<String, JsonValue> fields = new LinkedHashMap<>();
+        fields.put("path", new JsonString(path));
+        fields.put("headers", new JsonObject(Map.of(header, new JsonString(value))));
+        Predicate predicate = new Predicate(
+                new PredicateParameters(caseSensitive, Optional.of(keyCaseSensitive), "", Optional.empty()),
+                new PredicateOperation.Equals(fields));
+        Stub responses = onRequest().willReturn(status(200).withJsonBody("{\"matched\":\"" + matched + "\"}")).build();
+        return new Stub(List.of(predicate), responses.responses()).withExtra("name", new JsonString(name));
     }
 
     private static ImposterDefinition build03() {

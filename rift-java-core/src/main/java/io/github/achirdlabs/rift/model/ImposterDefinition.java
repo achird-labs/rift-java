@@ -2,6 +2,7 @@ package io.github.achirdlabs.rift.model;
 
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonBool;
+import io.github.achirdlabs.rift.json.JsonNull;
 import io.github.achirdlabs.rift.json.JsonNumber;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
@@ -19,12 +20,14 @@ import java.util.Set;
  * the protocol, its stubs, and Mountebank/Rift-extension configuration. This is the wire-model
  * value; the transport-bound live handle a client hands back is the separate {@code Imposter} type.
  *
- * <p>{@code allowCORS} is <em>written</em> with that exact wire key (not the {@code allowCors} the
- * engine's default {@code camelCase} rename would otherwise produce) because every corpus fixture
- * — and every admin-API caller in practice — writes {@code allowCORS}, which the engine accepts via
- * a deserialize-only {@code alias}. On <em>read</em> both spellings are accepted, since the engine's
- * own serializer emits {@code allowCors} in {@code GET /imposters} output; consuming that output
- * must not silently lose the flag.
+ * <p>{@code allowCORS} is <em>written</em> with that exact wire key, as a boolean, the spelling every
+ * corpus fixture and every admin-API caller writes. On <em>read</em> it is the key rift &ge; 0.22.0
+ * prints in every imposter view (rift#1374, rift#1453); {@code allowCors}, which older engines'
+ * {@code ?replayable=true} export wrote, is still read when {@code allowCORS} is absent. Since rift
+ * 0.22.0 the engine accepts any JSON value there and enables CORS by JavaScript truthiness, printing
+ * the value as configured, so a read takes the same view: {@code false}, {@code 0}, {@code ""} and
+ * {@code null} are off and anything else is on. A non-boolean is therefore written back as
+ * {@code true}, which the engine treats the same way.
  *
  * <p>{@code mutualAuth}, {@code rejectUnauthorized} and {@code ca} configure client-certificate
  * authentication on an {@code https} imposter (rift &ge; 0.18.0; older engines drop them and accept
@@ -200,14 +203,26 @@ public record ImposterDefinition(
     }
 
     /**
-     * Accepts both {@code allowCORS} (the alias admin-API callers write) and {@code allowCors} (the
-     * key the engine's serializer emits), so consuming {@code GET /imposters} output never drops it.
+     * Reads {@code allowCORS} (or, when absent, the {@code allowCors} an engine before 0.22.0
+     * exported) by JavaScript truthiness, as the engine does since rift#1453, so an imposter created
+     * outside the SDK with {@code "allowCORS": "yes"} or {@code 1} still decodes.
      */
     private static boolean readAllowCors(JsonObject obj) {
-        if (obj.has("allowCORS")) {
-            return JsonSupport.optBool(obj, "allowCORS", false);
+        JsonValue v = obj.has("allowCORS") ? obj.get("allowCORS") : obj.get("allowCors");
+        return v != null && isTruthy(v);
+    }
+
+    private static boolean isTruthy(JsonValue v) {
+        if (v instanceof JsonBool b) {
+            return b.value();
         }
-        return JsonSupport.optBool(obj, "allowCors", false);
+        if (v instanceof JsonNumber n) {
+            return n.asDouble() != 0;
+        }
+        if (v instanceof JsonString s) {
+            return !s.value().isEmpty();
+        }
+        return !(v instanceof JsonNull);
     }
 
     JsonObject toJsonValue() {

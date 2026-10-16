@@ -1,6 +1,5 @@
 package io.github.achirdlabs.rift.embedded;
 
-import io.github.achirdlabs.rift.error.EngineUnavailable;
 import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonObject;
@@ -121,13 +120,20 @@ class EmbeddedTransportIT {
     }
 
     @Test
-    void flowStateClearOnTheZeroTwentyOneNativesIsEngineUnavailable() {
-        // TODO(rift#1328): at the engine pin bump past 0.21.0 this flips to the positive assertion —
-        // put two keys, clear(), both absent, clear() again succeeds (FlowStateIT already does so).
+    void flowStateClearEmptiesOneFlowAndIsIdempotent() {
+        // rift_flow_state_clear ships in the 0.22.0 natives (rift#1328)
         try (EmbeddedTransport t = open()) {
             int port = portOf(t.createImposter(flowStateImposter()));
-            EngineUnavailable ex = assertThrows(EngineUnavailable.class, () -> t.flowStateClear(port, "flow-A"));
-            assertTrue(ex.getMessage().contains("rift_flow_state_clear"), ex.getMessage());
+            t.flowStatePut(port, "flow-A", "k1", JsonValue.parse("1"));
+            t.flowStatePut(port, "flow-A", "k2", JsonValue.parse("2"));
+            t.flowStatePut(port, "flow-B", "k1", JsonValue.parse("3"));
+
+            t.flowStateClear(port, "flow-A");
+            assertEquals(Optional.empty(), t.flowStateGet(port, "flow-A", "k1"));
+            assertEquals(Optional.empty(), t.flowStateGet(port, "flow-A", "k2"));
+            assertEquals(Optional.of(JsonValue.parse("3")), t.flowStateGet(port, "flow-B", "k1"), "other flows are untouched");
+            t.flowStateClear(port, "flow-A");
+
             t.deleteImposter(port);
         }
     }

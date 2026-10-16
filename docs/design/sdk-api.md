@@ -579,6 +579,7 @@ IsSpec withTcpFault(double probability, Fault kind)      // probabilistic object
 
 // helper factories on RiftDsl:
 static CopySpec copyFrom(String from)                    // .into("$TOKEN").using(regex(...)|jsonPath(...)|xPath(...))
+                                                         // xPath(sel, ns) writes Mountebank's `ns` (rift >= 0.22.0, rift#1326)
 static CopySpec copyFromQuery(String name)               // copy from {"query": name}
 static CopySpec copyFromHeader(String name)              // copy from {"headers": name}
 static LookupSpec lookupKey(String from)                 // .using(...).fromCsv(path, keyColumn).into("$ROW")
@@ -1117,7 +1118,9 @@ Implementation contract (so the implementer has zero decisions):
   and `sequencing` to the imposter-level one; flowState carries provider-store options. The DSL
   never fills these maps, so its output is unchanged; a modeled key placed in `extra` is rejected
   at construction.
-- Lenient reads already handled (statusCode string/number, `behaviors` alias, `allowCors`).
+- Lenient reads already handled (statusCode string/number, `behaviors` alias, `allowCors` from
+  pre-0.22 exports, and a non-boolean `allowCORS` read by JavaScript truthiness, rift#1453). A
+  leftover `flowState.backend` lands in `extra` (rift 0.22.0 dropped it, rift#1463).
   Add: flat/recorded response form (top-level statusCode/headers/body without `is` wrapper,
   engine issue #304) — read as `Is`, write canonical.
 - `rift-verify`'s `_verify` stays a raw `JsonValue` passthrough (it is a corpus annotation, not

@@ -51,11 +51,10 @@ class RiftConfigRoundTripTest {
         RiftConfig rift = imposter.rift().orElseThrow();
 
         RiftFlowStateConfig flowState = rift.flowState().orElseThrow();
-        assertEquals("inmemory", flowState.backend());
         assertEquals(600L, flowState.ttlSeconds());
         assertEquals("X-Flow-Id", flowState.flowIdSource().orElseThrow());
-        // a legacy redis block is not modeled: it is carried through extra untouched
-        assertEquals(Set.of("redis"), flowState.extra().keySet());
+        // legacy backend and redis keys are not modeled: they are carried through extra untouched
+        assertEquals(Set.of("backend", "redis"), flowState.extra().keySet());
 
         RiftScriptEngineConfig scriptEngine = rift.scriptEngine().orElseThrow();
         assertEquals("rhai", scriptEngine.defaultEngine());

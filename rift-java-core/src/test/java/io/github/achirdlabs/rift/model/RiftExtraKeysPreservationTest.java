@@ -92,9 +92,10 @@ class RiftExtraKeysPreservationTest {
         assertEquals(Map.of("sequencing", JsonValue.parse("{\"mode\": \"shared\", \"peekCacheMs\": 5}")), rift.extra());
 
         RiftFlowStateConfig flowState = rift.flowState().orElseThrow();
-        assertEquals("dynamo", flowState.backend());
         assertEquals(60L, flowState.ttlSeconds());
-        assertEquals(List.of("tableName", "region"), List.copyOf(flowState.extra().keySet()));
+        // backend is no longer modeled (rift#1463): a provider-supplied store's backend name is extra like its options
+        assertEquals(List.of("backend", "tableName", "region"), List.copyOf(flowState.extra().keySet()));
+        assertEquals(JsonValue.parse("\"dynamo\""), flowState.extra().get("backend"));
         assertEquals(JsonValue.parse("\"flows\""), flowState.extra().get("tableName"));
         assertEquals(JsonValue.parse("\"eu-west-1\""), flowState.extra().get("region"));
     }
@@ -106,12 +107,12 @@ class RiftExtraKeysPreservationTest {
         assertEquals("{\"templated\":true,\"dataset\":{\"name\":\"d\"}}", ext.toJsonValue().toJson());
 
         RiftFlowStateConfig flowState = new RiftFlowStateConfig(
-                "dynamo", 60, Optional.empty(), Map.of("tableName", JsonValue.parse("\"flows\"")));
-        assertEquals("{\"backend\":\"dynamo\",\"ttlSeconds\":60,\"tableName\":\"flows\"}", flowState.toJsonValue().toJson());
+                60, Optional.empty(), Map.of("tableName", JsonValue.parse("\"flows\"")));
+        assertEquals("{\"ttlSeconds\":60,\"tableName\":\"flows\"}", flowState.toJsonValue().toJson());
 
         RiftConfig config = new RiftConfig(Optional.of(flowState), Optional.empty(), Optional.empty(), Optional.empty(),
                 Map.of(), Map.of("sequencing", JsonValue.parse("{\"mode\":\"shared\"}")));
-        assertEquals("{\"flowState\":{\"backend\":\"dynamo\",\"ttlSeconds\":60,\"tableName\":\"flows\"},"
+        assertEquals("{\"flowState\":{\"ttlSeconds\":60,\"tableName\":\"flows\"},"
                 + "\"sequencing\":{\"mode\":\"shared\"}}", config.toJsonValue().toJson());
     }
 
@@ -126,7 +127,7 @@ class RiftExtraKeysPreservationTest {
                 () -> new RiftConfig(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Map.of(),
                         Map.of("scripts", v)));
         assertThrows(WireFormatException.class,
-                () -> new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Map.of("flowIdSource", v)));
+                () -> new RiftFlowStateConfig(300, Optional.empty(), Map.of("flowIdSource", v)));
     }
 
     @Test
@@ -138,7 +139,7 @@ class RiftExtraKeysPreservationTest {
         assertEquals(List.of("dataset", "futureKnob"), List.copyOf(twice.extra().keySet()));
         assertThrows(WireFormatException.class, () -> RiftResponseExtension.EMPTY.withExtra("fault", dataset));
         assertThrows(WireFormatException.class, () -> RiftConfig.EMPTY.withExtra("proxy", dataset));
-        RiftFlowStateConfig flowState = new RiftFlowStateConfig("inmemory", 300, Optional.empty());
+        RiftFlowStateConfig flowState = new RiftFlowStateConfig(300, Optional.empty());
         assertEquals(Map.of("tableName", dataset), flowState.withExtra("tableName", dataset).extra());
         assertThrows(WireFormatException.class, () -> flowState.withExtra("flowIdSource", dataset));
     }
@@ -147,7 +148,7 @@ class RiftExtraKeysPreservationTest {
     void shortConstructorsKeepAnEmptyExtra() {
         assertEquals(Map.of(), new RiftResponseExtension(Optional.empty(), Optional.empty(), true).extra());
         assertEquals(Map.of(), new RiftConfig(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Map.of()).extra());
-        assertEquals(Map.of(), new RiftFlowStateConfig("inmemory", 300, Optional.empty()).extra());
+        assertEquals(Map.of(), new RiftFlowStateConfig(300, Optional.empty()).extra());
         assertEquals(Map.of(), RiftResponseExtension.EMPTY.extra());
         assertEquals(Map.of(), RiftConfig.EMPTY.extra());
     }
