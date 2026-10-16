@@ -139,6 +139,17 @@ class EmbeddedTransportIT {
     }
 
     @Test
+    void deletingAnImposterTwiceIsIdempotent() {
+        // rift_delete_imposter answers -1 for a missing port; the SDK's delete is idempotent like HTTP's (rift#1371)
+        try (EmbeddedTransport t = open()) {
+            int port = portOf(t.createImposter(flowStateImposter()));
+            t.deleteImposter(port);
+            t.deleteImposter(port);
+            t.deleteImposter(45999);
+        }
+    }
+
+    @Test
     void flowStateRoundTrips() {
         try (EmbeddedTransport t = open()) {
             int port = portOf(t.createImposter(flowStateImposter()));

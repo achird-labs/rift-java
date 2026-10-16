@@ -40,8 +40,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * EngineUnavailable}; HTTP 400 becomes {@link InvalidDefinition}; HTTP 404 on a
  * {@code /imposters/{port}} path becomes {@link ImposterNotFound}; a 2xx response whose body
  * fails to parse becomes {@link CommunicationError}; any other non-2xx status becomes {@link
- * EngineError}. {@link #flowStateGet} is the one exception: a 404 there means "no such key" and
- * is reported as {@link Optional#empty()}, not an exception.
+ * EngineError}. Two 404s are not errors: {@link #flowStateGet}'s means "no such key" and is
+ * reported as {@link Optional#empty()}, and {@link #deleteImposter}'s means the imposter is already
+ * gone, which a delete does not refuse.
  */
 public final class RemoteTransport implements RiftTransport {
 
@@ -100,7 +101,11 @@ public final class RemoteTransport implements RiftTransport {
 
     @Override
     public void deleteImposter(int port) {
-        executeVoid("DELETE", "/imposters/" + port, null, OptionalInt.of(port));
+        HttpResponse<String> response = send("DELETE", "/imposters/" + port, null);
+        // An engine before 0.22.0 answers a missing port 404; from 0.22.0 it is 200 {} (rift#1371).
+        if (!isSuccess(response.statusCode()) && response.statusCode() != 404) {
+            throw mapError(response, OptionalInt.of(port));
+        }
     }
 
     @Override

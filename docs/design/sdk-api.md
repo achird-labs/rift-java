@@ -255,7 +255,7 @@ public interface RiftTransport extends AutoCloseable {
   JsonValue createImposter(JsonValue definition);          // returns created definition (with port)
   JsonValue getImposter(int port);                         // ImposterNotFound on 404
   JsonValue getImposter(int port, boolean replayable, boolean removeProxies);
-  void deleteImposter(int port);
+  void deleteImposter(int port);                           // idempotent: an absent port is a no-op (rift#1371)
   void deleteAll();
   JsonValue listImposters(boolean replayable, boolean removeProxies);
   void replaceAllImposters(JsonValue impostersDoc);
@@ -384,7 +384,7 @@ public interface Imposter {
   // -- lifecycle --
   void enable(); void disable();
   boolean isEnabled();                        // definition().enabled(): the engine's current view, one GET
-  void delete();                              // DELETE /imposters/:port; handle unusable after
+  void delete();                              // DELETE /imposters/:port; handle unusable after; idempotent (an absent imposter is a no-op, rift#1371)
 }
 
 public interface Recording extends AutoCloseable {

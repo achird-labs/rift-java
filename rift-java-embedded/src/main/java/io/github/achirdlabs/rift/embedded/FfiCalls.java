@@ -66,8 +66,27 @@ final class FfiCalls {
 
     void deleteImposter(int port) {
         ensureLive();
-        if (ffi.deleteImposter(handle, port) != 0) {
-            throw engineError();
+        if (ffi.deleteImposter(handle, port) == 0) {
+            return;
+        }
+        // rift_delete_imposter answers -1 for a missing port too, but delete is idempotent over HTTP
+        // (rift#1371). Read the error first: the probe clears it. A failed delete leaves the imposter
+        // registered, so its presence tells a real failure from an absent one.
+        RuntimeException failure = engineError();
+        if (imposterExists(port)) {
+            throw failure;
+        }
+    }
+
+    private boolean imposterExists(int port) {
+        try (Arena args = Arena.ofConfined()) {
+            MemorySegment probe = ffi.getImposter(handle, port,
+                    FfmCompat.allocateCString(args, listOptionsJson(false, false)));
+            if (RiftFfi.isNull(probe)) {
+                return false;
+            }
+            ffi.free(probe);
+            return true;
         }
     }
 
