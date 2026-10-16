@@ -2,11 +2,13 @@ package io.github.achirdlabs.rift.model;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * ImposterDefinition-level {@code _rift} configuration block: flow state (including its Redis backend),
+ * ImposterDefinition-level {@code _rift} configuration block: flow state,
  * script engine defaults, the named script registry, metrics, and proxy configuration. None of
  * this appears in any corpus fixture; hand-written spec-derived round-trip test (G2 + G3).
  */
@@ -52,10 +54,8 @@ class RiftConfigRoundTripTest {
         assertEquals("inmemory", flowState.backend());
         assertEquals(600L, flowState.ttlSeconds());
         assertEquals("X-Flow-Id", flowState.flowIdSource().orElseThrow());
-        RiftRedisConfig redis = flowState.redis().orElseThrow();
-        assertEquals("redis://localhost:6379", redis.url());
-        assertEquals(20, redis.poolSize());
-        assertEquals("myapp:", redis.keyPrefix());
+        // a legacy redis block is not modeled: it is carried through extra untouched
+        assertEquals(Set.of("redis"), flowState.extra().keySet());
 
         RiftScriptEngineConfig scriptEngine = rift.scriptEngine().orElseThrow();
         assertEquals("rhai", scriptEngine.defaultEngine());

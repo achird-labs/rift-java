@@ -106,7 +106,7 @@ class RiftExtraKeysPreservationTest {
         assertEquals("{\"templated\":true,\"dataset\":{\"name\":\"d\"}}", ext.toJsonValue().toJson());
 
         RiftFlowStateConfig flowState = new RiftFlowStateConfig(
-                "dynamo", 60, Optional.empty(), Optional.empty(), Map.of("tableName", JsonValue.parse("\"flows\"")));
+                "dynamo", 60, Optional.empty(), Map.of("tableName", JsonValue.parse("\"flows\"")));
         assertEquals("{\"backend\":\"dynamo\",\"ttlSeconds\":60,\"tableName\":\"flows\"}", flowState.toJsonValue().toJson());
 
         RiftConfig config = new RiftConfig(Optional.of(flowState), Optional.empty(), Optional.empty(), Optional.empty(),
@@ -126,7 +126,7 @@ class RiftExtraKeysPreservationTest {
                 () -> new RiftConfig(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Map.of(),
                         Map.of("scripts", v)));
         assertThrows(WireFormatException.class,
-                () -> new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Optional.empty(), Map.of("flowIdSource", v)));
+                () -> new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Map.of("flowIdSource", v)));
     }
 
     @Test
@@ -138,16 +138,16 @@ class RiftExtraKeysPreservationTest {
         assertEquals(List.of("dataset", "futureKnob"), List.copyOf(twice.extra().keySet()));
         assertThrows(WireFormatException.class, () -> RiftResponseExtension.EMPTY.withExtra("fault", dataset));
         assertThrows(WireFormatException.class, () -> RiftConfig.EMPTY.withExtra("proxy", dataset));
-        RiftFlowStateConfig flowState = new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Optional.empty());
+        RiftFlowStateConfig flowState = new RiftFlowStateConfig("inmemory", 300, Optional.empty());
         assertEquals(Map.of("tableName", dataset), flowState.withExtra("tableName", dataset).extra());
-        assertThrows(WireFormatException.class, () -> flowState.withExtra("redis", dataset));
+        assertThrows(WireFormatException.class, () -> flowState.withExtra("flowIdSource", dataset));
     }
 
     @Test
     void shortConstructorsKeepAnEmptyExtra() {
         assertEquals(Map.of(), new RiftResponseExtension(Optional.empty(), Optional.empty(), true).extra());
         assertEquals(Map.of(), new RiftConfig(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Map.of()).extra());
-        assertEquals(Map.of(), new RiftFlowStateConfig("inmemory", 300, Optional.empty(), Optional.empty()).extra());
+        assertEquals(Map.of(), new RiftFlowStateConfig("inmemory", 300, Optional.empty()).extra());
         assertEquals(Map.of(), RiftResponseExtension.EMPTY.extra());
         assertEquals(Map.of(), RiftConfig.EMPTY.extra());
     }

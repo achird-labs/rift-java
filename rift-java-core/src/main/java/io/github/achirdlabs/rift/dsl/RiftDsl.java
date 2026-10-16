@@ -435,11 +435,6 @@ public final class RiftDsl {
         return FlowStateSpec.inMemory();
     }
 
-    /** Starts building a Redis-backed flow-state configuration against {@code url}. */
-    public static FlowStateSpec redisFlowState(String url) {
-        return FlowStateSpec.redis(url);
-    }
-
     // ------------------------------------------------------------------
     // Verification times
     // ------------------------------------------------------------------

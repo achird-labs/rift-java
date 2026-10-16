@@ -634,7 +634,6 @@ ImposterSpec recordMatches()                             // recordMatches — @D
 
 // factories:
 static FlowStateSpec inMemoryFlowState()                 // .ttl(Duration).flowIdFromHeader(name)
-static FlowStateSpec redisFlowState(String url)          // .poolSize(n).keyPrefix(s).ttl(d)
 ```
 
 ### 7.6 `ProxySpec` typed predicate generators

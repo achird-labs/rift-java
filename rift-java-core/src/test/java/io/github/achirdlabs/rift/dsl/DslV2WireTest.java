@@ -22,7 +22,6 @@ import static io.github.achirdlabs.rift.dsl.RiftDsl.ok;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.onGet;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.onRequest;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.proxyTo;
-import static io.github.achirdlabs.rift.dsl.RiftDsl.redisFlowState;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -237,18 +236,6 @@ class DslV2WireTest {
         JsonValue info = RiftDsl.json("{\"team\":\"payments\"}");
         ImposterDefinition def = imposter("svc").serviceInfo(info).build();
         assertEquals(info, def.serviceInfo().orElseThrow());
-    }
-
-    @Test
-    void redisFlowStateWiring() {
-        ImposterDefinition def = imposter("svc")
-                .flowState(redisFlowState("redis://localhost:6379").poolSize(20).keyPrefix("rift:").ttl(Duration.ofSeconds(60)))
-                .build();
-        var fs = def.rift().orElseThrow().flowState().orElseThrow();
-        assertEquals("redis", fs.backend());
-        assertEquals(60L, fs.ttlSeconds());
-        assertEquals("redis://localhost:6379", fs.redis().orElseThrow().url());
-        assertEquals(20, fs.redis().orElseThrow().poolSize());
     }
 
     @Test
