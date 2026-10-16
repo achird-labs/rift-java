@@ -232,5 +232,14 @@ public interface Imposter {
      */
     boolean isEnabled();
 
+    /**
+     * Deletes this imposter, freeing its port. Idempotent, as in Mountebank (rift#1371): deleting
+     * an imposter that is already gone succeeds, on every transport and engine version. This handle
+     * is unusable afterwards. To tell whether an imposter still exists, use {@link Rift#imposter(int)}.
+     *
+     * @throws io.github.achirdlabs.rift.error.EngineError if the engine fails to delete it and it is
+     *         still registered
+     * @throws io.github.achirdlabs.rift.error.EngineUnavailable if the engine cannot be reached
+     */
     void delete();
 }

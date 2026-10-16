@@ -7,7 +7,6 @@ import io.github.achirdlabs.rift.VersionCheck;
 import io.github.achirdlabs.rift.error.CommunicationError;
 import io.github.achirdlabs.rift.error.EngineError;
 import io.github.achirdlabs.rift.error.EngineUnavailable;
-import io.github.achirdlabs.rift.error.ImposterNotFound;
 import io.github.achirdlabs.rift.error.InvalidDefinition;
 import org.junit.jupiter.api.Test;
 
@@ -77,14 +76,42 @@ class RemoteTransportGateTest {
     }
 
     @Test
-    void deleteMissingImposterThrowsImposterNotFound() {
+    void deletingAnImposterAnOlderEngine404sIsANoOp() {
+        // engines before 0.22.0 answered a missing port with 404; delete is idempotent on every engine (#308)
         try (FakeAdminServer server = new FakeAdminServer()) {
             server.respond("POST /imposters", 201, IMPOSTER_JSON);
             server.respond("DELETE /imposters/4545", 404, "{\"errors\":[{\"code\":\"no such resource\",\"message\":\"missing\"}]}");
             try (Rift rift = connectNoPreflight(server)) {
                 Imposter imp = rift.create(imposter("x").port(4545));
-                ImposterNotFound ex = assertThrows(ImposterNotFound.class, imp::delete);
-                assertEquals(4545, ex.port());
+                imp.delete();
+                assertEquals(1, server.received().stream().filter(r -> r.method().equals("DELETE") && r.path().equals("/imposters/4545")).count());
+            }
+        }
+    }
+
+    @Test
+    void deletingAnAbsentImposterOnA022EngineIsANoOp() {
+        // rift 0.22.0 answers it 200 {} (rift#1371), Mountebank's idempotent teardown
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            server.respond("POST /imposters", 201, IMPOSTER_JSON);
+            server.respond("DELETE /imposters/4545", 200, "{}");
+            try (Rift rift = connectNoPreflight(server)) {
+                rift.create(imposter("x").port(4545)).delete();
+                assertEquals(1, server.received().stream().filter(r -> r.method().equals("DELETE") && r.path().equals("/imposters/4545")).count());
+            }
+        }
+    }
+
+    @Test
+    void aFailedDeleteStillThrows() {
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            server.respond("POST /imposters", 201, IMPOSTER_JSON);
+            server.respond("DELETE /imposters/4545", 500, "{\"errors\":[{\"code\":\"internal\",\"message\":\"datadir unlink failed\"}]}");
+            try (Rift rift = connectNoPreflight(server)) {
+                Imposter imp = rift.create(imposter("x").port(4545));
+                EngineError ex = assertThrows(EngineError.class, imp::delete);
+                assertEquals(500, ex.code());
+                assertEquals("datadir unlink failed", ex.getMessage());
             }
         }
     }

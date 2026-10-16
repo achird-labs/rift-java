@@ -37,6 +37,10 @@ public interface RiftTransport extends AutoCloseable {
      */
     JsonValue getImposter(int port, boolean replayable, boolean removeProxies);
 
+    /**
+     * Deletes the imposter on {@code port}. Idempotent: a port with no imposter is not an error
+     * (rift#1371); only a delete that leaves the imposter in place, or an unreachable engine, throws.
+     */
     void deleteImposter(int port);
 
     void deleteAll();
