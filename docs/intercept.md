@@ -81,6 +81,15 @@ and intercept stays available. The explicit `attach(host, port)` form never cons
 started it through the engine's admin plane (`rift.adminUri()`). A client that stops or restarts it
 through that plane is reflected too.
 
+A handle whose listener is stopped or replaced outside it (the admin plane, another client, on any
+transport) is superseded rather than left holding the engine. The next `rift.intercept()`, or the old
+handle's own `close()`, finds it stale. From then on its rule calls and `trust()` throw
+`IllegalStateException`, and it makes no engine call, so it cannot stop or clear the listener
+running in its place. Until something finds it stale, its rule calls still reach whatever listener
+the engine runs. A listener restarted on the same port looks the same as the original, because the
+engine reports a listener only by its address. For an `attach(host, port)` handle, only a stopped
+listener is detected, because its port is the client's view and may differ from the engine's.
+
 To start the listener at runtime instead — with your own CA, say — expose the port without
 launching a listener, then start it bound to the container's interface. The handle is mapped to
 Docker's port:

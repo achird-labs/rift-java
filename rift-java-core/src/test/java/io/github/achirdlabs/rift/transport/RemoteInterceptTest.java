@@ -41,6 +41,8 @@ class RemoteInterceptTest {
     void setUp() {
         server = new FakeAdminServer();
         server.respond("POST /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://127.0.0.1:9000\"}");
+        // the started listener, as the engine reports it: a handle checks it before stopping (#316)
+        server.respond("GET /intercept", 200, "{\"interceptPort\":9000,\"interceptUrl\":\"http://127.0.0.1:9000\"}");
         server.respond("POST /intercept/rules", 200, "{}");
         server.respond("GET /intercept/rules", 200, "[]");
         server.respond("DELETE /intercept/rules", 200, "{}");

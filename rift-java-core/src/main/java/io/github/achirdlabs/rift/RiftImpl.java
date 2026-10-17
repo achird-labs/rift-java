@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
 import java.util.function.UnaryOperator;
 
@@ -69,6 +70,8 @@ final class RiftImpl implements Rift {
      */
     private final boolean localEngine;
     private final AtomicBoolean interceptStarted = new AtomicBoolean(false);
+    /** The handle holding {@link #interceptStarted}, once its start returned; asked whether it went stale. */
+    private final AtomicReference<InterceptImpl> openIntercept = new AtomicReference<>();
     /**
      * The engine's reported version: seeded by the preflight when it ran, else read on first need, then
      * kept for the life of this handle. Concurrent first reads may both hit the engine; they read the
@@ -448,8 +451,21 @@ final class RiftImpl implements Rift {
         // Checked (and flipped) before touching the transport at all: a rejected second call must
         // never start a second listener even transiently.
         if (!interceptStarted.compareAndSet(false, true)) {
-            throw new IllegalStateException("intercept already started for this engine");
+            // A listener stopped or replaced outside the open handle (the admin plane, another client)
+            // leaves the latch set; the handle checks the engine's slot and, if stale, closes itself
+            // without an engine call and releases the latch. A start still in flight has no handle yet.
+            InterceptImpl open = openIntercept.get();
+            boolean stale;
+            try {
+                stale = open != null && open.supersedeIfStale();
+            } catch (RuntimeException cannotTell) {
+                throw new IllegalStateException("intercept already started for this engine", cannotTell);
+            }
+            if (!stale || !interceptStarted.compareAndSet(false, true)) {
+                throw new IllegalStateException("intercept already started for this engine");
+            }
         }
+        openIntercept.set(null);
         JsonValue response;
         try {
             if (options.discoversListener()) {
@@ -459,8 +475,8 @@ final class RiftImpl implements Rift {
                 if (ca != null) {
                     InterceptImpl.requireListenerCa(ca, transport.interceptCaPem());
                 }
-                return new InterceptImpl(transport, running, interceptDial(), ca, this::requireEngineSupportOf,
-                        () -> interceptStarted.set(false));
+                return opened(new InterceptImpl(transport, running, interceptDial(), ca, this::requireEngineSupportOf,
+                        () -> interceptStarted.set(false)));
             }
             if (options.isAttach()) {
                 // No listener to start: probe the already-running one (started at engine launch via
@@ -470,8 +486,8 @@ final class RiftImpl implements Rift {
                 if (ca != null) {
                     InterceptImpl.requireListenerCa(ca, transport.interceptCaPem());
                 }
-                return new InterceptImpl(transport, options.host(), options.port(), ca, this::requireEngineSupportOf,
-                        () -> interceptStarted.set(false));
+                return opened(new InterceptImpl(transport, options.host(), options.port(), ca, this::requireEngineSupportOf,
+                        () -> interceptStarted.set(false)));
             }
             // Asked before the start, so a mapping that cannot reach the port (an unexposed container
             // port) refuses with nothing started to orphan.
@@ -496,7 +512,7 @@ final class RiftImpl implements Rift {
                         + " if the engine runs in a container or on another host, start it with"
                         + " InterceptOptions.builder().host(\"0.0.0.0\")");
             }
-            return intercept;
+            return opened(intercept);
         } catch (RuntimeException e) {
             // The engine is running a listener this client cannot use, and it allows one: stop it, so
             // a retry can start another. If even that fails the latch stays set, as a retry would only
@@ -515,6 +531,11 @@ final class RiftImpl implements Rift {
             interceptStarted.set(false);
             throw new IllegalStateException(started + "; it was stopped", e);
         }
+    }
+
+    private InterceptImpl opened(InterceptImpl intercept) {
+        openIntercept.set(intercept);
+        return intercept;
     }
 
     @Override

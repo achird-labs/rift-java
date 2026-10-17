@@ -392,6 +392,37 @@ class InterceptE2eIT {
     }
 
     @Test
+    void aListenerStoppedThroughTheAdminPlaneNoLongerBlocksANewIntercept() throws Exception {
+        // #316: the handle's latch used to stay set, refusing every later intercept() on this engine
+        try (Rift rift = embedded()) {
+            Intercept stale = rift.intercept();
+            assertEquals(204, deleteIntercept(rift.adminUri()));
+
+            Intercept fresh = rift.intercept();
+            int freshPort = fresh.address().getPort();
+            assertThrows(IllegalStateException.class, stale::rules, "the stale handle is closed");
+            stale.close();
+            assertEquals(freshPort, rift.interceptStatus().orElseThrow().port(), "closing the stale handle leaves the new listener");
+            fresh.close();
+        }
+    }
+
+    @Test
+    void aStaleHandleNeverStopsAListenerAnotherClientStarted() throws Exception {
+        try (Rift rift = embedded();
+                Rift viaAdmin = Rift.connect(ConnectOptions.builder(rift.adminUri()).versionCheck(VersionCheck.OFF).build())) {
+            Intercept stale = rift.intercept();
+            assertEquals(204, deleteIntercept(rift.adminUri()));
+            int theirPort = viaAdmin.intercept().address().getPort();
+            org.junit.jupiter.api.Assumptions.assumeTrue(theirPort != stale.address().getPort(),
+                    "the OS handed the freed port straight back: a same-port restart is the documented limit");
+
+            stale.close();
+            assertEquals(theirPort, rift.interceptStatus().orElseThrow().port(), "the other client's listener still runs");
+        }
+    }
+
+    @Test
     void anFfiStartAfterTheAdminPlaneIsServedIsReported() {
         // this handle's own start, answered by the plane rather than the cached record: the one case
         // that fails if the plane stops seeing an FFI-started listener

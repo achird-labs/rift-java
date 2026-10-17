@@ -49,6 +49,8 @@ final class InterceptImpl implements Intercept {
     /** Tells the owning {@link RiftImpl} the engine is free for another intercept. */
     private final Runnable onClosed;
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    /** Set when the engine's slot stopped holding this handle's listener without this handle closing it. */
+    private volatile boolean superseded;
 
     private volatile InterceptTrust trust;
 
@@ -370,6 +372,37 @@ final class InterceptImpl implements Intercept {
     }
 
     /**
+     * Closes this handle without any engine call if the engine's intercept slot no longer holds its
+     * listener: the slot is empty (stopped through the admin plane, or by another client), or reports
+     * a different port (since restarted). A stale handle must never stop or clear the rules of a
+     * listener it does not hold. A restart on the same port cannot be told apart, because the engine
+     * gives a listener no identity but its address; nor can a restart under an {@code attach(host,
+     * port)} handle, whose port is the client's view and may differ from the engine's.
+     *
+     * @return whether this handle is closed: already, or now because it was stale; {@code false} when
+     *     the engine still holds its listener or the transport cannot report the slot
+     */
+    synchronized boolean supersedeIfStale() {
+        if (closed.get()) {
+            return true;
+        }
+        Optional<InterceptStatus> now;
+        try {
+            now = transport.interceptStatus().map(report -> InterceptStatus.fromJson(report, "intercept status"));
+        } catch (UnsupportedOperationException e) {
+            return false;
+        }
+        boolean stale = now.isEmpty() || (engineBound != null && now.get().port() != engineBound.getPort());
+        if (stale) {
+            superseded = true;
+            closed.set(true);
+            onClosed.run();
+        }
+        return stale;
+    }
+
+    /**
+     * Checks first that the engine still holds this handle's listener ({@link #supersedeIfStale}).
      * Synchronized so a concurrent caller waits for the outcome rather than returning before a stop
      * that may yet fail. The handle counts as closed only once the transport call succeeded: a failure
      * leaves it open and the engine claimed, so close() can be retried.
@@ -377,6 +410,15 @@ final class InterceptImpl implements Intercept {
     @Override
     public synchronized void close() {
         if (closed.get()) {
+            return;
+        }
+        boolean stale;
+        try {
+            stale = supersedeIfStale();
+        } catch (RuntimeException cannotTell) {
+            stale = false; // the stop below reports an unreachable engine as it always has
+        }
+        if (stale) {
             return;
         }
         boolean engineFreed = true;
@@ -400,6 +442,9 @@ final class InterceptImpl implements Intercept {
     }
 
     private void requireOpen() {
+        if (superseded) {
+            throw new IllegalStateException("intercept listener was stopped outside this handle");
+        }
         if (closed.get()) {
             throw new IllegalStateException("intercept is closed");
         }
