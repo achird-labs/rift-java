@@ -176,11 +176,11 @@ public interface Imposter {
     Space space(String flowId);
 
     /**
-     * The runtime flow-state store for a flow id. The engine backs this with a real store only when
-     * the def declares one — an explicit {@code _rift.flowState}, a scenario stub, a {@code
-     * _rift.script} stub, or an {@code is} response with {@code _rift.stateOps}; otherwise reads
-     * return empty (a no-op store). This accessor logs one advisory warning if no such trigger is
-     * present.
+     * The runtime flow-state store for a flow id. From rift 0.23.0 every imposter has an in-memory
+     * store (300 s TTL) unless it declares another (rift#1504). An older engine backs it with a real
+     * store only when the def declares one — an explicit {@code _rift.flowState}, a scenario stub, a
+     * {@code _rift.script} stub, or an {@code is} response with {@code _rift.stateOps}; otherwise
+     * reads return empty (a no-op store), and this accessor logs one advisory warning.
      *
      * @throws IllegalArgumentException if {@code flowId} is blank — a blank id is never the default
      *     flow but a distinct, silently-wrong partition, so it is rejected rather than sent verbatim

@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.OptionalLong;
 
 final class ImposterImpl implements Imposter {
@@ -48,12 +49,24 @@ final class ImposterImpl implements Imposter {
     /** The imposter's engine protocol, {@code http} or {@code https}: fixed for its lifetime on this port. */
     private final String protocol;
 
+    /** The first rift release that gives every imposter an in-memory flow store (rift#1504). */
+    static final String DEFAULT_FLOW_STORE_SINCE = "0.23.0";
+
+    /** The engine's version for advisories: never throws, empty when it cannot be read. */
+    private final Supplier<Optional<String>> engineVersion;
+
     ImposterImpl(int port, RiftTransport transport, ConnectOptions options) {
         this(port, transport, options, Optional.empty(), ImposterDefinition.DEFAULT_PROTOCOL);
     }
 
     ImposterImpl(int port, RiftTransport transport, ConnectOptions options, Optional<String> boundHost,
             String protocol) {
+        this(port, transport, options, boundHost, protocol, Optional::empty);
+    }
+
+    ImposterImpl(int port, RiftTransport transport, ConnectOptions options, Optional<String> boundHost,
+            String protocol, Supplier<Optional<String>> engineVersion) {
+        this.engineVersion = Objects.requireNonNull(engineVersion, "engineVersion");
         this.port = port;
         this.transport = transport;
         this.options = options;
@@ -301,19 +314,29 @@ final class ImposterImpl implements Imposter {
     /**
      * Warn (once) if the flow-state API is used on an imposter with no store trigger (an explicit
      * {@code _rift.flowState}, a scenario stub, a {@code _rift.script} stub, or {@code
-     * _rift.stateOps}): the engine uses a no-op store, so reads return empty (#40). Advisory, same
-     * fetch-once/swallow policy as above.
+     * _rift.stateOps}) on an engine before {@value #DEFAULT_FLOW_STORE_SINCE}, which uses a no-op
+     * store, so reads return empty (#40, #307). Advisory, same fetch-once/swallow policy as above.
      */
     private synchronized void warnIfFlowStateUnusable() {
         if (flowStateConfigChecked) {
             return;
         }
         flowStateConfigChecked = true;
+        // Only an engine known to predate rift#1504 gives a trigger-less imposter a no-op store. A newer
+        // engine, an unknown version, or a dev build below the floor ("0.1.0") is not warned about.
+        boolean noOpStoreEngine = engineVersion.get()
+                .filter(v -> EngineVersion.atLeast(v, RiftImpl.MIN_ENGINE_VERSION))
+                .filter(v -> !EngineVersion.atLeast(v, DEFAULT_FLOW_STORE_SINCE))
+                .isPresent();
+        if (!noOpStoreEngine) {
+            return;
+        }
         try {
             if (!FlowStateSupport.hasStoreTrigger(definition())) {
                 LOG.log(Level.WARNING, "imposter on port " + port + " uses the flow-state API but declares no "
                         + "store trigger (_rift.flowState, a scenario stub, a _rift.script stub, or _rift.stateOps); "
-                        + "reads return empty (engine uses a no-op store). Declare flowState(inMemoryFlowState()).");
+                        + "reads return empty (rift < " + DEFAULT_FLOW_STORE_SINCE + " uses a no-op store). Declare "
+                        + "flowState(inMemoryFlowState()), or upgrade the engine.");
             }
         } catch (RiftException e) {
             // Advisory only: the SPI's declared def-fetch failures (engine unavailable, not found,

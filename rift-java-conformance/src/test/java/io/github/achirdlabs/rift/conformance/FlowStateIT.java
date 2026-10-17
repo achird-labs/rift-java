@@ -3,6 +3,7 @@ package io.github.achirdlabs.rift.conformance;
 import io.github.achirdlabs.rift.FlowState;
 import io.github.achirdlabs.rift.Imposter;
 import io.github.achirdlabs.rift.Rift;
+import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -20,6 +21,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** {@code FlowState.get} returns the stored value on every transport (#236). Needs {@code RIFT_IT=1}. */
 class FlowStateIT {
+
+    @TestFactory
+    Stream<DynamicTest> anImposterWithNoStoreTriggerStillKeepsFlowState() {
+        // rift 0.23.0 gives every imposter an in-memory store (rift#1504); before it, this read empty (#307)
+        return gated("a trigger-less imposter's flow state reads back", () -> {
+            try (Rift rift = engine()) {
+                Imposter imposter = rift.create(imposter("no-trigger").stub(onGet("/").willReturn(ok())));
+                imposter.flowState("f").put("k", "v");
+                assertEquals(Optional.of(new JsonString("v")),
+                        imposter.flowState("f").get("k"));
+            }
+        });
+    }
 
     @TestFactory
     Stream<DynamicTest> getReturnsTheStoredValue() {
