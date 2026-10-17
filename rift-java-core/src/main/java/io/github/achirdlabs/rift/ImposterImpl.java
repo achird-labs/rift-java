@@ -1,5 +1,6 @@
 package io.github.achirdlabs.rift;
 
+import io.github.achirdlabs.rift.dsl.PredicateGeneratorSpec;
 import io.github.achirdlabs.rift.dsl.ProxySpec;
 import io.github.achirdlabs.rift.dsl.RequestField;
 import io.github.achirdlabs.rift.dsl.RiftDsl;
@@ -164,7 +165,15 @@ final class ImposterImpl implements Imposter {
             case ALWAYS -> proxy.proxyAlways();
             case TRANSPARENT -> proxy.proxyTransparent();
         };
-        proxy = proxy.generateBy(spec.generators().toArray(new RequestField[0]));
+        RequestField[] fields = spec.generators().toArray(new RequestField[0]);
+        if (spec.generators().contains(RequestField.HEADERS) && !spec.ignoreHeaders().isEmpty()) {
+            // the engine leaves them out while recording (rift >= 0.22.0, rift#1446), so requests that
+            // differ only in them are one recording; the export strip covers older engines
+            proxy = proxy.generateBy(PredicateGeneratorSpec.create().matching(fields)
+                    .ignore(RequestField.HEADERS, spec.ignoreHeaders().toArray(new String[0])));
+        } else {
+            proxy = proxy.generateBy(fields);
+        }
         if (spec.addWaitBehavior()) {
             proxy = proxy.addWaitBehavior();
         }
