@@ -139,6 +139,8 @@ final class InterceptRules implements InterceptRuleSet {
         requireDeliverable(is);
         IsResponse ir = is.is();
         JsonObject.Builder builder = JsonObject.builder();
+        // A serve rule has no defaultResponse to fill an unwritten field (IsResponse.omitted), so each
+        // is delivered as the value it reads as: a 200 status, no headers, a text body.
         builder.put("statusCode", JsonNumber.of(statusAsInt(ir.statusCode())));
         if (!ir.headers().isEmpty()) {
             JsonObject.Builder headers = JsonObject.builder();

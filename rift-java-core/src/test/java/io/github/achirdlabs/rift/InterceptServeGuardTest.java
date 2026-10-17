@@ -253,7 +253,8 @@ class InterceptServeGuardTest {
     @Test
     void guardCoversEveryComponentOfTheModelItInspects() {
         assertComponents(Response.Is.class, "is", "behaviors", "rift", "extra");
-        assertComponents(IsResponse.class, "statusCode", "headers", "body", "mode", "extra");
+        // omitted needs no guard: a serve rule delivers an unwritten field as the value it reads as (#302)
+        assertComponents(IsResponse.class, "statusCode", "headers", "body", "mode", "extra", "omitted");
         assertComponents(RiftResponseExtension.class, "fault", "script", "templated", "stateOps", "conditional", "extra");
         assertComponents(RiftFaultConfig.class, "latency", "error", "tcp");
         assertComponents(Behaviors.class, "entries");
