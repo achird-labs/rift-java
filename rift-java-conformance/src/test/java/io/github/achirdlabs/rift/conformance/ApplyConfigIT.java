@@ -7,6 +7,11 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
 import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -23,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code Rift.applyConfig} against a live engine (#264). The report names the ports it changed —
  * the engine sends port arrays, which the SDK used to read as 0 — and an unchanged config changes
  * nothing. Both surfaces report: embedded via {@code rift_apply_config}, spawn via {@code PUT
- * /imposters}, whose 200 carries the report since engine 0.20.0 (achird-labs/rift#1304). Needs
+ * /imposters?reconcile=true}, whose 200 carries the report since engine 0.20.0 (achird-labs/rift#1304). Needs
  * {@code RIFT_IT=1}.
  */
 class ApplyConfigIT {
@@ -63,6 +68,25 @@ class ApplyConfigIT {
                 ApplyResult resumed = rift.applyConfig(config(port, true));
                 assertEquals(List.of(port), resumed.toggled());
                 assertEquals(List.of(), resumed.replaced(), "a resume is not a replace");
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> anUnchangedImposterKeepsItsRecordedRequests() {
+        // #319: from rift#1518 a plain PUT /imposters resets runtime state; applyConfig reconciles
+        return gated("re-applying the same config keeps the imposter's journal", () -> {
+            try (Rift rift = engine()) {
+                int port = freePort();
+                String imposter = imposter("kept").port(port).record().stub(onGet("/").willReturn(status(204))).build().toJson();
+                JsonValue config = JsonValue.parse("{\"imposters\":[" + imposter + "]}");
+                rift.applyConfig(config);
+                HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/"))
+                        .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding());
+                assertEquals(1, rift.imposter(port).orElseThrow().recorded().size());
+
+                assertTrue(rift.applyConfig(config).changedNothing());
+                assertEquals(1, rift.imposter(port).orElseThrow().recorded().size(), "the journal survives the reconcile");
             }
         });
     }

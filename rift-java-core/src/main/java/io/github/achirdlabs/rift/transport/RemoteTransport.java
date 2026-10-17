@@ -131,8 +131,13 @@ public final class RemoteTransport implements RiftTransport {
         executeVoid("PUT", "/imposters", doc.toJson(), OptionalInt.empty());
     }
 
+    /** Reconciling keeps an unchanged imposter's runtime state; an engine before rift#1518 ignores the query and does so anyway. */
+    private static final String APPLY_CONFIG_PATH = "/imposters?reconcile=true";
+
     /**
-     * {@code PUT /imposters}: the same reconcile as {@code rift_apply_config}. Not {@code POST
+     * {@code PUT /imposters?reconcile=true}: the same reconcile as {@code rift_apply_config}. From the
+     * engine release after 0.22.0 (rift#1518) a plain {@code PUT /imposters} resets every listed
+     * imposter's runtime state, so the query is what keeps an unchanged one as it is. Not {@code POST
      * /admin/reload}, which reads no body and reloads the engine's own config sources instead. A
      * partial failure answers {@code 500} with the report (which ports did apply, and {@code
      * failed}); that body is returned as the report rather than mapped to an {@link EngineError}.
@@ -143,9 +148,9 @@ public final class RemoteTransport implements RiftTransport {
         JsonValue body = config instanceof JsonArray imposters
                 ? JsonObject.builder().put("imposters", imposters).build()
                 : config;
-        HttpResponse<String> response = send("PUT", "/imposters", body.toJson());
+        HttpResponse<String> response = send("PUT", APPLY_CONFIG_PATH, body.toJson());
         if (isSuccess(response.statusCode())) {
-            return parseJsonBody(response, "PUT /imposters");
+            return parseJsonBody(response, "PUT " + APPLY_CONFIG_PATH);
         }
         if (response.statusCode() == 500) {
             Optional<JsonObject> report = applyReport(response.body());
