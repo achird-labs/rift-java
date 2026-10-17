@@ -140,7 +140,8 @@ public final class RemoteTransport implements RiftTransport {
      * imposter's runtime state, so the query is what keeps an unchanged one as it is. Not {@code POST
      * /admin/reload}, which reads no body and reloads the engine's own config sources instead. A
      * partial failure answers {@code 500} with the report (which ports did apply, and {@code
-     * failed}); that body is returned as the report rather than mapped to an {@link EngineError}.
+     * failed}), or {@code 400} from rift 0.23.0 when every failure is the caller's address; that body
+     * is returned as the report rather than mapped to an {@link EngineError}.
      */
     @Override
     public JsonValue applyConfig(JsonValue config) {
@@ -152,7 +153,10 @@ public final class RemoteTransport implements RiftTransport {
         if (isSuccess(response.statusCode())) {
             return parseJsonBody(response, "PUT " + APPLY_CONFIG_PATH);
         }
-        if (response.statusCode() == 500) {
+        // A partial apply answers with its report: 500, or from rift 0.23.0 (rift#1524) 400 when every
+        // failure is the caller's address (a port in use, a host that is not local). A 400 without a
+        // report is an invalid config, mapped as one below.
+        if (response.statusCode() == 500 || response.statusCode() == 400) {
             Optional<JsonObject> report = applyReport(response.body());
             if (report.isPresent()) {
                 return report.get();
@@ -168,7 +172,7 @@ public final class RemoteTransport implements RiftTransport {
                     ? Optional.of(obj)
                     : Optional.empty();
         } catch (JsonParseException notJson) {
-            // An unparseable 500 is an ordinary server error, mapped as one by the caller.
+            // An unparseable body is an ordinary error, mapped as one by the caller.
             return Optional.empty();
         }
     }
