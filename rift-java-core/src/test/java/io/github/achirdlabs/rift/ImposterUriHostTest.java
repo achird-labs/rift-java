@@ -17,8 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * An imposter bound to its own host is reached there, not at the admin host, on an engine the SDK
- * runs locally (#243). The engine binds an imposter on its {@code host} field (default {@code
- * 0.0.0.0}) whatever interface the admin API uses.
+ * runs locally (#243). The engine binds an imposter on its {@code host} field whatever interface
+ * the admin API uses; a host-less one binds the engine's default, which a spawned engine takes from
+ * its {@code --host} from rift 0.23.0 (rift#1517).
  */
 class ImposterUriHostTest {
 
