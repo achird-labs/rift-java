@@ -188,6 +188,27 @@ class PredicateEvaluatorTest {
     }
 
     @Test
+    void anXPathElementReadsAsItsFirstChildNodeAsTheEngineDoes() {
+        // rift 0.23.0 (rift#1495) reads a selected element as Mountebank's nodeValue: its first child's
+        // text, "undefined" when it has none or starts with an element
+        RecordedRequest mixed = req("POST", "/x", "<a>x<b/>y</a>", Map.of(), Map.of());
+        assertTrue(check(mixed, body(equalTo("x")).xPath("//a").build()));
+        assertFalse(check(mixed, body(equalTo("xy")).xPath("//a").build()));
+        assertTrue(check(req("POST", "/x", "<a><b/>z</a>", Map.of(), Map.of()), body(equalTo("undefined")).xPath("//a").build()));
+        assertTrue(check(req("POST", "/x", "<a/>", Map.of(), Map.of()), body(equalTo("undefined")).xPath("//a").build()));
+        assertTrue(check(req("POST", "/x", "<a>x&amp;y<![CDATA[z]]></a>", Map.of(), Map.of()),
+                body(equalTo("x&yz")).xPath("//a").build()), "text, references and CDATA are one node");
+    }
+
+    @Test
+    void textAndAttributeSelectionsAndStringFunctionsReadTheirValue() {
+        RecordedRequest r = req("POST", "/x", "<a id=\"7\">x<b/>y</a>", Map.of(), Map.of());
+        assertTrue(check(r, body(equalTo("x")).xPath("//a/text()").build()));
+        assertTrue(check(r, body(equalTo("7")).xPath("//a/@id").build()));
+        assertTrue(check(r, body(equalTo("xy")).xPath("string(//a)").build()), "string() reads the whole text");
+    }
+
+    @Test
     void xxeEntityInBodyIsNotResolved() {
         String xxe = "<?xml version=\"1.0\"?><!DOCTYPE t [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><t>&x;</t>";
         RecordedRequest r = req("POST", "/x", xxe, Map.of(), Map.of());
