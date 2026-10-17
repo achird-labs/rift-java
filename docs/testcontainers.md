@@ -176,6 +176,26 @@ See [docs/recording.md](recording.md#recording-an-origin-behind-a-private-ca) fo
 (`RecordedRequest.bodyOmitted()`). An image tagged with a version older than 0.22.0 is refused, and a
 non-zero budget below the body ceiling is refused when the container starts, as the engine would.
 
+## A spawned engine reached from a container
+
+This is the reverse of the setup above. Here the engine runs on the host via `Rift.spawn()`, and the
+system under test runs in a container, reaching the host through `host.docker.internal` or the bridge
+gateway. From rift 0.23.0 an imposter with no `host` of its own binds the spawned engine's `--host`
+(`127.0.0.1` by default, rift#1517). `--local-only`, which is on by default, also refuses non-loopback
+clients on imposters (rift#1523). So the container needs both of these:
+
+```java
+try (Rift rift = Rift.spawn(SpawnOptions.builder().localOnly(false).build())) {
+    rift.create(imposter("orders").port(4545).host("0.0.0.0")   // every interface, not just loopback
+            .stub(onGet("/orders").willReturn(okJson("[]"))));
+    // the container calls http://host.docker.internal:4545/orders
+}
+```
+
+Docker Desktop forwards container traffic to loopback, so it works without `localOnly(false)`. A
+Linux bridge (`172.17.0.1`) does not. With `RiftContainer` the engine and its imposters are inside
+the container, so none of this applies.
+
 ## Using it with the Spring module
 
 Publish the container's admin URI as a property and point `@EnableRift(transport = CONNECT)` at it:

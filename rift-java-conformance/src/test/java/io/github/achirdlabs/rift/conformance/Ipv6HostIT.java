@@ -67,8 +67,8 @@ class Ipv6HostIT {
     }
 
     private static void assertServes(Rift rift) throws Exception {
-        // The engine binds an imposter on 0.0.0.0 (IPv4) unless the imposter names its own host,
-        // whatever the admin host is, so bind this one to ::1 too; uri() then reports it (#243).
+        // A host-less imposter binds the spawn --host from rift 0.23.0 (rift#1517) but the embedded
+        // engine's own default elsewhere, so name ::1 here explicitly; uri() then reports it (#243).
         Imposter imposter = rift.create(imposter("v6").protocol("http").host("::1")
                 .stub(onGet("/").willReturn(status(200).withTextBody("v6"))));
         assertEquals("[::1]", imposter.uri().getHost());

@@ -184,9 +184,11 @@ public final class ConnectOptions {
 public final class SpawnOptions {
   // binaryPath (Path), version (String, default = SDK's pinned engine version),
   // host (default 127.0.0.1; an IP literal, IPv6 bare ::1 or bracketed [::1] — a bare one needs
-  //   rift >= 0.18.0; localOnly(true) makes the engine bind loopback whatever this says),
+  //   rift >= 0.18.0; localOnly(true) makes the engine bind loopback whatever this says; from
+  //   rift 0.23.0 a host-less imposter binds it too, rift#1517),
   // adminPort (0 = ephemeral), allowInjection (default true),
-  // localOnly (default true), logLevel, env (Map), workingDir, mirrorUrl,
+  // localOnly (default true; from rift 0.23.0 it also refuses non-loopback clients on imposters,
+  //   rift#1523, so a containerised SUT needs it off plus imposter host("0.0.0.0")), logLevel, env (Map), workingDir, mirrorUrl,
   // startupTimeout (default 15s), shutdownTimeout (default 5s), inheritLog (bool),
   // upstreamTrust (UpstreamTrust, rift >= 0.18.0 — CaFile or SkipVerify; CaPem and a declared
   //   version below 0.18.0 are refused at build()),

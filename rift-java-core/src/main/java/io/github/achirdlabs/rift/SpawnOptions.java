@@ -198,11 +198,20 @@ public final class SpawnOptions {
         }
 
         /**
-         * The interface the engine's admin API binds ({@code --host}), default {@code 127.0.0.1}: an
-         * IP literal, including IPv6 {@code ::1} bare or bracketed (a bare one needs rift &ge;
-         * 0.18.0). The admin URI is built from it, bracketed when it is IPv6. {@link
-         * #localOnly(boolean)} is on by default and makes the engine bind loopback whatever this
-         * says, so turn it off for this to take effect.
+         * The engine's {@code --host}, default {@code 127.0.0.1}: an IP literal, including IPv6
+         * {@code ::1} bare or bracketed (a bare one needs rift &ge; 0.18.0). The admin API binds it,
+         * and the admin URI is built from it, bracketed when it is IPv6. {@link #localOnly(boolean)}
+         * is on by default and makes the engine bind loopback whatever this says, so turn it off for
+         * this to take effect.
+         *
+         * <p>From rift 0.23.0 (rift#1517) an imposter created without its own {@code host} binds this
+         * address too, as in Mountebank, so spawned imposters are loopback-only by default; before
+         * it, a host-less imposter bound every interface. A system under test outside the loopback
+         * interface (in a container, through {@code host.docker.internal} or the bridge gateway)
+         * reaches an imposter that names its own interface, {@code imposter("x").host("0.0.0.0")}, on
+         * an engine started with {@link #localOnly(boolean) localOnly(false)}: from 0.23.0 {@code
+         * --local-only} also refuses non-loopback clients on imposters (rift#1523). Docker Desktop
+         * forwards to loopback and is admitted either way; a Linux bridge is not.
          */
         public Builder host(String host) {
             this.host = Objects.requireNonNull(host, "host");
@@ -219,6 +228,11 @@ public final class SpawnOptions {
             return this;
         }
 
+        /**
+         * The engine's {@code --local-only}, default on: it binds the admin API to loopback and, from
+         * rift 0.23.0 (rift#1523), refuses non-loopback clients on every imposter port too. Turn it off
+         * for a system under test that reaches the engine from off the loopback interface.
+         */
         public Builder localOnly(boolean localOnly) {
             this.localOnly = localOnly;
             return this;
