@@ -1,21 +1,15 @@
 package io.github.achirdlabs.rift.conformance;
 
 import io.github.achirdlabs.rift.dsl.Fault;
+import io.github.achirdlabs.rift.dsl.PredicateSpec;
 import io.github.achirdlabs.rift.dsl.RiftDsl;
 import io.github.achirdlabs.rift.dsl.Script;
 import io.github.achirdlabs.rift.dsl.StubSpec;
-import io.github.achirdlabs.rift.json.JsonObject;
-import io.github.achirdlabs.rift.json.JsonString;
-import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
-import io.github.achirdlabs.rift.model.Predicate;
-import io.github.achirdlabs.rift.model.PredicateOperation;
-import io.github.achirdlabs.rift.model.PredicateParameters;
 import io.github.achirdlabs.rift.model.Stub;
 
 import java.time.Duration;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -204,19 +198,18 @@ final class DslFixtures {
 
     /**
      * One {@code equals} over {@code path} and a header, with matcher parameters (rift#1325's
-     * {@code keyCaseSensitive} stubs). The typed DSL binds one request field per predicate, so this
-     * predicate is assembled from the model; the response still comes from the DSL.
+     * {@code keyCaseSensitive} stubs): {@link RiftDsl#merge}, since parameters on an {@code and} would
+     * not reach its children.
      */
     private static Stub pathAndHeaderEquals(String name, String path, String header, String value,
             Optional<Boolean> caseSensitive, boolean keyCaseSensitive, String matched) {
-        Map<String, JsonValue> fields = new LinkedHashMap<>();
-        fields.put("path", new JsonString(path));
-        fields.put("headers", new JsonObject(Map.of(header, new JsonString(value))));
-        Predicate predicate = new Predicate(
-                new PredicateParameters(caseSensitive, Optional.of(keyCaseSensitive), "", Optional.empty()),
-                new PredicateOperation.Equals(fields));
-        Stub responses = onRequest().willReturn(status(200).withJsonBody("{\"matched\":\"" + matched + "\"}")).build();
-        return new Stub(List.of(predicate), responses.responses()).withName(name);
+        PredicateSpec predicate = RiftDsl.merge(RiftDsl.path(RiftDsl.eq(path)), RiftDsl.header(header, RiftDsl.eq(value)))
+                .keyCaseSensitive(keyCaseSensitive);
+        if (caseSensitive.isPresent()) {
+            predicate = predicate.caseSensitive(caseSensitive.get());
+        }
+        return named(name, onRequest().withPredicate(predicate)
+                .willReturn(status(200).withJsonBody("{\"matched\":\"" + matched + "\"}")));
     }
 
     private static ImposterDefinition build03() {

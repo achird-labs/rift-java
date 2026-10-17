@@ -34,7 +34,8 @@ import java.util.Optional;
  *
  * <p>The grammar has three parts: imposter/stub construction ({@link #imposter(String)}, {@link
  * #onGet(String)} and siblings), predicate matchers and field binders ({@link #equals(String)} and
- * siblings, {@link #method(Matcher)} and siblings, {@link #and(PredicateSpec...)} and siblings),
+ * siblings, {@link #method(Matcher)} and siblings, {@link #merge} for one predicate over several
+ * fields, {@link #and(PredicateSpec...)} and siblings),
  * and response construction ({@link #ok()} and siblings, {@link #proxyTo(String)}, {@link
  * #fault(Fault)}, {@link #inject(String)}, {@link #script(Script)}). {@link #scenario(String)}
  * builds a scenario finite-state machine as a list of stubs.
@@ -246,6 +247,26 @@ public final class RiftDsl {
     // ------------------------------------------------------------------
     // Combinators over whole predicates
     // ------------------------------------------------------------------
+
+    /**
+     * Merges single-operator field predicates into ONE predicate whose operator object carries every
+     * field: {@code merge(path(eq("/kcs")), header("X-Tenant", eq("acme"))).keyCaseSensitive(true)}
+     * writes {@code {"equals":{"path":"/kcs","headers":{"X-Tenant":"acme"}},"keyCaseSensitive":true}}.
+     *
+     * <p>All fields must match, as with {@link #and}, but unlike {@code and} the matcher parameters
+     * ({@code caseSensitive}, {@code keyCaseSensitive}, {@code except}) and the selector set on the
+     * result apply to every field: the engine evaluates the children of {@code and}/{@code or}/{@code
+     * not} with their own parameters and ignores the combinator's. Set parameters on the merged
+     * predicate, not on the parts. Header and query parts join one {@code headers}/{@code query}
+     * object; names differing only in case are both kept, for {@code keyCaseSensitive} to judge.
+     *
+     * @throws IllegalArgumentException if a part is not a field predicate ({@code and}, {@code or},
+     *     {@code not} or an inject), the parts use different operators, a part already has a
+     *     parameter or selector, or two parts bind the same field or the same header/query name
+     */
+    public static PredicateSpec merge(PredicateSpec first, PredicateSpec... more) {
+        return PredicateMerge.merge(first, more);
+    }
 
     /** The logical AND of the given predicates: all must match. */
     public static PredicateSpec and(PredicateSpec... predicates) {
