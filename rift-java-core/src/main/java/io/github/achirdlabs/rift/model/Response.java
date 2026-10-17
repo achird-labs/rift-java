@@ -34,12 +34,15 @@ public sealed interface Response {
      */
     record Is(IsResponse is, Behaviors behaviors, Optional<RiftResponseExtension> rift,
             Map<String, JsonValue> extra) implements Response {
+        /** The wire keys this response models; any other key rides in {@code extra}. */
+        private static final Set<String> MODELED_KEYS = Set.of("is", "_behaviors", "behaviors", "_rift", "repeat");
+
         public Is {
             Objects.requireNonNull(is, "is");
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(rift, "rift");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("is", "_behaviors", "behaviors", "_rift", "repeat"), "is response");
+            JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "is response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -56,11 +59,14 @@ public sealed interface Response {
      * {@code proxy} and the behavior keys are never in {@code extra}.
      */
     record Proxy(ProxyResponse proxy, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
+        /** The wire keys this response models; any other key rides in {@code extra}. */
+        private static final Set<String> MODELED_KEYS = Set.of("proxy", "_behaviors", "behaviors", "repeat");
+
         public Proxy {
             Objects.requireNonNull(proxy, "proxy");
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("proxy", "_behaviors", "behaviors", "repeat"), "proxy response");
+            JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "proxy response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -84,11 +90,14 @@ public sealed interface Response {
      * {@link Proxy}).
      */
     record Inject(String script, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
+        /** The wire keys this response models; any other key rides in {@code extra}. */
+        private static final Set<String> MODELED_KEYS = Set.of("inject", "_behaviors", "behaviors", "repeat");
+
         public Inject {
             Objects.requireNonNull(script, "script");
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("inject", "_behaviors", "behaviors", "repeat"), "inject response");
+            JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "inject response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -108,11 +117,14 @@ public sealed interface Response {
      * extra} preserves other sibling top-level keys (see {@link Proxy}).
      */
     record Fault(String fault, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
+        /** The wire keys this response models; any other key rides in {@code extra}. */
+        private static final Set<String> MODELED_KEYS = Set.of("fault", "_behaviors", "behaviors", "repeat");
+
         public Fault {
             Objects.requireNonNull(fault, "fault");
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("fault", "_behaviors", "behaviors", "repeat"), "fault response");
+            JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "fault response");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -135,11 +147,14 @@ public sealed interface Response {
      * are never in {@code extra}.
      */
     record RiftScript(RiftResponseExtension rift, Behaviors behaviors, Map<String, JsonValue> extra) implements Response {
+        /** The wire keys this response models; any other key rides in {@code extra}. */
+        private static final Set<String> MODELED_KEYS = Set.of("_rift", "_behaviors", "behaviors", "repeat");
+
         public RiftScript {
             Objects.requireNonNull(rift, "rift");
             Objects.requireNonNull(behaviors, "behaviors");
             Objects.requireNonNull(extra, "extra");
-            JsonSupport.rejectModeledExtraKeys(extra, Set.of("_rift", "_behaviors", "behaviors", "repeat"), "rift script");
+            JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "rift script");
             extra = JsonSupport.orderedCopy(extra);
         }
 
@@ -159,25 +174,25 @@ public sealed interface Response {
                     IsResponse.read(JsonSupport.requireObject(obj.get("is"), "is")),
                     readAllBehaviors(obj),
                     readRift(obj),
-                    JsonSupport.extraFields(obj, Set.of("is", "_behaviors", "behaviors", "_rift", "repeat")));
+                    JsonSupport.extraFields(obj, Is.MODELED_KEYS));
         }
         if (obj.get("proxy") != null) {
             return new Proxy(
                     ProxyResponse.read(JsonSupport.requireObject(obj.get("proxy"), "proxy")),
                     readAllBehaviors(obj),
-                    JsonSupport.extraFields(obj, Set.of("proxy", "_behaviors", "behaviors", "repeat")));
+                    JsonSupport.extraFields(obj, Proxy.MODELED_KEYS));
         }
         if (obj.get("inject") != null) {
             return new Inject(
                     JsonSupport.requireString(obj, "inject"),
                     readAllBehaviors(obj),
-                    JsonSupport.extraFields(obj, Set.of("inject", "_behaviors", "behaviors", "repeat")));
+                    JsonSupport.extraFields(obj, Inject.MODELED_KEYS));
         }
         if (obj.get("fault") != null) {
             return new Fault(
                     JsonSupport.requireString(obj, "fault"),
                     readAllBehaviors(obj),
-                    JsonSupport.extraFields(obj, Set.of("fault", "_behaviors", "behaviors", "repeat")));
+                    JsonSupport.extraFields(obj, Fault.MODELED_KEYS));
         }
         boolean hasFlatIsFields = obj.has("statusCode") || obj.has("headers") || obj.has("body") || obj.has("_mode");
         // A script-only response is "no is block" (per this interface's contract): a bare _rift with
@@ -188,7 +203,7 @@ public sealed interface Response {
             return new RiftScript(
                     RiftResponseExtension.read(JsonSupport.requireObject(obj.get("_rift"), "_rift")),
                     readAllBehaviors(obj),
-                    JsonSupport.extraFields(obj, Set.of("_rift", "_behaviors", "behaviors", "repeat")));
+                    JsonSupport.extraFields(obj, RiftScript.MODELED_KEYS));
         }
         // Flat/recorded form: a bare "is" response with no wrapper — top-level statusCode/headers/
         // body/_mode, as recorded stubs look. Read it as an Is (never lose the fields); it writes
