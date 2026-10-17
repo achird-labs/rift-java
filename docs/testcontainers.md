@@ -167,6 +167,15 @@ static RiftContainer rift = new RiftContainer()
 An image tagged with a version older than 0.18.0 is refused when `withUpstreamTrust` is called.
 See [docs/recording.md](recording.md#recording-an-origin-behind-a-private-ca) for the details.
 
+## Body and journal limits
+
+`withMaxBodySize(bytes)`, `withBodyMemoryBudget(bytes)` and `withJournalMaxBytes(bytes)` set rift
+0.22.0's limits through the engine's `RIFT_MAX_BODY_SIZE`, `RIFT_BODY_MEMORY_BUDGET` and
+`RIFT_JOURNAL_MAX_BYTES`. A larger body gets `413`; buffered bodies past the budget get `503`
+(`0` is no budget); a request larger than the journal budget is recorded without its body
+(`RecordedRequest.bodyOmitted()`). An image tagged with a version older than 0.22.0 is refused, and a
+non-zero budget below the body ceiling is refused when the container starts, as the engine would.
+
 ## Using it with the Spring module
 
 Publish the container's admin URI as a property and point `@EnableRift(transport = CONNECT)` at it:

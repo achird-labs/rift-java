@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 /**
  * Immutable configuration for {@link Rift#spawn(SpawnOptions)}: which {@code rift} binary to run
@@ -36,6 +37,9 @@ public final class SpawnOptions {
     private final Optional<String> apiKey;
     private final boolean requireAdminAuth;
     private final OptionalInt metricsPort;
+    private final OptionalLong maxBodySize;
+    private final OptionalLong bodyMemoryBudget;
+    private final OptionalLong journalMaxBytes;
 
     private SpawnOptions(Builder b) {
         this.binaryPath = b.binaryPath;
@@ -55,6 +59,9 @@ public final class SpawnOptions {
         this.apiKey = b.apiKey;
         this.requireAdminAuth = b.requireAdminAuth;
         this.metricsPort = b.metricsPort;
+        this.maxBodySize = b.maxBodySize;
+        this.bodyMemoryBudget = b.bodyMemoryBudget;
+        this.journalMaxBytes = b.journalMaxBytes;
     }
 
     public static Builder builder() {
@@ -133,6 +140,21 @@ public final class SpawnOptions {
         return metricsPort;
     }
 
+    /** The largest body the engine accepts, if set; see {@link Builder#maxBodySize(long)}. */
+    public OptionalLong maxBodySize() {
+        return maxBodySize;
+    }
+
+    /** The memory buffered bodies may share, if set; see {@link Builder#bodyMemoryBudget(long)}. */
+    public OptionalLong bodyMemoryBudget() {
+        return bodyMemoryBudget;
+    }
+
+    /** Each imposter's recorded-request budget, if set; see {@link Builder#journalMaxBytes(long)}. */
+    public OptionalLong journalMaxBytes() {
+        return journalMaxBytes;
+    }
+
     public static final class Builder {
 
         private Optional<Path> binaryPath = Optional.empty();
@@ -152,6 +174,9 @@ public final class SpawnOptions {
         private Optional<String> apiKey = Optional.empty();
         private boolean requireAdminAuth = false;
         private OptionalInt metricsPort = OptionalInt.empty();
+        private OptionalLong maxBodySize = OptionalLong.empty();
+        private OptionalLong bodyMemoryBudget = OptionalLong.empty();
+        private OptionalLong journalMaxBytes = OptionalLong.empty();
 
         private Builder() {
         }
@@ -307,11 +332,54 @@ public final class SpawnOptions {
         }
 
         /**
+         * The largest request, proxied upstream response or admin body the engine accepts
+         * ({@code --max-body-size}, in bytes); a larger one gets {@code 413} and the connection is
+         * closed. Unset, the engine's own 512 MiB applies. A value above 1 GiB needs {@link
+         * #bodyMemoryBudget(long)} too, since the engine refuses a ceiling above its budget. Needs a
+         * rift engine &ge; 0.22.0, checked against {@link #version(String)} at {@link #build()}.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is below 1
+         */
+        public Builder maxBodySize(long bytes) {
+            this.maxBodySize = OptionalLong.of(BodyLimits.maxBodySize(bytes));
+            return this;
+        }
+
+        /**
+         * The memory every body buffered at once may share ({@code --body-memory-budget}, in bytes);
+         * past it a request gets {@code 503} with {@code Retry-After: 1}. {@code 0} is no budget.
+         * Unset, the engine's own 1 GiB applies. A non-zero budget must be at least {@link
+         * #maxBodySize(long)}, or the engine's 512 MiB default when that is unset. Needs a rift
+         * engine &ge; 0.22.0, checked as for {@code maxBodySize}.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is negative
+         */
+        public Builder bodyMemoryBudget(long bytes) {
+            this.bodyMemoryBudget = OptionalLong.of(BodyLimits.bodyMemoryBudget(bytes));
+            return this;
+        }
+
+        /**
+         * How many bytes of recorded requests each imposter keeps ({@code --journal-max-bytes}),
+         * oldest evicted first. A request larger than the whole budget is recorded without its body:
+         * see {@link RecordedRequest#bodyOmitted()}. Unset, the engine's own 768 MiB applies. Needs a
+         * rift engine &ge; 0.22.0, checked as for {@link #maxBodySize(long)}.
+         *
+         * @throws IllegalArgumentException if {@code bytes} is below 1
+         */
+        public Builder journalMaxBytes(long bytes) {
+            this.journalMaxBytes = OptionalLong.of(BodyLimits.journalMaxBytes(bytes));
+            return this;
+        }
+
+        /**
          * @throws IllegalArgumentException if {@link #upstreamTrust(UpstreamTrust)} is an inline PEM,
          *                                  or is set for an engine {@link #version(String)} older
          *                                  than 0.18.0; or {@link #requireAdminAuth(boolean)} is on
          *                                  for one older than 0.17.0; or {@link #env(Map)} carries
-         *                                  {@code MB_APIKEY}, which belongs in {@link #apiKey(String)}
+         *                                  {@code MB_APIKEY}, which belongs in {@link #apiKey(String)};
+         *                                  or a body or journal limit is set for an engine older
+         *                                  than 0.22.0, or the budget does not cover the ceiling
          */
         public SpawnOptions build() {
             if (upstreamTrust.isPresent()) {
@@ -332,7 +400,18 @@ public final class SpawnOptions {
                 throw new IllegalArgumentException("requireAdminAuth needs a rift engine >= " + REQUIRE_ADMIN_AUTH_SINCE
                         + ", but version is " + version + " (the older CLI has no --require-admin-auth flag)");
             }
+            requireBodyLimitFlag("maxBodySize", maxBodySize, "--max-body-size");
+            requireBodyLimitFlag("bodyMemoryBudget", bodyMemoryBudget, "--body-memory-budget");
+            requireBodyLimitFlag("journalMaxBytes", journalMaxBytes, "--journal-max-bytes");
+            BodyLimits.requireBudgetCoversCeiling(maxBodySize, bodyMemoryBudget);
             return new SpawnOptions(this);
+        }
+
+        private void requireBodyLimitFlag(String option, OptionalLong value, String flag) {
+            if (value.isPresent() && !EngineVersion.atLeast(version, BodyLimits.SINCE)) {
+                throw new IllegalArgumentException(option + " needs a rift engine >= " + BodyLimits.SINCE
+                        + ", but version is " + version + " (the older CLI has no " + flag + " flag)");
+            }
         }
     }
 }

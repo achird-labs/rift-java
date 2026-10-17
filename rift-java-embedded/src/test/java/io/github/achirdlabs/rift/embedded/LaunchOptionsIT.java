@@ -1,6 +1,8 @@
 package io.github.achirdlabs.rift.embedded;
 
 import io.github.achirdlabs.rift.EmbeddedOptions;
+import io.github.achirdlabs.rift.Imposter;
+import io.github.achirdlabs.rift.RecordedRequest;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
@@ -17,6 +19,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
+import static io.github.achirdlabs.rift.dsl.RiftDsl.imposter;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.ok;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.onRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -86,5 +91,34 @@ class LaunchOptionsIT {
                     () -> Rift.embedded(options().metricsPort(taken.getLocalPort()).build()).close());
             assertTrue(e.getMessage().contains("metrics bind"), e.getMessage());
         }
+    }
+    @Test
+    void aBodyOverMaxBodySizeIsRefusedWith413OnAnImposterCreatedAfterStart() throws Exception {
+        // the engine applies the limit only to imposters created after it is set: the plane must be up first
+        try (Rift rift = Rift.embedded(options().maxBodySize(1024).build())) {
+            int port = rift.create(imposter("capped").stub(onRequest().willReturn(ok()))).port();
+            HttpResponse<Void> response = post(port, 2048);
+            assertEquals(413, response.statusCode());
+            assertEquals(200, post(port, 512).statusCode(), "a body within the limit is served");
+        }
+    }
+
+    @Test
+    void aBodyLargerThanTheJournalBudgetIsRecordedWithoutIt() throws Exception {
+        try (Rift rift = Rift.embedded(options().journalMaxBytes(4096).build())) {
+            Imposter imposter = rift.create(imposter("journal").record().stub(onRequest().willReturn(ok())));
+            assertEquals(200, post(imposter.port(), 16_384).statusCode());
+            RecordedRequest recorded = imposter.recorded().get(0);
+            assertTrue(recorded.bodyOmitted(), "recorded with its body (" + recorded.body().length() + " bytes)");
+            assertEquals("", recorded.body());
+        }
+    }
+
+    private static HttpResponse<Void> post(int port, int bodyBytes) throws Exception {
+        // a fresh client each time: the engine closes the connection after a 413
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        return client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/upload"))
+                        .timeout(Duration.ofSeconds(5)).POST(HttpRequest.BodyPublishers.ofString("x".repeat(bodyBytes))).build(),
+                HttpResponse.BodyHandlers.discarding());
     }
 }

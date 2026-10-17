@@ -195,6 +195,11 @@ public final class SpawnOptions {
   //   --metrics-port; unset = the engine's 9090, which two spawned engines contend for; a taken
   //   port is not fatal — the engine runs without metrics). An MB_APIKEY in env() is refused at
   //   build(), and one inherited from the JVM is not passed on.
+  // maxBodySize (long bytes >= 1, --max-body-size; over it 413), bodyMemoryBudget (>= 0, 0 = none,
+  //   --body-memory-budget; over it 503 + Retry-After), journalMaxBytes (>= 1, --journal-max-bytes;
+  //   a body larger than it is recorded without it, RecordedRequest.bodyOmitted()): rift >= 0.22.0,
+  //   checked at build(), which also refuses a non-zero budget below the ceiling (the engine's
+  //   512 MiB default when unset), or a ceiling above its 1 GiB default budget with none set.
   // Binary resolution order: binaryPath → $RIFT_BINARY_PATH → PATH (rift) →
   //   version cache (~/.cache/rift-java/binaries/rift-<ver>/) → download via release
   //   ffi-manifest.json (SHA-256 verified; RIFT_OFFLINE/RIFT_SKIP_BINARY_DOWNLOAD → fail).
@@ -213,6 +218,9 @@ public final class EmbeddedOptions {
   // metricsPort (1..65535; unset = no metrics listener; serves the admin API eagerly, so a taken
   //   port fails Rift.embedded). Each needs the engine to advertise it in EngineInfo.serveOptions
   //   (rift >= 0.17.0), like upstreamTrust.
+  // maxBodySize / bodyMemoryBudget / journalMaxBytes (OptionalLong; as for SpawnOptions, checked at
+  //   build(); advertised from rift 0.22.0; each serves the admin API eagerly, since the engine
+  //   applies them only to imposters created afterwards).
 }
 
 public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)

@@ -20,14 +20,22 @@ public final class EmbeddedProvider implements EmbeddedEngineProvider {
         return NativeLibraryResolver.resolvable(EmbeddedOptions.builder().build());
     }
 
+    /** Whether the admin plane must be served before the first imposter exists. Package-private for tests. */
+    static boolean needsAdminPlaneAtStart(EmbeddedOptions options) {
+        return options.serveAdminEagerly() || options.upstreamTrust().isPresent() || options.metricsPort().isPresent()
+                || options.maxBodySize().isPresent() || options.bodyMemoryBudget().isPresent()
+                || options.journalMaxBytes().isPresent();
+    }
+
     @Override
     public EmbeddedEngine start(EmbeddedOptions options) {
         NativeLibraryResolver.ResolvedLibrary resolved = NativeLibraryResolver.resolve(options);
         EmbeddedTransport transport = EmbeddedTransport.open(resolved.path(), options);
-        // Trust is applied when the admin plane is served, and an imposter keeps the outbound client
-        // it was created with — so the plane must be up before the first imposter can exist. The
-        // metrics listener comes up with the plane, so asking for one asks for the plane at startup.
-        if (options.serveAdminEagerly() || options.upstreamTrust().isPresent() || options.metricsPort().isPresent()) {
+        // Trust and the body/journal limits are applied when the admin plane is served, and an
+        // imposter keeps the outbound client and limits it was created with — so the plane must be up
+        // before the first imposter can exist. The metrics listener comes up with the plane, so asking
+        // for one asks for the plane at startup.
+        if (needsAdminPlaneAtStart(options)) {
             try {
                 transport.adminUri();
             } catch (RuntimeException e) {

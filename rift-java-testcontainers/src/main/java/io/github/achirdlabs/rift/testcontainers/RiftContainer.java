@@ -23,7 +23,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -67,6 +69,11 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     private static final String INTERCEPT_CA_KEY_ENV = "RIFT_INTERCEPT_CA_KEY";
     /** An image tag that declares an engine version ({@code v0.18.0}, {@code 0.18.0-static}), as opposed to {@code latest}. */
     private static final Pattern VERSION_TAG = Pattern.compile("[vV]?\\d+(\\.\\d+){0,2}([-+].*)?");
+    private static final Pattern TAG_MAJOR_MINOR = Pattern.compile("[vV]?(\\d+)(?:\\.(\\d+))?.*");
+    /** The engine's {@code maxBodySize} when none is set: 512 MiB. */
+    private static final long DEFAULT_MAX_BODY_SIZE = 512L << 20;
+    /** The engine's {@code bodyMemoryBudget} when none is set: 1 GiB. */
+    private static final long DEFAULT_BODY_MEMORY_BUDGET = 1L << 30;
 
     private final DockerImageName imageName;
     private Optional<String> apiKey = Optional.empty();
@@ -77,6 +84,8 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     /** The committed CA as read and copied in at the start; what an attach hands back. */
     private Optional<Intercept.CaMaterial> launchedCa = Optional.empty();
     private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
+    private OptionalLong maxBodySize = OptionalLong.empty();
+    private OptionalLong bodyMemoryBudget = OptionalLong.empty();
 
     /** Uses {@code zainalpour/rift-proxy:v}{@link #ENGINE_VERSION}. */
     public RiftContainer() {
@@ -299,6 +308,102 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     }
 
     /**
+     * The largest request, proxied upstream response or admin body the engine accepts, in bytes
+     * ({@code RIFT_MAX_BODY_SIZE}); a larger one gets {@code 413} and the connection is closed. Unset,
+     * the engine's own 512 MiB applies; a value above 1 GiB needs {@link #withBodyMemoryBudget(long)}
+     * too, checked at start.
+     *
+     * <p>Requires a rift engine &ge; 0.22.0, checked against the image tag as {@link
+     * #withUpstreamTrust(UpstreamTrust)} is; an older engine behind a tag that is not a version
+     * ignores the setting.
+     *
+     * @throws IllegalArgumentException if {@code bytes} is below 1, or the image tag is a version
+     *                                  older than 0.22.0
+     */
+    public RiftContainer withMaxBodySize(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("maxBodySize must be at least 1 byte, was " + bytes);
+        }
+        requireBodyLimitsTag("maxBodySize", "RIFT_MAX_BODY_SIZE");
+        this.maxBodySize = OptionalLong.of(bytes);
+        withEnv("RIFT_MAX_BODY_SIZE", Long.toString(bytes));
+        return self();
+    }
+
+    /**
+     * The memory every body buffered at once may share, in bytes ({@code RIFT_BODY_MEMORY_BUDGET});
+     * past it a request gets {@code 503} with {@code Retry-After: 1}. {@code 0} is no budget. A
+     * non-zero budget must be at least {@link #withMaxBodySize(long)}, checked at start. Requires a
+     * rift engine &ge; 0.22.0, checked as for {@code withMaxBodySize}.
+     *
+     * @throws IllegalArgumentException if {@code bytes} is negative, or the image tag is a version
+     *                                  older than 0.22.0
+     */
+    public RiftContainer withBodyMemoryBudget(long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("bodyMemoryBudget must be 0 (unbounded) or more bytes, was " + bytes);
+        }
+        requireBodyLimitsTag("bodyMemoryBudget", "RIFT_BODY_MEMORY_BUDGET");
+        this.bodyMemoryBudget = OptionalLong.of(bytes);
+        withEnv("RIFT_BODY_MEMORY_BUDGET", Long.toString(bytes));
+        return self();
+    }
+
+    /**
+     * How many bytes of recorded requests each imposter keeps ({@code RIFT_JOURNAL_MAX_BYTES}),
+     * oldest evicted first. A request larger than the whole budget is recorded without its body:
+     * see {@code RecordedRequest.bodyOmitted()}. Requires a rift engine &ge; 0.22.0, checked as for
+     * {@link #withMaxBodySize(long)}.
+     *
+     * @throws IllegalArgumentException if {@code bytes} is below 1, or the image tag is a version
+     *                                  older than 0.22.0
+     */
+    public RiftContainer withJournalMaxBytes(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("journalMaxBytes must be at least 1 byte, was " + bytes);
+        }
+        requireBodyLimitsTag("journalMaxBytes", "RIFT_JOURNAL_MAX_BYTES");
+        withEnv("RIFT_JOURNAL_MAX_BYTES", Long.toString(bytes));
+        return self();
+    }
+
+    private void requireBodyLimitsTag(String option, String env) {
+        String tag = imageName.getVersionPart();
+        Matcher version = TAG_MAJOR_MINOR.matcher(tag);
+        if (VERSION_TAG.matcher(tag).matches() && version.matches()) {
+            long major = Long.parseLong(version.group(1));
+            long minor = version.group(2) == null ? 0 : Long.parseLong(version.group(2));
+            if (major == 0 && minor < 22) {
+                throw new IllegalArgumentException(option + " needs a rift engine >= 0.22.0, but the image tag is "
+                        + tag + " (the older engine ignores " + env + ")");
+            }
+        }
+    }
+
+    /**
+     * The engine refuses a non-zero budget below the body ceiling, and fills in whichever of the two
+     * is unset with its own default (512 MiB ceiling, 1 GiB budget) before comparing them. The same
+     * rule as {@code SpawnOptions}/{@code EmbeddedOptions} apply; package-private for tests.
+     */
+    void requireBudgetCoversCeiling() {
+        if (bodyMemoryBudget.isPresent()) {
+            long budget = bodyMemoryBudget.getAsLong();
+            long ceiling = maxBodySize.orElse(DEFAULT_MAX_BODY_SIZE);
+            if (budget != 0 && budget < ceiling) {
+                throw new IllegalArgumentException(maxBodySize.isPresent()
+                        ? "bodyMemoryBudget (" + budget + ") is below maxBodySize (" + ceiling
+                                + "), which the engine refuses; raise it, or set 0 for no budget"
+                        : "bodyMemoryBudget (" + budget + ") is below the engine's default maxBodySize (" + ceiling
+                                + "), which the engine refuses; raise it, lower maxBodySize, or set 0 for no budget");
+            }
+        } else if (maxBodySize.isPresent() && maxBodySize.getAsLong() > DEFAULT_BODY_MEMORY_BUDGET) {
+            throw new IllegalArgumentException("maxBodySize (" + maxBodySize.getAsLong() + ") is above the engine's "
+                    + "default bodyMemoryBudget (" + DEFAULT_BODY_MEMORY_BUDGET + "), which the engine refuses; "
+                    + "set bodyMemoryBudget too");
+        }
+    }
+
+    /**
      * Applies {@link #withUpstreamTrust(UpstreamTrust)} as the container starts, so a replaced policy
      * leaves nothing behind and a {@link UpstreamTrust.CaFile} is read when the engine starts, as on
      * the other transports.
@@ -306,6 +411,7 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     @Override
     protected void configure() {
         super.configure();
+        requireBudgetCoversCeiling();
         skipVerifyWarning().ifPresent(warning -> LOG.log(Level.WARNING, warning));
         upstreamCaCopy().ifPresent(pem -> {
             withCopyToContainer(pem, UPSTREAM_CA_PATH);

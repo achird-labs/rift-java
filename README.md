@@ -235,7 +235,10 @@ not the compatibility floor — override with `SpawnOptions.builder().version("X
 sends (it reaches the engine as `MB_APIKEY`, not on the command line). `metricsPort(n)` moves the
 engine's Prometheus listener off its default 9090, which two spawned engines would otherwise contend
 for (the loser runs without metrics, and says so only in its log). `EmbeddedOptions` takes `metricsPort`, `allowInjection` and `requireAdminAuth` for the in-process
-admin server the same way.
+admin server the same way. Both take rift 0.22.0's body and journal limits too: `maxBodySize` (a
+larger body gets `413`), `bodyMemoryBudget` (memory shared by buffered bodies; `503` past it) and
+`journalMaxBytes` (recorded-request bytes per imposter; a larger request is recorded without its body,
+`RecordedRequest.bodyOmitted()`), all in bytes.
 
 ### JUnit 5
 
