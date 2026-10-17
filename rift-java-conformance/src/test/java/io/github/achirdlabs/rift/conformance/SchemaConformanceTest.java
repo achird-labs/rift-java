@@ -66,6 +66,11 @@ class SchemaConformanceTest {
         MODELED_KEYS_DEFS.put("Stub", "Stub");
         MODELED_KEYS_DEFS.put("IsResponse", "IsResponse");
         MODELED_KEYS_DEFS.put("ProxyResponse", "ProxyResponse");
+        MODELED_KEYS_DEFS.put("Response$Is", "StubResponse");
+        MODELED_KEYS_DEFS.put("Response$Proxy", "StubResponse");
+        MODELED_KEYS_DEFS.put("Response$Inject", "StubResponse");
+        MODELED_KEYS_DEFS.put("Response$Fault", "StubResponse");
+        MODELED_KEYS_DEFS.put("Response$RiftScript", "StubResponse");
         MODELED_KEYS_DEFS.put("RiftConfig", "RiftConfig");
         MODELED_KEYS_DEFS.put("RiftFlowStateConfig", "RiftFlowStateConfig");
         MODELED_KEYS_DEFS.put("RiftResponseExtension", "RiftResponseExtension");
