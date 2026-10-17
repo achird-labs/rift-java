@@ -15,6 +15,12 @@ public interface StubRef {
 
     Stub definition();
 
+    /**
+     * Replaces this reference's stub. From rift 0.23.0 (rift#1515), replacing a stub addressed by
+     * index (the reference {@code addStub} returns) restarts its response cycle at the first
+     * response, as Mountebank does, even when the content is unchanged; replacing one addressed by
+     * id ({@link Imposter#stub(String)}) keeps the cycle where it was.
+     */
     void replace(StubSpec spec);
 
     /**

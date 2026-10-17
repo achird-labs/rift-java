@@ -407,7 +407,7 @@ public interface Recording extends AutoCloseable {
 public interface StubRef {
   int index(); Optional<String> id();
   Stub definition();
-  void replace(StubSpec spec); void delete();
+  void replace(StubSpec spec); void delete();  // from rift 0.23.0 a by-index replace restarts the response cycle; by id keeps it (rift#1515)
   void replace(JsonValue stub);               // escape hatch
 }
 
