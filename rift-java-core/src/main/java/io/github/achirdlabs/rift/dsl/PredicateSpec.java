@@ -10,9 +10,10 @@ import java.util.Optional;
 
 /**
  * A single whole predicate under construction: an operation (built by binding a {@link Matcher} to
- * a field, or a combinator such as {@link RiftDsl#and(PredicateSpec...)}) plus the matcher
- * parameters ({@code caseSensitive}, {@code keyCaseSensitive}, {@code except}) and structured
- * selector ({@code jsonPath}/{@code xPath}) that ride alongside it on the wire.
+ * a field, joining several such with {@link RiftDsl#merge}, or a combinator such as {@link
+ * RiftDsl#and(PredicateSpec...)}) plus the matcher parameters ({@code caseSensitive}, {@code
+ * keyCaseSensitive}, {@code except}) and structured selector ({@code jsonPath}/{@code xPath}) that
+ * ride alongside it on the wire.
  *
  * <p>Instances are immutable: every chain method returns a new {@code PredicateSpec}. The terminal
  * {@link #build()} produces the {@link Predicate} model value.
@@ -41,6 +42,16 @@ public final class PredicateSpec {
     /** Wraps a bare operation with no parameters or selector yet set. */
     static PredicateSpec of(PredicateOperation operation) {
         return new PredicateSpec(operation, Optional.empty(), Optional.empty(), "", Optional.empty());
+    }
+
+    /** The operation, for {@link RiftDsl#merge}. */
+    PredicateOperation operation() {
+        return operation;
+    }
+
+    /** Whether any matcher parameter or selector is set, which {@link RiftDsl#merge} refuses on a part. */
+    boolean hasParametersOrSelector() {
+        return caseSensitive.isPresent() || keyCaseSensitive.isPresent() || !except.isEmpty() || selector.isPresent();
     }
 
     /** Sets the {@code caseSensitive} matcher parameter. */

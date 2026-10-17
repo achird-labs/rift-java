@@ -24,7 +24,8 @@ of WireMock 3 / MockServer / Hoverfly / Testcontainers / wiremock-spring-boot.
      `CommunicationError`, `ImposterNotFound`, `EngineError(code, message)`.
    - DSL vocabulary: `imposter`, `onGet/onPost/…`, `willReturn`, `ok/okJson/created/status/
      notFound/noContent`, `proxyTo`, `fault`, `inject`, `scenario().startingAt().when()
-     .respond().goTo()`, `record()`, `verify(match, times(n))`.
+     .respond().goTo()`, `record()`, `verify(match, times(n))`, and `merge(...)` for one
+     predicate over several request fields (§7.6a; distinct from `and`).
 3. **Scala-wrappable by construction** (rift-scala delegates everything to this SDK):
    synchronous, throwing, `AutoCloseable`, `Optional` (never `null`), `java.util` collections,
    immutable value types, plus a **raw-JSON escape hatch** on every ingestion point so the
@@ -665,6 +666,26 @@ ProxySpec decorateWith(String script)                    // proxy.addDecorateBeh
 // not to be confused with BehaviorChain.waitMs/decorate (§7.3), which act on this proxy's own
 // response — before it is served and before it is recorded.
 ```
+
+### 7.6a Multi-field predicates: `merge` vs `and` (cross-SDK contract, #312)
+
+```java
+static PredicateSpec merge(PredicateSpec first, PredicateSpec... more)
+// merge(path(eq("/kcs")), header("X-Tenant", eq("acme"))).keyCaseSensitive(true)
+//   -> {"equals":{"path":"/kcs","headers":{"X-Tenant":"acme"}},"keyCaseSensitive":true}
+```
+
+- `merge` builds **one operator object** carrying every field; `and` builds a **list of
+  predicates**. Both require every field to match.
+- Matcher parameters (`caseSensitive`, `keyCaseSensitive`, `except`) and the selector apply to the
+  whole predicate they are set on. The engine evaluates `and`/`or`/`not` children with their own
+  parameters and ignores the combinator's, so `and(path(..), header(..)).keyCaseSensitive(true)`
+  does **not** make the header key case-sensitive. Use `merge` and set parameters on its result.
+- The parts must be field predicates sharing one operator (any of the seven, `exists` included)
+  with no parameters or selector of their own. Header and query parts join one object by name;
+  names differing only in case are both kept. Any conflict fails fast with an
+  `IllegalArgumentException` naming it.
+- Other SDKs should use the name `merge` (rift-scala's `allOf` already means `and`).
 
 ### 7.7 Verification grammar (single vocabulary, WireMock-quality diffs)
 
