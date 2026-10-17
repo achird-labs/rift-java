@@ -387,26 +387,50 @@ public final class PredicateEvaluator {
             dbf.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
             dbf.setXIncludeAware(false);
             dbf.setExpandEntityReferences(false);
+            // text, references and CDATA as one text node, as the engine's XML parser sees them
+            dbf.setCoalescing(true);
             DocumentBuilder builder = dbf.newDocumentBuilder();
             doc = builder.parse(new InputSource(new StringReader(body)));
         } catch (javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException | java.io.IOException e) {
             // a non-XML (or entity-laden) body simply doesn't match this xpath predicate
             return List.of();
         }
+        XPath xpath = XPathFactory.newInstance().newXPath();
+        xPath.namespaces().ifPresent(ns -> xpath.setNamespaceContext(new MapNamespaceContext(ns)));
         try {
-            XPath xpath = XPathFactory.newInstance().newXPath();
-            xPath.namespaces().ifPresent(ns -> xpath.setNamespaceContext(new MapNamespaceContext(ns)));
             NodeList nodes = (NodeList) xpath.evaluate(xPath.selector(), doc, XPathConstants.NODESET);
             List<String> out = new ArrayList<>();
             for (int i = 0; i < nodes.getLength(); i++) {
-                out.add(nodes.item(i).getTextContent());
+                out.add(nodeValue(nodes.item(i)));
             }
             return out;
-        } catch (javax.xml.xpath.XPathExpressionException e) {
-            // a malformed xpath SELECTOR is a bad predicate (like a bad regex), not a non-matching request
-            throw new io.github.achirdlabs.rift.error.InvalidDefinition(
-                    "invalid xpath selector \"" + xPath.selector() + "\": " + e.getMessage());
+        } catch (javax.xml.xpath.XPathExpressionException notANodeSet) {
+            try {
+                // a selector yielding a string, number or boolean (string(//a), count(//a)) is one value
+                return List.of(xpath.evaluate(xPath.selector(), doc));
+            } catch (javax.xml.xpath.XPathExpressionException e) {
+                // a malformed xpath SELECTOR is a bad predicate (like a bad regex), not a non-matching request
+                throw new io.github.achirdlabs.rift.error.InvalidDefinition(
+                        "invalid xpath selector \"" + xPath.selector() + "\": " + notANodeSet.getMessage());
+            }
         }
+    }
+
+    /**
+     * A selected node's value as the engine reads it from rift 0.23.0 (rift#1495), after Mountebank's
+     * {@code nodeValue}: an element reads as its first child node's text, or {@code "undefined"} when
+     * it has none or starts with an element; any other node reads as its own value.
+     */
+    private static String nodeValue(org.w3c.dom.Node node) {
+        if (node.getNodeType() != org.w3c.dom.Node.ELEMENT_NODE) {
+            return node.getNodeValue() == null ? node.getTextContent() : node.getNodeValue();
+        }
+        org.w3c.dom.Node first = node.getFirstChild();
+        if (first == null || first.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE
+                || first.getNodeValue() == null || first.getNodeValue().isEmpty()) {
+            return "undefined";
+        }
+        return first.getNodeValue();
     }
 
     private static final class MapNamespaceContext implements NamespaceContext {
