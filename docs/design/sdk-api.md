@@ -499,6 +499,11 @@ public sealed interface ResponseSpec permits IsSpec, ProxySpec, FaultSpec, Injec
   chainers only).
 - `willReturn(ResponseSpec)` accepts them all; call it again per response for response cycling. `ImposterSpec.defaultResponse(IsSpec)` is
   typed to the engine's actual constraint (defaultResponse is an `is` response, no behaviors).
+- `response()` is the `IsSpec` that names no status. From rift 0.22.0 the engine fills an `is`
+  response's unwritten `statusCode`, `headers` and `_mode` from the imposter's `defaultResponse`
+  (rift#1369); without a default it answers 200. `IsResponse.omitted` records which of the three a
+  parsed response left unwritten (`isWritten(Field)`), so a read → re-post keeps that absence, and a
+  written `"headers": {}` or `"_mode": "text"` stays written and keeps the default out (#302).
 - `Fault` becomes a plain 4-value enum mirroring the engine (and WireMock) exactly:
   `CONNECTION_RESET_BY_PEER, EMPTY_RESPONSE, RANDOM_DATA_THEN_CLOSE, MALFORMED_RESPONSE_CHUNK`.
   The current `Fault.latencySpike(Duration)` hybrid moves to the probabilistic `_rift` fault

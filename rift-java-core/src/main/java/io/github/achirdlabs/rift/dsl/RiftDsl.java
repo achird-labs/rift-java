@@ -270,6 +270,17 @@ public final class RiftDsl {
     // Responses
     // ------------------------------------------------------------------
 
+    /**
+     * A response that names no status. From rift 0.22.0 the imposter's {@link
+     * ImposterSpec#defaultResponse defaultResponse} supplies the status, and the headers too when
+     * none are set here (rift#1369); without a default, or on an older engine, it answers 200. Like
+     * every opener, it leaves {@code _mode} unwritten, so a {@code "_mode": "binary"} default would
+     * also apply to a body set with {@link IsSpec#withTextBody}.
+     */
+    public static IsSpec response() {
+        return IsSpec.unstated();
+    }
+
     /** A bare 200 response, with no headers or body. */
     public static IsSpec ok() {
         return IsSpec.is("200");

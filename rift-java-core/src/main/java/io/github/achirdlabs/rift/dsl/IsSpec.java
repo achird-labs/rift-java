@@ -47,7 +47,7 @@ import java.util.stream.Stream;
  */
 public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
 
-    private final String statusCode;
+    private final Optional<String> statusCode;
     private final Map<String, List<String>> headers;
     private final Optional<JsonValue> body;
     private final ResponseMode mode;
@@ -58,7 +58,7 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     private final Optional<RiftConditional> conditional;
 
     private IsSpec(
-            String statusCode,
+            Optional<String> statusCode,
             Map<String, List<String>> headers,
             Optional<JsonValue> body,
             ResponseMode mode,
@@ -80,6 +80,15 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
 
     /** A fresh "is" response builder at the given status code, with no headers/body/behaviors yet. */
     static IsSpec is(String statusCode) {
+        return is(Optional.of(statusCode));
+    }
+
+    /** A response that names no status, so the imposter's {@code defaultResponse} supplies it. */
+    static IsSpec unstated() {
+        return is(Optional.empty());
+    }
+
+    private static IsSpec is(Optional<String> statusCode) {
         return new IsSpec(
                 statusCode, Map.of(), Optional.empty(), ResponseMode.TEXT, List.of(),
                 Optional.empty(), false, List.of(), Optional.empty());
@@ -374,12 +383,13 @@ public final class IsSpec implements ResponseSpec, BehaviorChain<IsSpec> {
     /** Builds the immutable {@link Response} this spec represents. */
     @Override
     public Response build() {
-        return new Response.Is(new IsResponse(statusCode, headers, body, mode), new Behaviors(behaviors), riftExtension());
+        return new Response.Is(buildIsResponse(), new Behaviors(behaviors), riftExtension());
     }
 
     /** Builds this spec as an imposter-level {@link IsResponse} default response. */
     IsResponse buildIsResponse() {
-        return new IsResponse(statusCode, headers, body, mode);
+        IsResponse is = new IsResponse(statusCode.orElse(IsResponse.DEFAULT_STATUS_CODE), headers, body, mode, Map.of());
+        return statusCode.isPresent() ? is : is.withoutStatusCode();
     }
 
     private Optional<RiftResponseExtension> riftExtension() {

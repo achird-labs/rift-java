@@ -27,7 +27,11 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
 
+import static io.github.achirdlabs.rift.dsl.RiftDsl.imposter;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.onGet;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.response;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -127,6 +131,19 @@ class SchemaConformanceTest {
         Set<String> parameters = new TreeSet<>(schema.properties("Predicate"));
         parameters.removeAll(PREDICATE_OPERATORS);
         assertEquals(parameters, new TreeSet<>(PredicateOperation.RESERVED_KEYS));
+    }
+
+    @Test
+    void anUnstatedResponseIsValid() {
+        // #302: an is (and a defaultResponse) that leaves statusCode for the default to supply
+        ImposterSchema schema = schemaOrSkip(Corpus.loadOrSkip());
+        String json = imposter("unstated").port(4545)
+                .defaultResponse(response().withHeader("X-D", "1"))
+                .stub(onGet("/a")
+                        .willReturn(response().withTextBody("hi")))
+                .build().toJson();
+        assertFalse(json.contains("statusCode"), json);
+        assertEquals(List.of(), schema.validate(json));
     }
 
     @Test

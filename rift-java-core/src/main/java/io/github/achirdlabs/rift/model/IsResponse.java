@@ -6,6 +6,7 @@ import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,9 +28,20 @@ import java.util.Set;
  * {@code is} object survive a parse → serialize round-trip instead of being dropped (re-emitted
  * after the modeled keys, in insertion order). A modeled key in {@code extra} is rejected at
  * construction.
+ *
+ * <p>{@code omitted} names the fields the author left unwritten. From rift 0.22.0 the engine fills
+ * an unwritten {@code statusCode}, {@code headers} or {@code _mode} from the imposter's {@code
+ * defaultResponse}, while a written {@code "headers": {}} or {@code "_mode": "text"} counts as a value
+ * and keeps the default out (rift#1369). An omitted field still reads as the value the engine assumes
+ * without a default ({@code "200"}, no headers, {@link ResponseMode#TEXT}), so the accessors stay
+ * usable; {@link #isWritten} tells the two apart, and {@link #read} and the writer keep the
+ * distinction across a round trip. An older engine treats an unwritten field as that same value.
  */
 public record IsResponse(String statusCode, Map<String, List<String>> headers, Optional<JsonValue> body,
-        ResponseMode mode, Map<String, JsonValue> extra) {
+        ResponseMode mode, Map<String, JsonValue> extra, Set<IsResponse.Field> omitted) {
+
+    /** A field an {@code is} response may leave unwritten for its imposter's {@code defaultResponse} to supply. */
+    public enum Field { STATUS_CODE, HEADERS, MODE }
 
     public static final String DEFAULT_STATUS_CODE = "200";
 
@@ -43,6 +55,26 @@ public record IsResponse(String statusCode, Map<String, List<String>> headers, O
         Objects.requireNonNull(extra, "extra");
         JsonSupport.rejectModeledExtraKeys(extra, MODELED_KEYS, "is response");
         extra = JsonSupport.orderedCopy(extra);
+        Objects.requireNonNull(omitted, "omitted");
+        omitted = omitted.isEmpty() ? Set.of() : Set.copyOf(EnumSet.copyOf(omitted));
+        if (omitted.contains(Field.STATUS_CODE) && !statusCode.equals(DEFAULT_STATUS_CODE)) {
+            throw new IllegalArgumentException("an omitted statusCode reads as " + DEFAULT_STATUS_CODE + ", not " + statusCode);
+        }
+        if (omitted.contains(Field.HEADERS) && !headers.isEmpty()) {
+            throw new IllegalArgumentException("omitted headers must be empty, were " + headers);
+        }
+        if (omitted.contains(Field.MODE) && mode != ResponseMode.TEXT) {
+            throw new IllegalArgumentException("an omitted _mode reads as text, not " + mode.wire());
+        }
+    }
+
+    /**
+     * A response that writes its status, and writes its headers and {@code _mode} only when they say
+     * something (non-empty headers, a non-text mode): the shape before presence was modeled.
+     */
+    public IsResponse(String statusCode, Map<String, List<String>> headers, Optional<JsonValue> body,
+            ResponseMode mode, Map<String, JsonValue> extra) {
+        this(statusCode, headers, body, mode, extra, unsaid(headers, mode));
     }
 
     public IsResponse(String statusCode) {
@@ -59,10 +91,53 @@ public record IsResponse(String statusCode, Map<String, List<String>> headers, O
         Objects.requireNonNull(value, "value");
         Map<String, JsonValue> next = new LinkedHashMap<>(extra);
         next.put(extraKey, value);
-        return new IsResponse(statusCode, headers, body, mode, next);
+        return new IsResponse(statusCode, headers, body, mode, next, omitted);
+    }
+
+    /** Whether {@code field} is written, rather than left for the imposter's {@code defaultResponse}. */
+    public boolean isWritten(Field field) {
+        return !omitted.contains(field);
+    }
+
+    /**
+     * Returns a copy that leaves {@code statusCode} unwritten, so the imposter's {@code
+     * defaultResponse} supplies it (rift &gt;= 0.22.0; an older engine answers 200).
+     *
+     * @throws IllegalStateException if the status is not {@value #DEFAULT_STATUS_CODE}, the value an
+     *     unwritten status reads as
+     */
+    public IsResponse withoutStatusCode() {
+        if (!statusCode.equals(DEFAULT_STATUS_CODE)) {
+            throw new IllegalStateException("only a " + DEFAULT_STATUS_CODE + " status can be left unwritten, was " + statusCode);
+        }
+        EnumSet<Field> next = omitted.isEmpty() ? EnumSet.noneOf(Field.class) : EnumSet.copyOf(omitted);
+        next.add(Field.STATUS_CODE);
+        return new IsResponse(statusCode, headers, body, mode, extra, next);
+    }
+
+    /** The fields the pre-presence writer left out: empty headers and the text mode. */
+    static Set<Field> unsaid(Map<String, List<String>> headers, ResponseMode mode) {
+        EnumSet<Field> unsaid = EnumSet.noneOf(Field.class);
+        if (headers.isEmpty()) {
+            unsaid.add(Field.HEADERS);
+        }
+        if (mode == ResponseMode.TEXT) {
+            unsaid.add(Field.MODE);
+        }
+        return unsaid;
     }
 
     static IsResponse read(JsonObject obj) {
+        EnumSet<Field> omitted = EnumSet.noneOf(Field.class);
+        if (obj.get("statusCode") == null) {
+            omitted.add(Field.STATUS_CODE);
+        }
+        if (obj.get("headers") == null) {
+            omitted.add(Field.HEADERS);
+        }
+        if (obj.get("_mode") == null) {
+            omitted.add(Field.MODE);
+        }
         return new IsResponse(
                 readStatusCode(obj.get("statusCode")),
                 readHeaders(obj.get("headers")),
@@ -70,7 +145,8 @@ public record IsResponse(String statusCode, Map<String, List<String>> headers, O
                 Optional.ofNullable(obj.get("_mode"))
                         .map(v -> ResponseMode.read(JsonSupport.requireString(v, "'_mode'")))
                         .orElse(ResponseMode.TEXT),
-                JsonSupport.extraFields(obj, MODELED_KEYS));
+                JsonSupport.extraFields(obj, MODELED_KEYS),
+                omitted);
     }
 
     static String readStatusCode(JsonValue v) {
@@ -120,18 +196,23 @@ public record IsResponse(String statusCode, Map<String, List<String>> headers, O
     }
 
     /**
-     * Writes this response. A stub response serializes {@code statusCode} as a string (Mountebank
-     * convention); an imposter's {@code defaultResponse} serializes it as a JSON number, because the
-     * engine deserializes that position into a {@code u16} — hence the {@code statusCodeAsNumber}.
+     * Writes this response, writing each of {@code statusCode}, {@code headers} and {@code _mode} only
+     * if it {@link #isWritten is written}. A stub response serializes {@code statusCode} as a string
+     * (Mountebank convention); an imposter's {@code defaultResponse} serializes it as a JSON number,
+     * because the engine deserializes that position into a {@code u16} — hence the {@code
+     * statusCodeAsNumber}. That position also never writes empty headers, as the engine prints it:
+     * an empty map supplies nothing as a default.
      */
     JsonObject toJsonValue(boolean statusCodeAsNumber) {
         JsonObject.Builder builder = JsonObject.builder();
-        builder.put("statusCode", statusCodeAsNumber ? statusCodeAsNumber() : new JsonString(statusCode));
-        if (!headers.isEmpty()) {
+        if (isWritten(Field.STATUS_CODE)) {
+            builder.put("statusCode", statusCodeAsNumber ? statusCodeAsNumber() : new JsonString(statusCode));
+        }
+        if (isWritten(Field.HEADERS) && !(statusCodeAsNumber && headers.isEmpty())) {
             builder.put("headers", writeHeaders(headers));
         }
         body.ifPresent(b -> builder.put("body", b));
-        if (mode != ResponseMode.TEXT) {
+        if (isWritten(Field.MODE)) {
             builder.put("_mode", new JsonString(mode.wire()));
         }
         extra.forEach(builder::put);
