@@ -46,6 +46,21 @@ class ImposterRecordingTest {
     }
 
     @Test
+    void ignoreHeadersReachesTheEnginesGeneratorWhenHeadersAreGenerated() {
+        FakeTransport t = new FakeTransport("{\"stubs\":[]}", EXPORT);
+        imposter(t).startRecording("http://origin", RecordSpec.builder()
+                .generateBy(RequestField.PATH, RequestField.HEADERS).ignoreHeaders("x-request-id").build());
+        String proxyStub = t.lastReplaceStubs.get(0).toJson();
+        assertTrue(proxyStub.contains("\"ignore\":{\"headers\":[\"X-Request-Id\"]}"), proxyStub);
+
+        FakeTransport noHeaders = new FakeTransport("{\"stubs\":[]}", EXPORT);
+        imposter(noHeaders).startRecording("http://origin", RecordSpec.builder()
+                .generateBy(RequestField.PATH).ignoreHeaders("x-request-id").build());
+        String pathOnly = noHeaders.lastReplaceStubs.get(0).toJson();
+        assertFalse(pathOnly.contains("ignore"), pathOnly);
+    }
+
+    @Test
     void onceModePrependsProxyStubAlwaysAppends() {
         FakeTransport once = new FakeTransport("{\"stubs\":[{\"predicates\":[{\"equals\":{\"path\":\"/existing\"}}],\"responses\":[]}]}", EXPORT);
         imposter(once).startRecording("http://origin");

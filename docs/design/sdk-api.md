@@ -654,8 +654,12 @@ static FlowStateSpec inMemoryFlowState()                 // .ttl(Duration).flowI
 ### 7.6 `ProxySpec` typed predicate generators
 
 ```java
-ProxySpec generateBy(RequestField... fields)             // enum METHOD, PATH, QUERY, HEADERS, BODY
-ProxySpec generateBy(PredicateGeneratorSpec generator)   // .matching(fields).caseSensitive(b).jsonPath(sel)
+ProxySpec generateBy(RequestField... fields)             // enum METHOD, PATH, QUERY, HEADERS, BODY,
+                                                         //   REQUEST_FROM, IP, FORM (rift >= 0.22.0)
+ProxySpec generateBy(PredicateGeneratorSpec generator)   // .matching(fields).caseSensitive(b), and from rift 0.22.0:
+                                                         //   .jsonPath(sel) | .xPath(sel[, ns])  (one body selector)
+                                                         //   .ignore(QUERY|HEADERS|FORM, names...)  (headers Title-Cased)
+                                                         //   .predicateOperator(GeneratorOperator)  .except(regex)
 ProxySpec addWaitBehavior()                              // proxy.addWaitBehavior: records upstream latency on recorded stubs
 ProxySpec decorateWith(String script)                    // proxy.addDecorateBehavior: decorates the stubs this proxy records
 // not to be confused with BehaviorChain.waitMs/decorate (§7.3), which act on this proxy's own

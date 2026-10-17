@@ -33,7 +33,7 @@ RecordSpec spec = RecordSpec.builder()
 | `mode` | `ONCE` | `ONCE` = proxy first request per predicate, then replay (`proxyOnce`); `ALWAYS` = always proxy, recording each unique request (`proxyAlways`); `TRANSPARENT` = forward without recording (`proxyTransparent`). |
 | `generateBy(RequestField...)` | `METHOD, PATH` | The request fields turned into the recorded stub's match predicates. |
 | `addWaitBehavior(boolean)` | `true` | Capture the upstream's observed latency as a wait behavior. |
-| `ignoreHeaders(String...)` | none | When `generateBy` includes `HEADERS`, drop these (case-insensitive) volatile headers from the generated predicates so recordings are stable run-to-run. |
+| `ignoreHeaders(String...)` | none | When `generateBy` includes `HEADERS`, drop these (case-insensitive) volatile headers from the generated predicates so recordings are stable run-to-run. From rift 0.22.0 the engine drops them while recording, so requests that differ only in them reach the origin once and record one stub; the exported stubs are also stripped, which covers older engines. |
 
 ## `Recording`
 

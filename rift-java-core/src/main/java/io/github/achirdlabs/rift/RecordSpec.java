@@ -46,7 +46,12 @@ public final class RecordSpec {
         return addWaitBehavior;
     }
 
-    /** Header names (case-insensitive) stripped from recorded predicates. Default empty. */
+    /**
+     * Header names (case-insensitive) left out of recorded predicates. Default empty. When {@link
+     * RequestField#HEADERS} is generated, the engine leaves them out while recording (rift &ge; 0.22.0,
+     * rift#1446), so requests that differ only in them are one recording and reach the origin once;
+     * they are also stripped from the exported stubs, which is what covers an older engine.
+     */
     public List<String> ignoreHeaders() {
         return ignoreHeaders;
     }
@@ -76,7 +81,13 @@ public final class RecordSpec {
             return this;
         }
 
+        /** @throws IllegalArgumentException if a name is blank */
         public Builder ignoreHeaders(String... headers) {
+            for (String header : headers) {
+                if (header != null && header.isBlank()) {
+                    throw new IllegalArgumentException("an ignored header name must not be blank");
+                }
+            }
             this.ignoreHeaders = List.of(headers);
             return this;
         }
