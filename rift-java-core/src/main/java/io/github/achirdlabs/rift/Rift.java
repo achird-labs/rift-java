@@ -99,9 +99,10 @@ public interface Rift extends AutoCloseable {
     /**
      * Reconciles the engine's imposters toward {@code config} ({@code {"imposters":[...]}}): creates
      * what is new, replaces or patches what changed, deletes what is no longer declared, and leaves an
-     * unchanged imposter — and its runtime state — alone. Only {@code imposters} is applied; a config
-     * file's {@code intercept} or {@code routes} block is not. {@link #replaceAll} is the same
-     * operation without a report.
+     * unchanged imposter — and its runtime state (response cycles, recorded requests, scenario and
+     * flow state, saved {@code proxyOnce} responses) — alone, on every engine and transport. Only
+     * {@code imposters} is applied; a config file's {@code intercept} or {@code routes} block is not.
+     * Over the admin API this is {@code PUT /imposters?reconcile=true}.
      *
      * <p>The embedded engine reports what changed, and so does the admin API ({@code PUT /imposters})
      * from engine 0.20.0. An older remote engine applies the config but cannot report it, so this
@@ -113,6 +114,13 @@ public interface Rift extends AutoCloseable {
      */
     ApplyResult applyConfig(JsonValue config);
 
+    /**
+     * Replaces every imposter with {@code imposters} via {@code PUT /imposters}. From rift 0.23.0
+     * (rift#1518) every listed imposter restarts with fresh runtime state (response cycles, recorded
+     * requests, scenario and flow state, saved {@code proxyOnce} responses), as Mountebank's
+     * delete-and-recreate does; an older engine keeps an unchanged imposter's state. Use {@link
+     * #applyConfig} to keep it on every engine.
+     */
     void replaceAll(List<ImposterDefinition> imposters);
 
     /**

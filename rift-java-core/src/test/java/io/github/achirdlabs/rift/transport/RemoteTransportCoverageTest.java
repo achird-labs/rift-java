@@ -338,8 +338,21 @@ class RemoteTransportCoverageTest {
                 assertEquals(java.util.List.of(4), result.toggled());
                 assertEquals(java.util.List.of(3), result.deleted());
             }
-            assertTrue(s.received().stream().anyMatch(r -> r.method().equals("PUT") && r.path().equals("/imposters")));
+            // reconcile=true keeps an unchanged imposter's runtime state on an engine with rift#1518
+            assertTrue(s.received().stream().anyMatch(r -> r.method().equals("PUT") && r.path().equals("/imposters?reconcile=true")));
             assertTrue(s.received().stream().noneMatch(r -> r.path().equals("/admin/reload")));
+        }
+    }
+
+    @Test
+    void replaceAllSendsAPlainPutImposters() {
+        // from rift#1518 a plain PUT /imposters resets every listed imposter, as Mountebank's does
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 200, "{\"imposters\":[]}");
+            try (Rift rift = connect(s)) {
+                rift.replaceAll(java.util.List.of());
+            }
+            assertTrue(hit(s, "PUT", "/imposters"), "replaceAll sends no reconcile query: " + s.received());
         }
     }
 
