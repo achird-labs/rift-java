@@ -129,6 +129,7 @@ final class FakeRiftAdmin implements AutoCloseable {
         }
         if (path.equals("/intercept") && method.equals("DELETE")) {
             interceptStops.incrementAndGet();
+            runningInterceptPort = 0; // the slot is empty again, as on the engine
             return "";
         }
         if (path.equals("/intercept") && method.equals("GET")) {
@@ -139,6 +140,7 @@ final class FakeRiftAdmin implements AutoCloseable {
         }
         if (path.equals("/intercept") && method.equals("POST")) {
             interceptStarts.incrementAndGet();
+            runningInterceptPort = 19000; // GET /intercept now reports it, as on the engine
             return "{\"interceptPort\":19000,\"interceptUrl\":\"http://127.0.0.1:19000\"}";
         }
         if (path.equals("/intercept/rules")) {

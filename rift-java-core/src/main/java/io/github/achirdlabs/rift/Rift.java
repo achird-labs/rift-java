@@ -156,6 +156,13 @@ public interface Rift extends AutoCloseable {
      * on this {@code Rift} throws {@link IllegalStateException}. (The engine also rejects a second
      * listener — surfaced as an engine error — so a separate {@code Rift} bound to the same engine
      * cannot start one either.) A call that fails to start leaves intercept available to retry.
+     *
+     * <p>A listener stopped or replaced outside the open handle (through the admin plane, or by
+     * another client) does not block a new call: the open handle finds the engine's slot no longer
+     * holds its listener and is closed without any engine call. A listener restarted on the same port
+     * cannot be told apart, because the engine gives a listener no identity but its address; for an
+     * {@code attach(host, port)} handle, only a stopped listener is detected. If the engine cannot be
+     * asked, the call is refused as before.
      */
     Intercept intercept(InterceptOptions options);
 

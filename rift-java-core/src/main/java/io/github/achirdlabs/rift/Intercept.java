@@ -16,7 +16,11 @@ import java.util.function.Consumer;
  *
  * <p>Obtained via {@link Rift#intercept()}/{@link Rift#intercept(InterceptOptions)}; one at a time
  * per engine — a second call while one is open throws {@link IllegalStateException}, and {@link
- * #close()} frees the engine for another.
+ * #close()} frees the engine for another. A handle whose listener was stopped or replaced outside it
+ * (the admin plane, another client) is found stale by the next {@link Rift#intercept} or its own
+ * {@link #close()}: from then on its rule operations and {@link #trust()} throw {@link
+ * IllegalStateException}, and it makes no engine call, so it cannot stop or clear the listener
+ * running in its place. Until then its rule operations still reach whatever listener the engine runs.
  */
 public interface Intercept extends InterceptRuleSet, AutoCloseable {
 
@@ -103,7 +107,10 @@ public interface Intercept extends InterceptRuleSet, AutoCloseable {
      * it running: only a re-attach can follow. Afterwards rule operations and {@link #trust()} throw
      * {@link IllegalStateException}; the address accessors still answer. Idempotent; a failed stop
      * leaves the handle open, to retry. Not to be called while another thread is mid-way through a
-     * rule operation on this handle.
+     * rule operation on this handle. If the engine's slot no longer holds this handle's listener
+     * (stopped, or replaced on another port), it closes without any engine call, so it cannot stop or
+     * clear another listener. A restart on the same port is not detected, and for an {@code
+     * attach(host, port)} handle only a stopped listener is.
      */
     @Override
     void close();
