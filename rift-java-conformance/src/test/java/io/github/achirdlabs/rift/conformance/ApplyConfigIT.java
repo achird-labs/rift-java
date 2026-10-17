@@ -3,9 +3,12 @@ package io.github.achirdlabs.rift.conformance;
 import io.github.achirdlabs.rift.ApplyResult;
 import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.json.JsonValue;
+import io.github.achirdlabs.rift.model.ImposterDefinition;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -89,6 +92,47 @@ class ApplyConfigIT {
                 assertEquals(1, rift.imposter(port).orElseThrow().recorded().size(), "the journal survives the reconcile");
             }
         });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> replaceAllRestartsEveryListedImposterFresh() {
+        // rift 0.23.0 (rift#1518): PUT /imposters resets runtime state, as Mountebank's delete-and-recreate
+        return gated("replaceAll with the same imposter clears its journal", () -> {
+            try (Rift rift = engine()) {
+                int port = freePort();
+                ImposterDefinition def = imposter("reset").port(port).record().stub(onGet("/").willReturn(status(204))).build();
+                rift.create(def);
+                get(port);
+                assertEquals(1, rift.imposter(port).orElseThrow().recorded().size());
+
+                rift.replaceAll(List.of(def));
+                assertEquals(0, rift.imposter(port).orElseThrow().recorded().size(), "replaceAll restarts the imposter");
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> aTakenPortIsReportedNotThrown() {
+        // rift 0.23.0 (rift#1524) answers a reconcile whose every failure is a taken port with 400 and the report
+        return gated("applyConfig onto a port another socket holds reports it as failed", () -> {
+            try (Rift rift = engine(); ServerSocket taken = new ServerSocket()) {
+                // on loopback without SO_REUSEADDR, so the engine cannot bind beside it on either lane
+                taken.setReuseAddress(false);
+                taken.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+                // an explicit host: a host-less embedded imposter binds :: (rift#1514), which can sit beside it
+                String imposter = imposter("taken").port(taken.getLocalPort()).host("127.0.0.1")
+                        .stub(onGet("/").willReturn(status(204))).build().toJson();
+                ApplyResult result = rift.applyConfig(JsonValue.parse("{\"imposters\":[" + imposter + "]}"));
+                assertEquals(List.of(), result.created());
+                assertEquals(1, result.failed().size(), () -> "failed: " + result.failed());
+                assertEquals(taken.getLocalPort(), result.failed().get(0).port().orElseThrow());
+            }
+        });
+    }
+
+    private static void get(int port) throws Exception {
+        HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/"))
+                .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding());
     }
 
     private static JsonValue config(int port) {

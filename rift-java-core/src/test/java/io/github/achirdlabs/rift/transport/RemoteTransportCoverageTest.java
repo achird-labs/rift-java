@@ -373,6 +373,34 @@ class RemoteTransportCoverageTest {
     }
 
     @Test
+    void applyConfigCallerAddressFailuresAreAReportToo() {
+        // rift 0.23.0 (rift#1524): a reconcile whose every failure is the caller's address (a port in
+        // use, a host that is not local) answers 400 with the same report it used to send as a 500
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 400, "{\"errors\":[{\"code\":\"bad data\",\"message\":\"19478: Address already in use\"}],"
+                    + "\"failed\":[\"19478: Address already in use\"],"
+                    + "\"created\":[19477],\"replaced\":[],\"stubPatched\":[],\"deleted\":[]}");
+            try (Rift rift = connect(s)) {
+                var result = rift.applyConfig(JsonValue.parse("{\"imposters\":[]}"));
+                assertEquals(java.util.List.of(19477), result.created());
+                assertEquals(java.util.List.of(new io.github.achirdlabs.rift.ApplyResult.ApplyFailure(
+                        java.util.OptionalInt.of(19478), "Address already in use")), result.failed());
+            }
+        }
+    }
+
+    @Test
+    void applyConfigAnInvalidConfigStillThrows() {
+        try (FakeAdminServer s = new FakeAdminServer()) {
+            s.respond("PUT /imposters", 400, "{\"errors\":[{\"code\":\"bad data\",\"message\":\"invalid predicate\"}]}");
+            try (Rift rift = connect(s)) {
+                assertThrows(io.github.achirdlabs.rift.error.InvalidDefinition.class,
+                        () -> rift.applyConfig(JsonValue.parse("{\"imposters\":[]}")));
+            }
+        }
+    }
+
+    @Test
     void applyConfigOtherServerErrorsStillThrow() {
         try (FakeAdminServer s = new FakeAdminServer()) {
             s.respond("PUT /imposters", 500, "{\"errors\":[{\"message\":\"boom\"}]}");
