@@ -36,6 +36,16 @@ class ImposterRecordingTest {
     }
 
     @Test
+    void ignoreHeadersKeepsTheRecordedStubsName() {
+        FakeTransport t = new FakeTransport("{\"stubs\":[]}", EXPORT.replace("{\"predicates\"", "{\"name\":\"rec\",\"predicates\""));
+        Recording recording = imposter(t).startRecording("http://origin",
+                RecordSpec.builder().generateBy(RequestField.METHOD, RequestField.PATH, RequestField.HEADERS)
+                        .ignoreHeaders("Date").build());
+
+        assertEquals(Optional.of("rec"), recording.stop().get(0).name());
+    }
+
+    @Test
     void onceModePrependsProxyStubAlwaysAppends() {
         FakeTransport once = new FakeTransport("{\"stubs\":[{\"predicates\":[{\"equals\":{\"path\":\"/existing\"}}],\"responses\":[]}]}", EXPORT);
         imposter(once).startRecording("http://origin");

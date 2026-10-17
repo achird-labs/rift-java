@@ -34,10 +34,11 @@ public final class StubSpec implements RequestMatch {
     private final Optional<String> space;
     private final Optional<String> id;
     private final Optional<String> routePattern;
+    private final Optional<String> name;
 
     StubSpec(List<Predicate> predicates) {
         this(predicates, List.of(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private StubSpec(
@@ -48,7 +49,8 @@ public final class StubSpec implements RequestMatch {
             Optional<String> newScenarioState,
             Optional<String> space,
             Optional<String> id,
-            Optional<String> routePattern) {
+            Optional<String> routePattern,
+            Optional<String> name) {
         this.predicates = predicates;
         this.responses = responses;
         this.scenarioName = scenarioName;
@@ -57,6 +59,7 @@ public final class StubSpec implements RequestMatch {
         this.space = space;
         this.id = id;
         this.routePattern = routePattern;
+        this.name = name;
     }
 
     /** Adds a predicate matching the request method against {@code matcher}. */
@@ -111,13 +114,13 @@ public final class StubSpec implements RequestMatch {
 
     private StubSpec withPredicate(Predicate predicate) {
         List<Predicate> next = Stream.concat(predicates.stream(), Stream.of(predicate)).toList();
-        return new StubSpec(next, responses, scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern);
+        return new StubSpec(next, responses, scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern, name);
     }
 
     /** Adds a response. Repeatable: multiple calls model response cycling (served in call order). */
     public StubSpec willReturn(ResponseSpec response) {
         return new StubSpec(predicates, appendResponse(response.build()), scenarioName, requiredScenarioState,
-                newScenarioState, space, id, routePattern);
+                newScenarioState, space, id, routePattern, name);
     }
 
     private List<Response> appendResponse(Response response) {
@@ -130,7 +133,7 @@ public final class StubSpec implements RequestMatch {
      * RiftDsl#scenario(String)} builds.
      */
     public StubSpec scenario(String name) {
-        return new StubSpec(predicates, responses, Optional.of(name), requiredScenarioState, newScenarioState, space, id, routePattern);
+        return new StubSpec(predicates, responses, Optional.of(name), requiredScenarioState, newScenarioState, space, id, routePattern, this.name);
     }
 
     /** Sets the scenario name directly (scenario sugar, as an alternative to the full FSM builder). */
@@ -140,12 +143,12 @@ public final class StubSpec implements RequestMatch {
 
     /** Requires the named scenario state before this stub matches (scenario sugar). */
     public StubSpec whenScenarioState(String state) {
-        return new StubSpec(predicates, responses, scenarioName, Optional.of(state), newScenarioState, space, id, routePattern);
+        return new StubSpec(predicates, responses, scenarioName, Optional.of(state), newScenarioState, space, id, routePattern, name);
     }
 
     /** Transitions the scenario to the named state once this stub serves a response (scenario sugar). */
     public StubSpec willSetScenarioState(String state) {
-        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, Optional.of(state), space, id, routePattern);
+        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, Optional.of(state), space, id, routePattern, name);
     }
 
     /**
@@ -162,22 +165,34 @@ public final class StubSpec implements RequestMatch {
         if (flowId.isBlank()) {
             throw new IllegalArgumentException("flowId must not be blank");
         }
-        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, Optional.of(flowId), id, routePattern);
+        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, Optional.of(flowId), id, routePattern, name);
+    }
+
+    /**
+     * Labels this stub for the reader. From rift 0.22.0 the engine keeps the name and prints it back
+     * (an older engine drops it); it never matches on it. Unlike {@link #scenario(String)}, it sets
+     * no scenario. Naming a stub without an {@link #withId id} changes the key {@code applyConfig}
+     * reconciles it by, so the engine treats it as a changed stub.
+     */
+    public StubSpec named(String name) {
+        Objects.requireNonNull(name, "name");
+        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, space, id,
+                routePattern, Optional.of(name));
     }
 
     /** Assigns this stub a stable id, for later reference (e.g. deletion, verification). */
     public StubSpec withId(String stubId) {
-        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, space, Optional.of(stubId), routePattern);
+        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, space, Optional.of(stubId), routePattern, name);
     }
 
     /** Sets the route pattern (path template) this stub is registered under. */
     public StubSpec withRoute(String pattern) {
-        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, space, id, Optional.of(pattern));
+        return new StubSpec(predicates, responses, scenarioName, requiredScenarioState, newScenarioState, space, id, Optional.of(pattern), name);
     }
 
     /** Attaches a full scenario-FSM transition: name, required (from) state, and new (to) state. Used by {@link ScenarioSpec}. */
     StubSpec withScenarioTransition(String scenarioName, Optional<String> requiredState, String newState) {
-        return new StubSpec(predicates, responses, Optional.of(scenarioName), requiredState, Optional.of(newState), space, id, routePattern);
+        return new StubSpec(predicates, responses, Optional.of(scenarioName), requiredState, Optional.of(newState), space, id, routePattern, name);
     }
 
     /** The predicates added so far — usable to inspect/verify a stub under construction, before {@link #build()}. */
@@ -189,7 +204,7 @@ public final class StubSpec implements RequestMatch {
     /** Builds the immutable {@link Stub} this spec represents. */
     public Stub build() {
         return new Stub(
-                scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern,
+                name, scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern,
                 predicates, responses, Optional.empty(), Optional.empty(), Map.of());
     }
 }
