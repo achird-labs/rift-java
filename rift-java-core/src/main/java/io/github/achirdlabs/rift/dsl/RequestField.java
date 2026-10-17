@@ -11,9 +11,18 @@ public enum RequestField {
     QUERY("query"),
     HEADERS("headers"),
     BODY("body"),
-    /** The client's address and port, so in effect it matches only that one connection. */
+    /**
+     * The client's address and port, so in effect it matches only that one connection. See {@link
+     * #IP} for how an IPv4 client is written on a dual-stack imposter.
+     */
     REQUEST_FROM("requestFrom"),
-    /** The client's IP address. */
+    /**
+     * The client's IP address. From rift 0.23.0 (rift#1514) a host-less imposter on an embedded
+     * engine or in a {@code RiftContainer} listens dual-stack and records an IPv4 client in
+     * IPv4-mapped form, {@code ::ffff:127.0.0.1}, so a predicate written as {@code 127.0.0.1} no
+     * longer matches there; give the imposter {@code host("127.0.0.1")} to keep it IPv4. A spawned
+     * engine's imposters bind its {@code --host} and record plain IPv4.
+     */
     IP("ip"),
     /** The urlencoded form body, recorded like {@link #QUERY}; nothing is recorded for a request with no form. */
     FORM("form");

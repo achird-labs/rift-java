@@ -46,6 +46,11 @@ RecordSpec spec = RecordSpec.builder()
 | `void persist(Path file)` | `stop()`, then write the replayable imposter JSON to `file`. |
 | `void close()` | `stop()`. |
 
+From rift 0.23.0, an `ALWAYS` (`proxyAlways`) recording's responses also carry `_proxyResponseTime`,
+the origin's response time (rift#1519). The model keeps it through `IsResponse.extra`, so it survives
+`persist` and a replay. `Imposter.clearProxyResponses()` then also strips the responses `proxyAlways`
+appended to stubs you declared, and restarts every remaining stub's response cycle.
+
 `persist(file)` writes the engine's **replayable imposter definition** — the same format loadable by
 `rift --configfile`, rift-node, and rift-scala — so a captured golden file is portable across SDKs.
 

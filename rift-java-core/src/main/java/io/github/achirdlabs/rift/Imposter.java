@@ -159,6 +159,10 @@ public interface Imposter {
      * <p>From rift 0.19.0 this also deletes every stub a proxy recorded (one carrying {@code
      * recordedFrom}, e.g. from {@code predicateGenerators}), matching Mountebank; stubs you declared
      * are kept. Through 0.18.x the recorded stubs survived the call.
+     *
+     * <p>From rift 0.23.0 (rift#1519) it also strips the responses a {@code proxyAlways} proxy
+     * appended to stubs you declared, leaving those stubs as you wrote them, and restarts the
+     * response cycle of every stub that remains, as Mountebank does.
      */
     void clearProxyResponses();
 
