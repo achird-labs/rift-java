@@ -3,9 +3,10 @@ package io.github.achirdlabs.rift.model;
 /**
  * Predicates over an {@link ImposterDefinition} for flow-state / spaces configuration (#40).
  *
- * <p>The rift engine backs the flow-state and per-space APIs with a real store only when the def
- * declares one — an explicit {@code _rift.flowState}, a scenario-naming stub (rift#514), or a {@code
- * _rift.script} stub (rift#358); otherwise reads silently return {@code found:false}. Separately, a
+ * <p>Before rift 0.23.0 the engine backs the flow-state and per-space APIs with a real store only
+ * when the def declares one — an explicit {@code _rift.flowState}, a scenario-naming stub (rift#514),
+ * or a {@code _rift.script} stub (rift#358); otherwise reads silently return {@code found:false}.
+ * From 0.23.0 every imposter has an in-memory store by default (rift#1504). Separately, a
  * space stub can only match when a header-form {@code flowIdSource} is configured, because the
  * engine's flow-id source defaults to the imposter port. These predicates let the DSL fail fast, and
  * the runtime accessors warn, on those otherwise-silent misconfigurations.
@@ -29,7 +30,7 @@ public final class FlowStateSupport {
     }
 
     /**
-     * The engine will provision a real (non-NoOp) flow store: the def has an explicit {@code
+     * An engine before rift 0.23.0 will provision a real (non-NoOp) flow store: the def has an explicit {@code
      * _rift.flowState}, a scenario-naming stub, a {@code _rift.script} stub, or an {@code is}
      * response with {@code _rift.stateOps}.
      */

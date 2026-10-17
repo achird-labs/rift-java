@@ -452,7 +452,9 @@ caching, every call hits the engine (test code wants truth, not staleness).
 and per-space APIs with a real store only when the def declares one — an explicit `_rift.flowState`,
 a scenario stub (`scenarioName`/`requiredScenarioState`/`newScenarioState`), a `_rift.script`
 stub, or an `is` response with `_rift.stateOps` (§7.3; the engine checks this when the imposter is
-created); otherwise it uses a silent no-op store (reads return empty). Separately, a per-space stub only
+created); otherwise, before rift 0.23.0, it uses a silent no-op store (reads return empty). From
+rift 0.23.0 every imposter gets an in-memory store (300 s TTL) by default (rift#1504), and the SDK
+warns about a trigger-less def only on an older engine. Separately, a per-space stub only
 matches when a header-form `flowIdSource` is configured (`flowIdFromHeader(...)`), because the
 engine's flow-id source defaults to the imposter port. The SDK does **not** auto-inject a flow store
 (a transport is a faithful wire mapping — it never rewrites user input); instead it fails fast and

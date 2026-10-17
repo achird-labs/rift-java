@@ -27,8 +27,14 @@ class ImposterImplFlowStateWarnTest {
 
     private static final int PORT = 4545;
 
+    /** An engine before rift#1504, whose trigger-less imposters get a no-op flow store. */
     private static ImposterImpl imposter(FakeTransport t) {
-        return new ImposterImpl(PORT, t, ConnectOptions.builder(URI.create("http://127.0.0.1:2525")).build());
+        return imposter(t, Optional.of("0.22.0"));
+    }
+
+    private static ImposterImpl imposter(FakeTransport t, Optional<String> engineVersion) {
+        return new ImposterImpl(PORT, t, ConnectOptions.builder(URI.create("http://127.0.0.1:2525")).build(),
+                Optional.empty(), "http", () -> engineVersion);
     }
 
     private static final String TRIGGERLESS =
@@ -97,6 +103,31 @@ class ImposterImplFlowStateWarnTest {
         } finally {
             jul.removeHandler(handler);
             jul.setLevel(previous);
+        }
+    }
+
+    @Test
+    void aFlowStoreForEveryImposterNeedsNoTriggerWarningOrDefFetch() {
+        // rift 0.23.0 (rift#1504) gives every imposter an in-memory flow store; an unknown version, or a
+        // below-floor dev build ("0.1.0"), is not known to lack one either
+        for (Optional<String> version : List.of(Optional.of("0.23.0"), Optional.of("1.0.0"), Optional.<String>empty(),
+                Optional.of("0.1.0"))) {
+            Logger jul = Logger.getLogger(ImposterImpl.class.getName());
+            List<LogRecord> records = new CopyOnWriteArrayList<>();
+            Handler handler = new Handler() {
+                @Override public void publish(LogRecord r) { records.add(r); }
+                @Override public void flush() {}
+                @Override public void close() {}
+            };
+            jul.addHandler(handler);
+            try {
+                FakeTransport t = new FakeTransport(TRIGGERLESS);
+                assertNotNull(imposter(t, version).flowState("alice"));
+                assertTrue(records.stream().noneMatch(r -> r.getLevel() == Level.WARNING), version + ": " + records);
+                assertEquals(0, t.getImposterCalls, version + ": the version alone settles it");
+            } finally {
+                jul.removeHandler(handler);
+            }
         }
     }
 

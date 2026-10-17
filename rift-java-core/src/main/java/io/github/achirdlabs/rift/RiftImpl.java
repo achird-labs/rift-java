@@ -333,6 +333,16 @@ final class RiftImpl implements Rift {
         return Optional.of(cached);
     }
 
+    /** {@link #engineVersion()} for an advisory: an unreadable version is empty, never a failure. */
+    private Optional<String> engineVersionForAdvisory() {
+        try {
+            return engineVersion();
+        } catch (RiftException e) {
+            LOG.log(Level.DEBUG, "could not read the rift engine version for an advisory", e);
+            return Optional.empty();
+        }
+    }
+
     @Override
     public Imposter create(ImposterSpec spec) {
         return create(spec.build());
@@ -401,7 +411,7 @@ final class RiftImpl implements Rift {
                 ? Optional.of(h.value())
                 : Optional.empty();
         String protocol = obj.get("protocol") instanceof JsonString p ? p.value() : ImposterDefinition.DEFAULT_PROTOCOL;
-        return new ImposterImpl(port, transport, options, host, protocol);
+        return new ImposterImpl(port, transport, options, host, protocol, this::engineVersionForAdvisory);
     }
 
     @Override
