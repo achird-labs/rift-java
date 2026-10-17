@@ -108,7 +108,7 @@ final class RecordingImpl implements Recording {
             return stub;
         }
         List<Predicate> predicates = stub.predicates().stream().map(this::stripPredicate).toList();
-        return new Stub(stub.scenarioName(), stub.requiredScenarioState(), stub.newScenarioState(), stub.space(),
+        return new Stub(stub.name(), stub.scenarioName(), stub.requiredScenarioState(), stub.newScenarioState(), stub.space(),
                 stub.id(), stub.routePattern(), predicates, stub.responses(), stub.recordedFrom(), stub.verify(),
                 stub.extra());
     }

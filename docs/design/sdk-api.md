@@ -604,6 +604,7 @@ static LookupSpec lookupKeyFromHeader(String name)       // key.from {"headers":
 StubSpec inSpace(String flowId)                          // stub.space
 StubSpec withId(String id)                               // stub.id (enables by-id ops)
 StubSpec withRoute(String pattern)                       // stub.routePattern ("/users/:id")
+StubSpec named(String name)                              // stub.name: a label, never matched; rift >= 0.22.0 prints it back
 StubSpec withPredicateInject(String script)              // PredicateOperation.Inject
 // WireMock-style stub-level scenario sugar (alternative to ScenarioSpec):
 StubSpec inScenario(String name)

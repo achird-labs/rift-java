@@ -98,15 +98,9 @@ final class DslFixtures {
         return Optional.ofNullable(REGISTRY.get(fixtureNumber)).map(Supplier::get);
     }
 
-    /**
-     * Tags a built stub with the corpus's per-stub {@code name} annotation. {@link Stub} has no
-     * modeled {@code name} field ({@code StubSpec} has no setter for one either) — the fixtures'
-     * per-stub names are carried purely as an unknown/extension wire key, so the typed way to attach
-     * one is {@link Stub}'s own generic {@code withExtra}, the same escape hatch {@link
-     * ImposterDefinition#withExtra} and {@code IsResponse#withExtra} use for their own unmodeled keys.
-     */
+    /** Tags a built stub with the corpus's per-stub {@code name} label. */
     private static Stub named(String name, StubSpec stub) {
-        return stub.build().withExtra("name", new JsonString(name));
+        return stub.named(name).build();
     }
 
     private static ImposterDefinition build01() {
@@ -222,7 +216,7 @@ final class DslFixtures {
                 new PredicateParameters(caseSensitive, Optional.of(keyCaseSensitive), "", Optional.empty()),
                 new PredicateOperation.Equals(fields));
         Stub responses = onRequest().willReturn(status(200).withJsonBody("{\"matched\":\"" + matched + "\"}")).build();
-        return new Stub(List.of(predicate), responses.responses()).withExtra("name", new JsonString(name));
+        return new Stub(List.of(predicate), responses.responses()).withName(name);
     }
 
     private static ImposterDefinition build03() {

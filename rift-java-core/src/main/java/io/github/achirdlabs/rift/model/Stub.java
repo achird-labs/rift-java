@@ -16,11 +16,15 @@ import java.util.Set;
  * A stub: predicates to match a request, and the responses to serve (cycled) when it matches, plus
  * scenario-FSM and correlated-isolation ("space") extensions.
  *
+ * <p>{@code name} is a label for the reader: the engine never matches on it, and from rift 0.22.0
+ * keeps it and prints it back first (rift#1362). An older engine drops it.
+ *
  * <p>{@code extra} carries any wire keys not modeled above, so unknown/future engine fields survive
  * a parse → serialize round-trip instead of being dropped (re-emitted after the modeled keys, in
  * insertion order). A modeled key appearing in {@code extra} is rejected at construction.
  */
 public record Stub(
+        Optional<String> name,
         Optional<String> scenarioName,
         Optional<String> requiredScenarioState,
         Optional<String> newScenarioState,
@@ -33,11 +37,12 @@ public record Stub(
         Optional<JsonValue> verify,
         Map<String, JsonValue> extra) {
 
-    private static final Set<String> MODELED_KEYS = Set.of(
+    private static final Set<String> MODELED_KEYS = Set.of("name",
             "scenarioName", "requiredScenarioState", "newScenarioState", "space", "id", "routePattern",
             "predicates", "responses", "recordedFrom", "_verify");
 
     public Stub {
+        Objects.requireNonNull(name, "name");
         Objects.requireNonNull(scenarioName, "scenarioName");
         Objects.requireNonNull(requiredScenarioState, "requiredScenarioState");
         Objects.requireNonNull(newScenarioState, "newScenarioState");
@@ -53,8 +58,17 @@ public record Stub(
         extra = JsonSupport.orderedCopy(extra);
     }
 
+    /** An unnamed stub: the canonical constructor before {@code name} was modeled. */
+    public Stub(Optional<String> scenarioName, Optional<String> requiredScenarioState,
+            Optional<String> newScenarioState, Optional<String> space, Optional<String> id,
+            Optional<String> routePattern, List<Predicate> predicates, List<Response> responses,
+            Optional<String> recordedFrom, Optional<JsonValue> verify, Map<String, JsonValue> extra) {
+        this(Optional.empty(), scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern,
+                predicates, responses, recordedFrom, verify, extra);
+    }
+
     public Stub(List<Predicate> predicates, List<Response> responses) {
-        this(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+        this(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), predicates, responses, Optional.empty(), Optional.empty(), Map.of());
     }
 
@@ -73,12 +87,20 @@ public record Stub(
         Objects.requireNonNull(value, "value");
         Map<String, JsonValue> next = new LinkedHashMap<>(extra);
         next.put(extraKey, value);
-        return new Stub(scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern,
+        return new Stub(name, scenarioName, requiredScenarioState, newScenarioState, space, id, routePattern,
                 predicates, responses, recordedFrom, verify, next);
+    }
+
+    /** Returns a copy labelled {@code name}, which the engine prints back and never matches on. */
+    public Stub withName(String name) {
+        Objects.requireNonNull(name, "name");
+        return new Stub(Optional.of(name), scenarioName, requiredScenarioState, newScenarioState, space, id,
+                routePattern, predicates, responses, recordedFrom, verify, extra);
     }
 
     static Stub read(JsonObject obj) {
         return new Stub(
+                JsonSupport.optString(obj, "name"),
                 JsonSupport.optString(obj, "scenarioName"),
                 JsonSupport.optString(obj, "requiredScenarioState"),
                 JsonSupport.optString(obj, "newScenarioState"),
@@ -94,6 +116,7 @@ public record Stub(
 
     JsonObject toJsonValue() {
         JsonObject.Builder builder = JsonObject.builder();
+        name.ifPresent(v -> builder.put("name", new JsonString(v)));
         scenarioName.ifPresent(v -> builder.put("scenarioName", new JsonString(v)));
         requiredScenarioState.ifPresent(v -> builder.put("requiredScenarioState", new JsonString(v)));
         newScenarioState.ifPresent(v -> builder.put("newScenarioState", new JsonString(v)));
