@@ -1,6 +1,7 @@
 package io.github.achirdlabs.rift.model;
 
 import io.github.achirdlabs.rift.json.JsonNumber;
+import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
 import org.junit.jupiter.api.Test;
 
@@ -62,6 +63,48 @@ class ImposterClientAuthModelTest {
         ImposterDefinition def = ImposterDefinition.fromJson(json);
         assertEquals(Optional.of(new CaCertificates(List.of(), false)), def.ca());
         assertEquals(JsonValue.parse(json), JsonValue.parse(def.toJson()));
+    }
+
+    /** rift 0.24.0's {@code ?replayable=true} export of an https imposter, verbatim (rift#1576). */
+    private static final String ENGINE_024_HTTPS_EXPORT = """
+            {"port": 24501, "protocol": "https", "ciphers": "ECDHE-RSA-AES128-GCM-SHA256", "recordRequests": false,
+             "stubs": [{"responses": [{"is": {"statusCode": 200}}]}],
+             "mutualAuth": false, "rejectUnauthorized": false, "ca": null}
+            """;
+
+    @Test
+    void aNullCaReadsAsAbsent() {
+        ImposterDefinition def = ImposterDefinition.fromJson(ENGINE_024_HTTPS_EXPORT);
+        assertEquals(Optional.empty(), def.ca());
+        assertFalse(def.mutualAuth());
+        assertFalse(def.rejectUnauthorized());
+        assertEquals(Map.of("ciphers", new JsonString("ECDHE-RSA-AES128-GCM-SHA256")), def.extra(),
+                "ciphers is not modeled, so it rides extra unchanged");
+    }
+
+    @Test
+    void aNullCaIsNotWrittenBackAndCiphersIs() {
+        // null and absent mean the same to every engine and to Mountebank, so the write omits it.
+        assertEquals(JsonValue.parse("""
+                {"port": 24501, "protocol": "https",
+                 "stubs": [{"predicates": [], "responses": [{"is": {"statusCode": "200"}}]}],
+                 "ciphers": "ECDHE-RSA-AES128-GCM-SHA256"}
+                """), JsonValue.parse(ImposterDefinition.fromJson(ENGINE_024_HTTPS_EXPORT).toJson()));
+    }
+
+    @Test
+    void aWholeExportWithANullCaParses() {
+        ImposterDefinitions defs = ImposterDefinitions.fromJson("{\"imposters\": [" + ENGINE_024_HTTPS_EXPORT
+                + ", {\"port\": 24502, \"protocol\": \"http\", \"stubs\": []}]}");
+        assertEquals(List.of(24501, 24502), defs.imposters().stream().map(d -> d.port().orElseThrow()).toList());
+        assertEquals(Optional.empty(), defs.imposters().get(0).ca());
+    }
+
+    @Test
+    void aCaOfAnotherTypeIsStillRefused() {
+        assertThrows(WireFormatException.class, () -> ImposterDefinition.fromJson("""
+                {"protocol": "https", "ca": 5, "stubs": []}
+                """));
     }
 
     @Test

@@ -34,6 +34,9 @@ import java.util.Set;
  * every client). The model validates no combination of them, so it can read whatever an engine or a
  * fixture holds; rift refuses the combinations that cannot take effect when the imposter is created.
  * {@code ImposterSpec.requireClientCertificate} builds only the two it accepts.
+ * A {@code ca} of JSON {@code null}, which rift 0.24.0 and Mountebank print on an https imposter
+ * without one, reads as absent and is not written back. {@code ciphers}, which the engine keeps but
+ * does not apply, is not modeled and rides {@link #extra()} unchanged.
  *
  * <p>{@code enabled} is {@code false} for an imposter that holds its port and stubs but answers no
  * traffic. The engine writes the key only when it is {@code false}, and so does this codec; absent
@@ -197,7 +200,8 @@ public record ImposterDefinition(
                 Optional.ofNullable(obj.get("_rift")).map(v -> RiftConfig.read(JsonSupport.requireObject(v, "_rift"))),
                 JsonSupport.optBool(obj, "mutualAuth", false),
                 JsonSupport.optBool(obj, "rejectUnauthorized", false),
-                Optional.ofNullable(obj.get("ca")).map(CaCertificates::read),
+                // rift 0.24.0 and Mountebank print "ca": null on an https imposter without one (rift#1576).
+                Optional.ofNullable(obj.get("ca")).filter(ca -> !(ca instanceof JsonNull)).map(CaCertificates::read),
                 JsonSupport.optBool(obj, "enabled", true),
                 JsonSupport.extraFields(obj, MODELED_KEYS));
     }

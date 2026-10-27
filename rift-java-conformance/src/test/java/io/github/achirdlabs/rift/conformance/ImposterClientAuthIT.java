@@ -91,6 +91,8 @@ class ImposterClientAuthIT {
                     assertEquals("hello", get(imp, Optional.empty()).body());
                     assertEquals("https", rift.imposter(imp.port()).orElseThrow().uri().getScheme(),
                             "a lookup must report the scheme too");
+                    // rift 0.24.0 prints "ca": null on an https imposter without one (rift#1576, #341).
+                    assertEquals(Optional.empty(), imp.definition().ca(), "definition() reads the engine's https view");
                 }
             }
         });
