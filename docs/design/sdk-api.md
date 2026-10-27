@@ -570,6 +570,9 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // `repeat` is written beside the response and any other is dropped; and an element may not hold a
 // list of `copy`/`lookup` (rift#1639), so a list is written one item per element and read back the
 // same way. This trades rift 0.17.0's block-only `repeat` for an imposter the pinned engine accepts.
+// The read follows the same rule (rift#1709, Mountebank's upcast): a `behaviors` key (even `null`)
+// or a response-level `repeat` voids a `_behaviors` object beside it, so the voided block is not
+// read and a read + write never starts running it. The legacy `extra`-map constructors keep both.
 IsSpec templated()                                       // rename of template(); _rift.templated
 // declarative flow-state writes after the response (_rift.stateOps, rift >= 0.18.0; #227). Run in
 // chain order after templating and behaviors; engine-version gated at create/replaceAll.

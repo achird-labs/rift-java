@@ -107,27 +107,31 @@ class ResponseLevelRepeatTest {
     }
 
     /**
-     * The response-level value wins where the engine honours it — but the block one is NOT
-     * discarded at parse time: which spelling applies is engine-dependent (rift 0.17.0 and earlier
-     * ignore the response-level field and honour the block one). The write, though, is for the
-     * pinned engine: from rift 0.24.0 a {@code _behaviors} object beside a response-level {@code
-     * repeat} is ignored whole (rift#1709), so the block goes out as the array, which cannot hold a
-     * {@code repeat} (rift#1582) — the block one, which never took effect there, is dropped.
+     * A response-level {@code repeat} voids a {@code _behaviors} object beside it whole, its {@code
+     * repeat} included, as Mountebank and rift 0.24.0 read it (rift#1709). The voided block is not
+     * read, so a read and a write never start running behaviors the engine ignored.
      */
     @Test
-    void responseLevelRepeatWinsButTheBlockOneIsPreserved() {
+    void aResponseLevelRepeatVoidsTheBlockObjectBesideIt() {
         Response.Is is = isOf(BOTH);
-        List<Behavior> repeats = is.behaviors().entries().stream()
-                .filter(Behavior.Repeat.class::isInstance)
-                .toList();
-        assertEquals(2, repeats.size(), "both spellings are kept");
-        assertEquals(4, is.behaviors().effectiveRepeat().orElseThrow().count(),
-                "the response-level value is the effective one");
+        assertEquals(List.of(new Behavior.Repeat(4, true)), is.behaviors().entries());
 
         JsonObject written = writtenResponse(BOTH);
         assertEquals(JsonNumber.of(4), written.get("repeat"));
-        assertNull(written.get("_behaviors"), "rift 0.24.0 ignores a _behaviors object beside repeat");
-        assertEquals(JsonValue.parse("[{\"wait\": 1}]"), written.get("behaviors"), "the rest of the block runs");
+        assertNull(written.get("_behaviors"));
+        assertNull(written.get("behaviors"), "the voided wait does not come back as the array");
+    }
+
+    /** A {@code behaviors} key, a {@code null} one included, voids {@code _behaviors} too (rift#1709). */
+    @Test
+    void aBehaviorsKeyVoidsTheBlockObjectBesideIt() {
+        assertEquals(List.of(new Behavior.Decorate("d")), isOf("""
+                {"predicates": [], "responses": [
+                  {"is": {}, "behaviors": [{"decorate": "d"}], "_behaviors": {"wait": 9}}]}
+                """).behaviors().entries());
+        assertTrue(isOf("""
+                {"predicates": [], "responses": [{"is": {}, "behaviors": null, "_behaviors": {"wait": 9}}]}
+                """).behaviors().isEmpty());
     }
 
     /** The same, where the block independently needs the array form — the block repeat still survives. */
@@ -209,7 +213,7 @@ class ResponseLevelRepeatTest {
         JsonObject written = writtenResponse("""
                 {
                   "predicates": [],
-                  "responses": [{"is": {"statusCode": 200}, "repeat": 2, "_behaviors": {"wait": 5}}]
+                  "responses": [{"is": {"statusCode": 200}, "repeat": 2, "behaviors": [{"wait": 5}]}]
                 }
                 """);
         assertEquals(JsonNumber.of(2), written.get("repeat"));
