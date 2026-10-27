@@ -1,5 +1,6 @@
 package io.github.achirdlabs.rift.model;
 
+import io.github.achirdlabs.rift.json.JsonNull;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
@@ -220,15 +221,22 @@ public sealed interface Response {
      * Reads behaviors from either shape: the {@code _behaviors} object every fixture uses, or the
      * {@code behaviors} array-of-single-key-objects the engine itself emits in {@code GET /imposters}
      * output. Accepting the array form keeps consuming engine output from silently dropping them.
+     *
+     * <p>Which block runs follows Mountebank's rule, which rift 0.24.0 adopted (rift#1709): a
+     * {@code behaviors} key (a {@code null} one included) or a response-level {@code repeat} voids
+     * {@code _behaviors} whole, its {@code repeat} too. A voided block is not read, so a read and a
+     * write never turn on behaviors the engine was ignoring.
      */
     private static Behaviors readBehaviors(JsonObject obj) {
-        JsonValue underscore = obj.get("_behaviors");
-        if (underscore != null) {
-            return Behaviors.read(JsonSupport.requireObject(underscore, "_behaviors"));
-        }
         JsonValue array = obj.get("behaviors");
         if (array != null) {
-            return Behaviors.readArray(JsonSupport.requireArray(array, "behaviors"));
+            return array instanceof JsonNull
+                    ? Behaviors.EMPTY
+                    : Behaviors.readArray(JsonSupport.requireArray(array, "behaviors"));
+        }
+        JsonValue underscore = obj.get("_behaviors");
+        if (underscore != null && obj.get("repeat") == null) {
+            return Behaviors.read(JsonSupport.requireObject(underscore, "_behaviors"));
         }
         return Behaviors.EMPTY;
     }
@@ -242,17 +250,28 @@ public sealed interface Response {
      * beside {@code is}, a block one inside the block — so a read followed by a write never moves
      * it. That matters because the two spellings are not interchangeable across engine versions:
      * rift 0.17.0 and earlier honour only the block one and silently ignore a response-level field.
+     *
+     * <p>Beside a response-level {@code repeat} the block is always the array: from rift 0.24.0 a
+     * {@code _behaviors} object next to a top-level {@code repeat} is ignored, as in Mountebank
+     * (rift#1709), while the array next to it runs. And the array never holds a {@code repeat}:
+     * rift 0.24.0 refuses a {@code {"repeat": n}} element and ignores one beside a behavior
+     * (rift#1582, rift#1672). So in the array form the effective {@code repeat} is written beside the
+     * response — a block one moves there when there is no response-level one — and any other is
+     * dropped, as no engine that runs the array form honours it.
      */
     private static void writeBehaviors(JsonObject.Builder builder, Behaviors behaviors) {
-        behaviors.responseLevelRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
+        Optional<Behavior.Repeat> responseLevelRepeat = behaviors.responseLevelRepeat();
         Behaviors block = behaviors.withoutResponseLevelRepeat();
-        if (block.isEmpty()) {
+        if (responseLevelRepeat.isEmpty() && !block.requiresArrayForm()) {
+            if (!block.isEmpty()) {
+                builder.put("_behaviors", block.toJsonValue());
+            }
             return;
         }
-        if (block.requiresArrayForm()) {
-            builder.put("behaviors", block.toJsonArray());
-        } else {
-            builder.put("_behaviors", block.toJsonValue());
+        behaviors.effectiveRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
+        Behaviors elements = block.withoutRepeats();
+        if (!elements.isEmpty()) {
+            builder.put("behaviors", elements.toJsonArray());
         }
     }
 
@@ -284,8 +303,13 @@ public sealed interface Response {
         return foldResponseLevelRepeat(readBehaviors(obj), obj);
     }
 
+    /**
+     * The legacy {@code extra}-map constructors: a caller putting {@code _behaviors} beside {@code
+     * repeat} there means both, so a {@code repeat} does not void the block as it does on the wire.
+     */
     private static Behaviors liftBehaviors(Map<String, JsonValue> extra) {
-        return readAllBehaviors(new JsonObject(extra));
+        JsonObject obj = new JsonObject(extra);
+        return foldResponseLevelRepeat(readBehaviors(JsonSupport.withoutKeys(obj, "repeat")), obj);
     }
 
     private static Map<String, JsonValue> withoutBehaviorKeys(Map<String, JsonValue> extra) {

@@ -107,27 +107,31 @@ class ResponseLevelRepeatTest {
     }
 
     /**
-     * The response-level value wins where the engine honours it — but the block one is NOT
-     * discarded. Which spelling applies is engine-dependent (rift 0.17.0 and earlier ignore the
-     * response-level field and honour the block one), so dropping either at parse time would
-     * change how the imposter behaves after nothing but a read and a write.
+     * A response-level {@code repeat} voids a {@code _behaviors} object beside it whole, its {@code
+     * repeat} included, as Mountebank and rift 0.24.0 read it (rift#1709). The voided block is not
+     * read, so a read and a write never start running behaviors the engine ignored.
      */
     @Test
-    void responseLevelRepeatWinsButTheBlockOneIsPreserved() {
+    void aResponseLevelRepeatVoidsTheBlockObjectBesideIt() {
         Response.Is is = isOf(BOTH);
-        List<Behavior> repeats = is.behaviors().entries().stream()
-                .filter(Behavior.Repeat.class::isInstance)
-                .toList();
-        assertEquals(2, repeats.size(), "both spellings are kept");
-        assertEquals(4, is.behaviors().effectiveRepeat().orElseThrow().count(),
-                "the response-level value is the effective one");
+        assertEquals(List.of(new Behavior.Repeat(4, true)), is.behaviors().entries());
 
         JsonObject written = writtenResponse(BOTH);
         assertEquals(JsonNumber.of(4), written.get("repeat"));
-        JsonObject block = assertInstanceOf(JsonObject.class, written.get("_behaviors"));
-        assertEquals(JsonNumber.of(2), block.get("repeat"), "the block repeat survives the write");
-        assertEquals(JsonNumber.of(1), block.get("wait"), "the rest of the block is untouched");
-        RoundTripAssertions.assertRoundTrips(BOTH, Stub::fromJson, Stub::toJson);
+        assertNull(written.get("_behaviors"));
+        assertNull(written.get("behaviors"), "the voided wait does not come back as the array");
+    }
+
+    /** A {@code behaviors} key, a {@code null} one included, voids {@code _behaviors} too (rift#1709). */
+    @Test
+    void aBehaviorsKeyVoidsTheBlockObjectBesideIt() {
+        assertEquals(List.of(new Behavior.Decorate("d")), isOf("""
+                {"predicates": [], "responses": [
+                  {"is": {}, "behaviors": [{"decorate": "d"}], "_behaviors": {"wait": 9}}]}
+                """).behaviors().entries());
+        assertTrue(isOf("""
+                {"predicates": [], "responses": [{"is": {}, "behaviors": null, "_behaviors": {"wait": 9}}]}
+                """).behaviors().isEmpty());
     }
 
     /** The same, where the block independently needs the array form — the block repeat still survives. */
@@ -149,8 +153,9 @@ class ResponseLevelRepeatTest {
         JsonObject written = writtenResponse(json);
         assertEquals(JsonNumber.of(9), written.get("repeat"));
         JsonArray behaviors = assertInstanceOf(JsonArray.class, written.get("behaviors"));
-        assertEquals(3, behaviors.items().size(), "repeated wait keeps the array form, repeat included");
-        RoundTripAssertions.assertRoundTrips(json, Stub::fromJson, Stub::toJson);
+        assertEquals(2, behaviors.items().size(), "repeated wait keeps the array form, which holds no repeat");
+        String rewritten = Stub.fromJson(json).toJson();
+        RoundTripAssertions.assertRoundTrips(rewritten, Stub::fromJson, Stub::toJson);
     }
 
     /** A block-only repeat spelled via the array form stays a block entry. */
@@ -202,19 +207,18 @@ class ResponseLevelRepeatTest {
         RoundTripAssertions.assertRoundTrips(WITH_ARRAY_BEHAVIORS, Stub::fromJson, Stub::toJson);
     }
 
-    /** A lone response-level repeat must not drag the block into the array form. */
+    /** Beside a response-level repeat the block is the array: rift 0.24.0 ignores a _behaviors object there (rift#1709). */
     @Test
-    void aLoneResponseLevelRepeatDoesNotForceTheArrayForm() {
+    void aResponseLevelRepeatWritesTheBlockAsTheArray() {
         JsonObject written = writtenResponse("""
                 {
                   "predicates": [],
-                  "responses": [{"is": {"statusCode": 200}, "repeat": 2, "_behaviors": {"wait": 5}}]
+                  "responses": [{"is": {"statusCode": 200}, "repeat": 2, "behaviors": [{"wait": 5}]}]
                 }
                 """);
         assertEquals(JsonNumber.of(2), written.get("repeat"));
-        JsonObject block = assertInstanceOf(JsonObject.class, written.get("_behaviors"));
-        assertEquals(JsonNumber.of(5), block.get("wait"));
-        assertNull(written.get("behaviors"), "one wait entry never needs the array form");
+        assertEquals(JsonValue.parse("[{\"wait\": 5}]"), written.get("behaviors"));
+        assertNull(written.get("_behaviors"));
     }
 
     @Test

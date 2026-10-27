@@ -59,8 +59,8 @@ class ProxyInjectBehaviorsTest {
 
         assertEquals(JsonValue.parse("""
                 {"proxy": {"to": "http://up", "mode": "proxyOnce", "predicateGenerators": []},
-                 "repeat": 2, "_behaviors": {"wait": 5, "decorate": "d"}}
-                """), proxy.toJsonValue(), "repeat stays response-level; the block keeps both entries");
+                 "repeat": 2, "behaviors": [{"wait": 5}, {"decorate": "d"}]}
+                """), proxy.toJsonValue(), "repeat stays response-level; the block stays the array rift 0.24.0 reads beside it");
     }
 
     @Test
@@ -72,7 +72,7 @@ class ProxyInjectBehaviorsTest {
                 inject.behaviors().entries());
         JsonObject written = inject.toJsonValue();
         assertEquals(JsonNumber.of(4), written.get("repeat"));
-        assertEquals(JsonValue.parse("{\"wait\": 5}"), written.get("_behaviors"));
+        assertEquals(JsonValue.parse("[{\"wait\": 5}]"), written.get("behaviors"));
     }
 
     @Test

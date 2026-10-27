@@ -13,7 +13,10 @@ import java.util.Locale;
  */
 enum ConformanceTransport {
 
-    /** The engine as a spawned process; relative {@code data/} paths resolve via the working directory. */
+    /**
+     * The engine as a spawned process. Relative {@code data/} paths resolve against the corpus root,
+     * which is also the {@code --scripts-dir} a lookup's CSV must sit under from rift 0.24.0 (rift#1617).
+     */
     SPAWN {
         @Override
         boolean isAvailable() {
@@ -25,6 +28,7 @@ enum ConformanceTransport {
             return Rift.spawn(SpawnOptions.builder()
                     .version(corpus.engineVersion())
                     .workingDir(corpus.payloadRoot())
+                    .scriptsDir(corpus.payloadRoot())
                     .allowInjection(true)
                     .build());
         }

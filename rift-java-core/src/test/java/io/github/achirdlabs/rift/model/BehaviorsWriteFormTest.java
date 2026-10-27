@@ -171,36 +171,30 @@ class BehaviorsWriteFormTest {
         assertEquals("${b}", intoOf(soleValue(behaviors.items().get(1), "lookup")));
     }
 
-    @Test
-    void repeatedRepeatEntriesAreWrittenAsElements() {
-        JsonArray behaviors = writtenBehaviorsArray(TWO_REPEATS);
-        assertEquals(2, behaviors.items().size());
-        assertEquals(JsonNumber.of(2), soleValue(behaviors.items().get(0), "repeat"));
-        assertEquals(JsonNumber.of(5), soleValue(behaviors.items().get(1), "repeat"));
-    }
-
     /**
-     * A {@code repeat} is written as an array element, never hoisted to a response-level field: rift
-     * 0.17.0 and earlier have no response-level {@code repeat} field at all, so hoisting would
-     * silently drop it on an engine this SDK still supports.
-     *
-     * <p>A forward-looking guard on that decision, not coverage of the #217 fix: it passes against
-     * the pre-fix code too, since nothing hoisted then either.
+     * The array form never holds a {@code repeat}: rift 0.24.0 refuses a {@code {"repeat": n}}
+     * element (rift#1582). The effective one, the first, is written beside the response instead.
+     * That reverses #217's choice to keep it in the array for rift 0.17.0, which has no
+     * response-level field: the pinned engine refusing the imposter outweighs it.
      */
     @Test
-    void repeatIsNotHoistedToAResponseLevelField() {
+    void blockRepeatsInTheArrayFormAreWrittenAsTheEffectiveResponseLevelOne() {
         JsonObject response = writtenResponse(TWO_REPEATS);
-        assertNull(response.get("repeat"), "repeat must stay inside the behaviors array");
+        assertEquals(JsonNumber.of(2), response.get("repeat"), "the first block repeat is the effective one");
+        assertNull(response.get("behaviors"), "nothing else is left for the array");
+        assertNull(response.get("_behaviors"));
     }
 
+    /** rift 0.24.0 refuses a list-valued {@code copy} element (rift#1639); one element per item runs the same. */
     @Test
-    void perElementCopyFormIsPreserved() {
+    void aListValuedCopyElementIsWrittenOneItemPerElement() {
         JsonArray behaviors = writtenBehaviorsArray(MIXED_COPY_FORMS);
         assertEquals(2, behaviors.items().size());
-        assertInstanceOf(JsonObject.class, soleValue(behaviors.items().get(0), "copy"),
-                "an object-form copy element stays an object");
-        assertInstanceOf(JsonArray.class, soleValue(behaviors.items().get(1), "copy"),
-                "an array-form copy element stays an array");
+        assertInstanceOf(JsonObject.class, soleValue(behaviors.items().get(0), "copy"));
+        assertInstanceOf(JsonObject.class, soleValue(behaviors.items().get(1), "copy"),
+                "the one-item list is written as its item");
+        String written = Stub.fromJson(MIXED_COPY_FORMS).toJson();
+        RoundTripAssertions.assertRoundTrips(written, Stub::fromJson, Stub::toJson);
     }
 
     @Test
@@ -256,8 +250,6 @@ class BehaviorsWriteFormTest {
         RoundTripAssertions.assertRoundTrips(TWO_COPIES, Stub::fromJson, Stub::toJson);
         RoundTripAssertions.assertRoundTrips(REPEATED_SCALARS, Stub::fromJson, Stub::toJson);
         RoundTripAssertions.assertRoundTrips(TWO_LOOKUPS, Stub::fromJson, Stub::toJson);
-        RoundTripAssertions.assertRoundTrips(MIXED_COPY_FORMS, Stub::fromJson, Stub::toJson);
-        RoundTripAssertions.assertRoundTrips(TWO_REPEATS, Stub::fromJson, Stub::toJson);
         RoundTripAssertions.assertRoundTrips(TWO_SHELL_TRANSFORMS, Stub::fromJson, Stub::toJson);
     }
 

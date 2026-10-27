@@ -34,9 +34,9 @@ class LookupGrammarIT {
     @TestFactory
     Stream<DynamicTest> indexDelimiterAndHeaderKeyResolveTheRow() {
         return gated("lookup keys on a regex capture group by index, reads a ';' CSV, and keys on a header", () -> {
-            Path csv = Files.createTempFile("rift-lookup-", ".csv");
-            Files.writeString(csv, "id;name\n7;seven\n42;forty-two\n");
-            try (Rift rift = engine()) {
+            Path dir = Files.createTempDirectory("rift-lookup-");
+            Path csv = Files.writeString(dir.resolve("tenants.csv"), "id;name\n7;seven\n42;forty-two\n");
+            try (Rift rift = engine(dir)) {
                 Imposter imp = rift.create(imposter("lookup")
                         .stub(onGet("/items/7/42").willReturn(ok().withTextBody("${row}[name]")
                                 .lookup(lookupKey("path").using(regex("/items/(\\d+)/(\\d+)")).index(2)
@@ -49,6 +49,7 @@ class LookupGrammarIT {
                 assertEquals("seven", get(imp, "/tenant", "7"), "the key came from the X-Tenant header");
             } finally {
                 Files.deleteIfExists(csv);
+                Files.deleteIfExists(dir);
             }
         });
     }

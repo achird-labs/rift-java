@@ -32,9 +32,10 @@ class BehaviorRunOrderTest {
         // An engine GET echoes an array in the order it was written, so this is also the read-back of DSL output.
         String decorateFirst = "\"behaviors\":[{\"decorate\":\"d\"},{\"shellTransform\":\"cat\"}]";
         assertEquals(expected(decorateFirst), written(decorateFirst));
-        String copyFirst = "\"behaviors\":[{\"copy\":[" + COPY + "]},{\"lookup\":[" + LOOKUP + "]}]";
-        assertEquals(expected(copyFirst), written(copyFirst));
-        String waitThenDecorateThenCopy = "\"behaviors\":[{\"wait\":100},{\"decorate\":\"d\"},{\"copy\":[" + COPY + "]}]";
+        // A list-valued element is written one item per element, which rift 0.24.0 requires (rift#1639).
+        assertEquals(expected("\"behaviors\":[{\"copy\":" + COPY + "},{\"lookup\":" + LOOKUP + "}]"),
+                written("\"behaviors\":[{\"copy\":[" + COPY + "]},{\"lookup\":[" + LOOKUP + "]}]"));
+        String waitThenDecorateThenCopy = "\"behaviors\":[{\"wait\":100},{\"decorate\":\"d\"},{\"copy\":" + COPY + "}]";
         assertEquals(expected(waitThenDecorateThenCopy), written(waitThenDecorateThenCopy));
     }
 
@@ -68,9 +69,10 @@ class BehaviorRunOrderTest {
     }
 
     @Test
-    void anOutOfOrderDslChainKeepsItsUnknownAndRepeatEntriesInPlace() {
-        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"behaviors\":[{\"decorate\":\"d\"},{\"repeat\":2},"
-                        + "{\"lookup\":[" + LOOKUP + "]}]}",
+    void anOutOfOrderDslChainKeepsItsUnknownEntryInPlaceAndMovesRepeatBesideTheResponse() {
+        // rift 0.24.0 refuses a {"repeat": n} element and a list-valued lookup element (rift#1582, rift#1639).
+        assertEquals("{\"is\":{\"statusCode\":\"200\"},\"repeat\":2,\"behaviors\":[{\"decorate\":\"d\"},"
+                        + "{\"lookup\":" + LOOKUP + "}]}",
                 status(200).decorate("d").repeat(2)
                         .withBehavior(new Behavior.Unknown("lookup", io.github.achirdlabs.rift.json.JsonValue.parse("[" + LOOKUP + "]")))
                         .build().toJsonValue().toJson());

@@ -4,6 +4,7 @@ import io.github.achirdlabs.rift.Rift;
 import io.github.achirdlabs.rift.SpawnOptions;
 import org.junit.jupiter.api.DynamicTest;
 
+import java.nio.file.Path;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -29,6 +30,18 @@ final class LiveEngine {
     static Rift engine() {
         return switch (ConformanceTransport.selected()) {
             case SPAWN -> Rift.spawn(SpawnOptions.builder().build());
+            case EMBEDDED -> Rift.embedded();
+        };
+    }
+
+    /**
+     * The engine for the selected lane, reading lookup CSVs and modules under {@code scriptsDir}. A
+     * spawned engine needs it as {@code --scripts-dir} from rift 0.24.0 (rift#1617); the embedded
+     * host calls are not confined, so that lane ignores it.
+     */
+    static Rift engine(Path scriptsDir) {
+        return switch (ConformanceTransport.selected()) {
+            case SPAWN -> Rift.spawn(SpawnOptions.builder().scriptsDir(scriptsDir).build());
             case EMBEDDED -> Rift.embedded();
         };
     }

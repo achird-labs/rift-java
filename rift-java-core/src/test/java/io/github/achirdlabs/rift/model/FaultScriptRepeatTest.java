@@ -58,8 +58,9 @@ class FaultScriptRepeatTest {
     void everySpellingRoundTripsInTheShapeItArrivedIn() {
         String faultBlock = "{\"fault\":\"CONNECTION_RESET_BY_PEER\",\"_behaviors\":{\"wait\":500,\"repeat\":2}}";
         assertEquals(faultBlock, roundTrip(faultBlock));
-        String scriptArray = "{\"_rift\":{\"script\":{\"engine\":\"rhai\",\"code\":\"x\"}},\"behaviors\":[{\"wait\":500},{\"repeat\":2},{\"repeat\":3}]}";
-        assertEquals(scriptArray, roundTrip(scriptArray));
+        // rift 0.24.0 refuses a {"repeat": n} element (rift#1582): the effective one goes beside the response.
+        assertEquals("{\"_rift\":{\"script\":{\"engine\":\"rhai\",\"code\":\"x\"}},\"repeat\":2,\"behaviors\":[{\"wait\":500}]}",
+                roundTrip("{\"_rift\":{\"script\":{\"engine\":\"rhai\",\"code\":\"x\"}},\"behaviors\":[{\"wait\":500},{\"repeat\":2},{\"repeat\":3}]}"));
         assertEquals("{\"fault\":\"CONNECTION_RESET_BY_PEER\",\"repeat\":2}",
                 roundTrip("{\"repeat\":2,\"fault\":\"CONNECTION_RESET_BY_PEER\"}"));
     }
