@@ -240,6 +240,13 @@ larger body gets `413`), `bodyMemoryBudget` (memory shared by buffered bodies; `
 `journalMaxBytes` (recorded-request bytes per imposter; a larger request is recorded without its body,
 `RecordedRequest.bodyOmitted()`), all in bytes.
 
+From rift 0.24.0 an imposter written through the admin API reads `lookup` CSV files and `require()`
+modules only under a scripts directory, and refuses such a `lookup` without one. Set it with
+`SpawnOptions.scriptsDir(dir)` (`--scripts-dir`) or `EmbeddedOptions.scriptsDir(dir)`; a relative
+`lookup` path in an imposter posted through the admin API resolves against it. Embedded `replaceAll`
+goes through the admin plane, so it needs `scriptsDir` for a lookup; embedded `create` and `addStub`
+do not, and resolve a relative path against the JVM's working directory.
+
 ### JUnit 5
 
 ```java

@@ -401,6 +401,7 @@ public final class EmbeddedTransport implements RiftTransport {
         options.maxBodySize().ifPresent(bytes -> payload.put("maxBodySize", JsonNumber.of(bytes)));
         options.bodyMemoryBudget().ifPresent(bytes -> payload.put("bodyMemoryBudget", JsonNumber.of(bytes)));
         options.journalMaxBytes().ifPresent(bytes -> payload.put("journalMaxBytes", JsonNumber.of(bytes)));
+        options.scriptsDir().ifPresent(dir -> payload.put("scriptsDir", new JsonString(dir.toString())));
         options.upstreamTrust().ifPresent(trust -> payload.put(serveOptionKey(trust), serveOptionValue(trust)));
         return payload.build();
     }
@@ -441,6 +442,7 @@ public final class EmbeddedTransport implements RiftTransport {
         options.maxBodySize().ifPresent(v -> requested.add(new ServeOption("maxBodySize", "0.22.0", "maxBodySize")));
         options.bodyMemoryBudget().ifPresent(v -> requested.add(new ServeOption("bodyMemoryBudget", "0.22.0", "bodyMemoryBudget")));
         options.journalMaxBytes().ifPresent(v -> requested.add(new ServeOption("journalMaxBytes", "0.22.0", "journalMaxBytes")));
+        options.scriptsDir().ifPresent(v -> requested.add(new ServeOption("scriptsDir", "0.24.0", "scriptsDir")));
         options.upstreamTrust().ifPresent(trust -> requested.add(new ServeOption(serveOptionKey(trust), "0.18.0", "upstreamTrust")));
         if (requested.isEmpty()) {
             return;

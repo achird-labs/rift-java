@@ -224,6 +224,11 @@ public final class EmbeddedOptions {
   // maxBodySize / bodyMemoryBudget / journalMaxBytes (OptionalLong; as for SpawnOptions, checked at
   //   build(); advertised from rift 0.22.0; each serves the admin API eagerly, since the engine
   //   applies them only to imposters created afterwards).
+  // scriptsDir (Optional<Path>; rift_serve_admin's scriptsDir, advertised from rift 0.24.0): the only
+  //   root an imposter posted through the plane may read lookup CSVs, require() modules and file:
+  //   scripts from (rift#1617). Unset, 0.24.0 refuses such a lookup on the plane, replaceAll
+  //   included. Not eager: the plane takes it whenever it is served. SpawnOptions.scriptsDir is the
+  //   same root as --scripts-dir.
 }
 
 public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)

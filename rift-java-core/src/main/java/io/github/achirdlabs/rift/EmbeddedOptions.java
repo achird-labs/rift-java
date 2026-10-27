@@ -31,6 +31,7 @@ public final class EmbeddedOptions {
     private final OptionalLong maxBodySize;
     private final OptionalLong bodyMemoryBudget;
     private final OptionalLong journalMaxBytes;
+    private final Optional<Path> scriptsDir;
 
     private EmbeddedOptions(
             Optional<Path> libraryPath,
@@ -45,7 +46,8 @@ public final class EmbeddedOptions {
             OptionalInt metricsPort,
             OptionalLong maxBodySize,
             OptionalLong bodyMemoryBudget,
-            OptionalLong journalMaxBytes) {
+            OptionalLong journalMaxBytes,
+            Optional<Path> scriptsDir) {
         this.libraryPath = libraryPath;
         this.versionCheck = versionCheck;
         this.serveAdminEagerly = serveAdminEagerly;
@@ -59,6 +61,7 @@ public final class EmbeddedOptions {
         this.maxBodySize = maxBodySize;
         this.bodyMemoryBudget = bodyMemoryBudget;
         this.journalMaxBytes = journalMaxBytes;
+        this.scriptsDir = scriptsDir;
     }
 
     public static Builder builder() {
@@ -126,6 +129,11 @@ public final class EmbeddedOptions {
         return journalMaxBytes;
     }
 
+    /** The admin plane's lookup CSV and module root, if set; see {@link Builder#scriptsDir(Path)}. */
+    public Optional<Path> scriptsDir() {
+        return scriptsDir;
+    }
+
     public static final class Builder {
 
         private Optional<Path> libraryPath = Optional.empty();
@@ -141,6 +149,7 @@ public final class EmbeddedOptions {
         private OptionalLong maxBodySize = OptionalLong.empty();
         private OptionalLong bodyMemoryBudget = OptionalLong.empty();
         private OptionalLong journalMaxBytes = OptionalLong.empty();
+        private Optional<Path> scriptsDir = Optional.empty();
 
         private Builder() {
         }
@@ -349,6 +358,22 @@ public final class EmbeddedOptions {
         }
 
         /**
+         * The admin plane's {@code scriptsDir}: the only directory an imposter posted through it may
+         * read {@code lookup} CSV files, {@code require()} modules and {@code file:} scripts from, a
+         * relative {@code lookup} path resolving against it. Unset, from rift 0.24.0 (rift#1611,
+         * rift#1617) the plane reads none of them and refuses such a {@code lookup} — which includes
+         * {@link Rift#replaceAll}, since this transport routes it through the plane. Imposters the
+         * SDK creates directly ({@code create}, {@code addStub}) are not confined. The engine runs in
+         * this JVM, so a relative {@code scriptsDir} resolves against its working directory. Needs an engine that
+         * advertises {@code scriptsDir} in {@code serveOptions} (rift &ge; 0.24.0), checked when the
+         * plane is served.
+         */
+        public Builder scriptsDir(Path scriptsDir) {
+            this.scriptsDir = Optional.of(Objects.requireNonNull(scriptsDir, "scriptsDir"));
+            return this;
+        }
+
+        /**
          * @throws IllegalArgumentException if a non-zero {@link #bodyMemoryBudget(long)} is below
          *                                  {@link #maxBodySize(long)}, or a ceiling above 1 GiB has no
          *                                  budget: the engine refuses both
@@ -357,7 +382,7 @@ public final class EmbeddedOptions {
             BodyLimits.requireBudgetCoversCeiling(maxBodySize, bodyMemoryBudget);
             return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey,
                     upstreamTrust, allowInjection, requireAdminAuth, metricsPort, maxBodySize, bodyMemoryBudget,
-                    journalMaxBytes);
+                    journalMaxBytes, scriptsDir);
         }
     }
 }
