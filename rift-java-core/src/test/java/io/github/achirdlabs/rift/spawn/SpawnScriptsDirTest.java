@@ -20,10 +20,11 @@ class SpawnScriptsDirTest {
 
     @Test
     void scriptsDirIsAGlobalOptionBeforeStart() {
-        List<String> cmd = command(SpawnOptions.builder().scriptsDir(Path.of("/srv/fixtures")).build());
+        Path dir = Path.of("/srv/fixtures");
+        List<String> cmd = command(SpawnOptions.builder().scriptsDir(dir).build());
         int flag = cmd.indexOf("--scripts-dir");
         assertTrue(flag >= 0 && flag < cmd.indexOf("start"), cmd.toString());
-        assertEquals("/srv/fixtures", cmd.get(flag + 1));
+        assertEquals(dir.toString(), cmd.get(flag + 1), "the platform's spelling of the path");
     }
 
     @Test
