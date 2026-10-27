@@ -242,17 +242,28 @@ public sealed interface Response {
      * beside {@code is}, a block one inside the block — so a read followed by a write never moves
      * it. That matters because the two spellings are not interchangeable across engine versions:
      * rift 0.17.0 and earlier honour only the block one and silently ignore a response-level field.
+     *
+     * <p>Beside a response-level {@code repeat} the block is always the array: from rift 0.24.0 a
+     * {@code _behaviors} object next to a top-level {@code repeat} is ignored, as in Mountebank
+     * (rift#1709), while the array next to it runs. And the array never holds a {@code repeat}:
+     * rift 0.24.0 refuses a {@code {"repeat": n}} element and ignores one beside a behavior
+     * (rift#1582, rift#1672). So in the array form the effective {@code repeat} is written beside the
+     * response — a block one moves there when there is no response-level one — and any other is
+     * dropped, as no engine that runs the array form honours it.
      */
     private static void writeBehaviors(JsonObject.Builder builder, Behaviors behaviors) {
-        behaviors.responseLevelRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
+        Optional<Behavior.Repeat> responseLevelRepeat = behaviors.responseLevelRepeat();
         Behaviors block = behaviors.withoutResponseLevelRepeat();
-        if (block.isEmpty()) {
+        if (responseLevelRepeat.isEmpty() && !block.requiresArrayForm()) {
+            if (!block.isEmpty()) {
+                builder.put("_behaviors", block.toJsonValue());
+            }
             return;
         }
-        if (block.requiresArrayForm()) {
-            builder.put("behaviors", block.toJsonArray());
-        } else {
-            builder.put("_behaviors", block.toJsonValue());
+        behaviors.effectiveRepeat().ifPresent(repeat -> builder.put("repeat", repeat.value()));
+        Behaviors elements = block.withoutRepeats();
+        if (!elements.isEmpty()) {
+            builder.put("behaviors", elements.toJsonArray());
         }
     }
 

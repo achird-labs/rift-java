@@ -29,6 +29,7 @@ public final class SpawnOptions {
     private final String logLevel;
     private final Map<String, String> env;
     private final Optional<Path> workingDir;
+    private final Optional<Path> scriptsDir;
     private final Optional<URI> mirrorUrl;
     private final Duration startupTimeout;
     private final Duration shutdownTimeout;
@@ -51,6 +52,7 @@ public final class SpawnOptions {
         this.logLevel = b.logLevel;
         this.env = Map.copyOf(b.env);
         this.workingDir = b.workingDir;
+        this.scriptsDir = b.scriptsDir;
         this.mirrorUrl = b.mirrorUrl;
         this.startupTimeout = b.startupTimeout;
         this.shutdownTimeout = b.shutdownTimeout;
@@ -102,6 +104,11 @@ public final class SpawnOptions {
 
     public Optional<Path> workingDir() {
         return workingDir;
+    }
+
+    /** The engine's {@code --scripts-dir}, if set; see {@link Builder#scriptsDir(Path)}. */
+    public Optional<Path> scriptsDir() {
+        return scriptsDir;
     }
 
     public Optional<URI> mirrorUrl() {
@@ -166,6 +173,7 @@ public final class SpawnOptions {
         private String logLevel = "info";
         private final Map<String, String> env = new LinkedHashMap<>();
         private Optional<Path> workingDir = Optional.empty();
+        private Optional<Path> scriptsDir = Optional.empty();
         private Optional<URI> mirrorUrl = Optional.empty();
         private Duration startupTimeout = Duration.ofSeconds(15);
         private Duration shutdownTimeout = Duration.ofSeconds(5);
@@ -252,6 +260,19 @@ public final class SpawnOptions {
 
         public Builder workingDir(Path workingDir) {
             this.workingDir = Optional.of(Objects.requireNonNull(workingDir, "workingDir"));
+            return this;
+        }
+
+        /**
+         * The engine's {@code --scripts-dir}: the only directory an imposter created through this
+         * client may read {@code lookup} CSV files, {@code require()} modules and {@code file:} scripts
+         * from. Unset by default. From rift 0.24.0 (rift#1611, rift#1617) an imposter written over the
+         * admin API reads none of these without it, and its {@code lookup} is refused with
+         * {@code 400}; a relative {@code lookup} path resolves against this directory, not
+         * {@link #workingDir(Path)}.
+         */
+        public Builder scriptsDir(Path scriptsDir) {
+            this.scriptsDir = Optional.of(Objects.requireNonNull(scriptsDir, "scriptsDir"));
             return this;
         }
 

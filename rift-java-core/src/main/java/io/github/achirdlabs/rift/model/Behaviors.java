@@ -59,6 +59,9 @@ public record Behaviors(List<Behavior> entries) {
      */
     private static final List<String> CANONICAL_ORDER = List.of("lookup", "copy", "shellTransform", "decorate");
 
+    /** The list-valued keys an array element holds one item of (rift#1639); shellTransform is already one step per command. */
+    private static final Set<String> SPLIT_IN_ARRAY_FORM = Set.of("copy", "lookup");
+
     /**
      * Reads the object form. An engine runs an object's transforming behaviors in {@link
      * #CANONICAL_ORDER} whatever order they were written in, so they are read in that order: the
@@ -90,6 +93,9 @@ public record Behaviors(List<Behavior> entries) {
      * The SDK writes one key per element, but the engine also accepts an element holding several
      * keys and runs them in its fixed object order ({@code wait, lookup, copy, shellTransform,
      * decorate}, then any other key alphabetically), so such an element is expanded in that order.
+     * A list-valued {@code copy} or {@code lookup} element, which an engine before 0.24.0 ran item by
+     * item, is read as one entry per item: that is what {@link #toJsonArray()} writes back, since
+     * rift 0.24.0 refuses the list there (rift#1639).
      */
     static Behaviors readArray(JsonArray arr) {
         List<Behavior> entries = new ArrayList<>();
@@ -101,9 +107,16 @@ public record Behaviors(List<Behavior> entries) {
             entry.fields().entrySet().stream()
                     .sorted(Comparator.comparingInt((Map.Entry<String, JsonValue> e) -> engineRank(e.getKey()))
                             .thenComparing(Map.Entry::getKey))
-                    .forEach(e -> entries.addAll(Behavior.readAll(e.getKey(), e.getValue())));
+                    .forEach(e -> entries.addAll(readElementKey(e.getKey(), e.getValue())));
         }
         return new Behaviors(entries);
+    }
+
+    private static List<Behavior> readElementKey(String key, JsonValue value) {
+        if (SPLIT_IN_ARRAY_FORM.contains(key) && value instanceof JsonArray items && !items.items().isEmpty()) {
+            return items.items().stream().flatMap(item -> Behavior.readAll(key, item).stream()).toList();
+        }
+        return Behavior.readAll(key, value);
     }
 
     /** A key's position in the engine's fixed object order; any other key sorts after, alphabetically. */
@@ -187,11 +200,27 @@ public record Behaviors(List<Behavior> entries) {
         return block.size() == entries.size() ? this : new Behaviors(block);
     }
 
-    /** The array form: one single-key element per entry, in entry order. Never lossy. */
+    /** These entries minus every {@code repeat}: what an array-form block may hold. */
+    Behaviors withoutRepeats() {
+        return new Behaviors(entries.stream().filter(entry -> !(entry instanceof Behavior.Repeat)).toList());
+    }
+
+    /**
+     * The array form: one single-key element per entry, in entry order. Never lossy. A list-valued
+     * {@code copy} or {@code lookup} is written as one element per item, which runs the same: from
+     * rift 0.24.0 an element holding a list is refused, as in Mountebank (rift#1639).
+     */
     JsonArray toJsonArray() {
-        return new JsonArray(entries.stream()
-                .map(entry -> (JsonValue) JsonObject.builder().put(entry.key(), entry.value()).build())
-                .toList());
+        List<JsonValue> elements = new ArrayList<>();
+        for (Behavior entry : entries) {
+            JsonValue value = entry.value();
+            if (SPLIT_IN_ARRAY_FORM.contains(entry.key()) && value instanceof JsonArray items && !items.items().isEmpty()) {
+                items.items().forEach(item -> elements.add(JsonObject.builder().put(entry.key(), item).build()));
+            } else {
+                elements.add(JsonObject.builder().put(entry.key(), value).build());
+            }
+        }
+        return new JsonArray(elements);
     }
 
     public boolean isEmpty() {

@@ -564,6 +564,12 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
 // interchangeable, since rift 0.17.0 honours only the block one. When both are present both are
 // kept; `Behaviors.effectiveRepeat()` reports which applies. The DSL's `repeat(int)` emits the
 // block spelling.
+// From rift 0.24.0 the write follows what that engine admits: a `_behaviors` object beside a
+// response-level `repeat` is ignored (rift#1709), so the block is then written as the array; an
+// array element may not hold `repeat` (rift#1582, rift#1672), so in the array form the effective
+// `repeat` is written beside the response and any other is dropped; and an element may not hold a
+// list of `copy`/`lookup` (rift#1639), so a list is written one item per element and read back the
+// same way. This trades rift 0.17.0's block-only `repeat` for an imposter the pinned engine accepts.
 IsSpec templated()                                       // rename of template(); _rift.templated
 // declarative flow-state writes after the response (_rift.stateOps, rift >= 0.18.0; #227). Run in
 // chain order after templating and behaviors; engine-version gated at create/replaceAll.

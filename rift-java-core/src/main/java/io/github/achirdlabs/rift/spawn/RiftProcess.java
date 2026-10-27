@@ -241,6 +241,10 @@ public final class RiftProcess {
             cmd.add("--journal-max-bytes");
             cmd.add(Long.toString(bytes));
         });
+        opts.scriptsDir().ifPresent(dir -> {
+            cmd.add("--scripts-dir");
+            cmd.add(dir.toString());
+        });
         opts.upstreamTrust().ifPresent(trust -> {
             if (trust instanceof UpstreamTrust.CaFile file) {
                 cmd.add("--upstream-ca-file");
