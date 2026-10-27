@@ -8,6 +8,7 @@ import io.github.achirdlabs.rift.error.RiftException;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -15,6 +16,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -112,6 +114,53 @@ class LaunchOptionsIT {
             assertTrue(recorded.bodyOmitted(), "recorded with its body (" + recorded.body().length() + " bytes)");
             assertEquals("", recorded.body());
         }
+    }
+
+    /**
+     * {@code replaceAll} goes through the admin plane, which from rift 0.24.0 reads a lookup CSV only
+     * under {@code scriptsDir}, a relative path from there (rift#1617, #343).
+     */
+    @Test
+    void scriptsDirLetsTheAdminPlaneReadALookupCsvUnderIt(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("rows.csv"), "id,name\n7,seven\n");
+        int port = freePort();
+        try (Rift rift = Rift.embedded(options().scriptsDir(dir).build())) {
+            rift.replaceAll(List.of(lookupImposter(port, "rows.csv")));
+            HttpResponse<String> answer = HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/7"))
+                    .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals("seven", answer.body(), "the relative path resolved against scriptsDir");
+        }
+    }
+
+    @Test
+    void withoutScriptsDirTheAdminPlaneRefusesALookup() throws Exception {
+        try (Rift rift = Rift.embedded(options().build())) {
+            RiftException e = assertThrows(RiftException.class,
+                    () -> rift.replaceAll(List.of(lookupImposter(freePort(), "rows.csv"))));
+            assertTrue(e.getMessage().contains("no --scripts-dir is configured"), e.getMessage());
+        }
+    }
+
+    @Test
+    void aLookupCsvOutsideScriptsDirIsRefused(@TempDir Path root) throws Exception {
+        Path dir = Files.createDirectory(root.resolve("scripts"));
+        Path outside = Files.writeString(root.resolve("outside.csv"), "id,name\n7,seven\n");
+        try (Rift rift = Rift.embedded(options().scriptsDir(dir).build())) {
+            RiftException e = assertThrows(RiftException.class,
+                    () -> rift.replaceAll(List.of(lookupImposter(freePort(), outside.toString()))));
+            assertTrue(e.getMessage().contains("outside --scripts-dir"), e.getMessage());
+        }
+    }
+
+    private static ImposterDefinition lookupImposter(int port, String csvPath) {
+        return ImposterDefinition.fromJson("""
+                {"port": %d, "protocol": "http", "stubs": [{"responses": [{
+                  "is": {"body": "${row}[name]"},
+                  "_behaviors": {"lookup": [{
+                    "key": {"from": "path", "using": {"method": "regex", "selector": "/(\\\\d+)"}, "index": 1},
+                    "fromDataSource": {"csv": {"path": "%s", "keyColumn": "id"}},
+                    "into": "${row}"}]}}]}]}
+                """.formatted(port, csvPath.replace("\\", "\\\\")));
     }
 
     private static HttpResponse<Void> post(int port, int bodyBytes) throws Exception {
