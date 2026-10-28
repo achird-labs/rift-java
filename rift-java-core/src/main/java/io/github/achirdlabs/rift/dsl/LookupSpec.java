@@ -28,7 +28,7 @@ public final class LookupSpec {
     private final OptionalInt index;
     private final Optional<String> csvPath;
     private final Optional<String> csvKeyColumn;
-    private final Optional<Character> csvDelimiter;
+    private final Optional<String> csvDelimiter;
     private final Optional<String> into;
 
     private LookupSpec(
@@ -37,7 +37,7 @@ public final class LookupSpec {
             OptionalInt index,
             Optional<String> csvPath,
             Optional<String> csvKeyColumn,
-            Optional<Character> csvDelimiter,
+            Optional<String> csvDelimiter,
             Optional<String> into) {
         this.keyFrom = keyFrom;
         this.using = using;
@@ -101,9 +101,37 @@ public final class LookupSpec {
      *                                  encoding on its own, so it would reach the engine as {@code ?}
      */
     public LookupSpec fromCsv(String path, String keyColumn, char delimiter) {
-        if (Character.isSurrogate(delimiter)) {
-            throw new IllegalArgumentException(String.format(
-                    "csv delimiter must be a whole character, not half of a surrogate pair (U+%04X)", (int) delimiter));
+        return fromCsv(path, keyColumn, String.valueOf(delimiter));
+    }
+
+    /**
+     * {@link #fromCsv(String, String, char)} for a delimiter of several characters, such as {@code "||"}
+     * — {@code csv.delimiter}, sent as given. Needs rift &ge; 0.24.0 when it is longer than one
+     * character (rift#1566, as Mountebank accepts it); an older engine refuses the imposter with
+     * {@code 400}.
+     *
+     * @throws NullPointerException     if {@code delimiter} is null
+     * @throws IllegalArgumentException if {@code delimiter} is empty (the engine reads that as
+     *                                  {@code ,}, which {@link #fromCsv(String, String)} already says) or
+     *                                  holds half of a surrogate pair, which would reach the engine as
+     *                                  {@code ?}
+     */
+    public LookupSpec fromCsv(String path, String keyColumn, String delimiter) {
+        Objects.requireNonNull(delimiter, "delimiter");
+        if (delimiter.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "csv delimiter must not be empty; use fromCsv(path, keyColumn) for the engine's default ','");
+        }
+        for (int i = 0; i < delimiter.length(); i++) {
+            char c = delimiter.charAt(i);
+            boolean paired = Character.isHighSurrogate(c) && i + 1 < delimiter.length()
+                    && Character.isLowSurrogate(delimiter.charAt(i + 1));
+            if (paired) {
+                i++;
+            } else if (Character.isSurrogate(c)) {
+                throw new IllegalArgumentException(String.format(
+                        "csv delimiter must be a whole character, not half of a surrogate pair (U+%04X)", (int) c));
+            }
         }
         return new LookupSpec(keyFrom, using, index, Optional.of(path), Optional.of(keyColumn), Optional.of(delimiter), into);
     }
@@ -132,7 +160,7 @@ public final class LookupSpec {
         JsonObject.Builder csv = JsonObject.builder()
                 .put("path", new JsonString(path))
                 .put("keyColumn", new JsonString(keyColumn));
-        csvDelimiter.ifPresent(d -> csv.put("delimiter", new JsonString(String.valueOf(d))));
+        csvDelimiter.ifPresent(d -> csv.put("delimiter", new JsonString(d)));
         JsonObject fromDataSource = JsonObject.builder().put("csv", csv.build()).build();
 
         return JsonObject.builder()

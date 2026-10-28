@@ -54,6 +54,25 @@ class LookupGrammarIT {
         });
     }
 
+    @TestFactory
+    Stream<DynamicTest> aMultiCharacterDelimiterSplitsTheRow() {
+        return gated("lookup reads a '||'-delimited CSV (rift#1566, rift >= 0.24.0)", () -> {
+            Path dir = Files.createTempDirectory("rift-lookup-");
+            Path csv = Files.writeString(dir.resolve("pipes.csv"), "id||name\n7||seven\n");
+            try (Rift rift = engine(dir)) {
+                Imposter imp = rift.create(imposter("lookup-pipes")
+                        .stub(onGet("/tenant").willReturn(ok().withTextBody("${row}[name]")
+                                .lookup(lookupKeyFromHeader("X-Tenant").using(regex(".+"))
+                                        .fromCsv(csv.toString(), "id", "||").into("${row}")))));
+
+                assertEquals("seven", get(imp, "/tenant", "7"));
+            } finally {
+                Files.deleteIfExists(csv);
+                Files.deleteIfExists(dir);
+            }
+        });
+    }
+
     private static String get(Imposter imp, String path, String tenant) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(imp.uri().resolve(path)).timeout(Duration.ofSeconds(5)).GET();
         if (tenant != null) {
