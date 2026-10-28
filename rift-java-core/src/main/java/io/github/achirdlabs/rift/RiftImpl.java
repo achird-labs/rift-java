@@ -50,6 +50,9 @@ final class RiftImpl implements Rift {
     /** The first engine release whose intercept serve action accepts a repeated header (rift#936). */
     static final String INTERCEPT_MULTI_VALUE_HEADERS_SINCE = "0.18.0";
 
+    /** The first engine release that presents a {@code proxy}'s {@code cert}/{@code key}/{@code passphrase} upstream (rift#1609). */
+    static final String PROXY_CLIENT_CERT_SINCE = "0.24.0";
+
     /** The first engine release that answers conditional GETs from {@code _rift.conditional} (rift#1280). */
     static final String CONDITIONAL_SINCE = "0.20.0";
 
@@ -277,7 +280,20 @@ final class RiftImpl implements Rift {
                     "ignores it and answers every request 200 without an ETag or Last-Modified",
                     "remove the conditional"));
         }
+        if (hasProxyClientCertificate(def)) {
+            requirements.add(new EngineRequirement(PROXY_CLIENT_CERT_SINCE,
+                    "a client certificate on a proxy (cert / key / passphrase)", "drops them silently, so an"
+                    + " upstream that requires one refuses the handshake", "remove clientCertificate"));
+        }
         return requirements;
+    }
+
+    private static boolean hasProxyClientCertificate(ImposterDefinition def) {
+        return def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                // The wire keys, not the DSL setter, so a hand-built ProxyResponse is held to it too.
+                .anyMatch(r -> r instanceof Response.Proxy p && (p.proxy().extra().containsKey("cert")
+                        || p.proxy().extra().containsKey("key") || p.proxy().extra().containsKey("passphrase")));
     }
 
     private static boolean hasFaultOrScriptBehaviors(ImposterDefinition def) {
