@@ -133,6 +133,16 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
      * as one {@code behaviors} array element per command, the shape the engine itself echoes. An
      * injection surface: the engine must run with {@code --allowInjection}.
      *
+     * <p>Each command is passed to the engine verbatim, and the engine runs it with Mountebank's
+     * contract from rift 0.24.0 (rift#1589): under {@code sh -c}, with the request JSON and the
+     * response so far (status, headers and body) appended as two shell arguments and also set as
+     * {@code MB_REQUEST} and {@code MB_RESPONSE}. Its stdout must be a JSON response object, such as
+     * {@code {"statusCode":200,"body":"hello"}}; output that is not JSON, or a non-zero exit, is an
+     * error. A command that ignores its arguments should end with {@code  #} so the shell treats
+     * them as a comment: {@code printf '{"body":"hello"}' #}. Before 0.24.0 the engine replaced the
+     * body with the command's raw stdout, so a command written for that must now print the JSON
+     * object instead.
+     *
      * @throws IllegalArgumentException if no command is given
      */
     default S shellTransform(String... commands) {

@@ -540,7 +540,11 @@ public sealed interface BehaviorChain<S extends ResponseSpec & BehaviorChain<S>>
     S lookupObject(LookupSpec lookup)                    // _behaviors.lookup (single-object wire form)
     S shellTransform(String... commands)                 // one typed step per command: one is
                                                          // "shellTransform": "cmd", several go out as
-                                                         // one behaviors-array element each (#234)
+                                                         // one behaviors-array element each (#234);
+                                                         // from rift 0.24.0 a command gets request and
+                                                         // response JSON as two args (+ MB_REQUEST/
+                                                         // MB_RESPONSE) and must print a JSON response
+                                                         // object, e.g. printf '{"body":"x"}' # (#339)
     S waitInject(String script)                          // _behaviors.wait as {"inject": ...}; a rift superset, not portable to Mountebank (rift#608)
     S waitScript(String source)                          // _behaviors.wait as a bare function string (the Mountebank-compatible spelling)
 }
