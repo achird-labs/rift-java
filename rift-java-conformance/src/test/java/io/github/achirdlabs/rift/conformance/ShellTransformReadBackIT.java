@@ -7,6 +7,11 @@ import io.github.achirdlabs.rift.model.Response;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -35,6 +40,23 @@ class ShellTransformReadBackIT {
                 Response.Is is = (Response.Is) imposter.definition().stubs().get(0).responses().get(0);
                 assertEquals(List.of(new Behavior.ShellTransform("./first.sh"), new Behavior.ShellTransform("./second.sh")),
                         is.behaviors().entries());
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> theDocumentedCommandShapeServesItsJson() {
+        return gatedTo(ConformanceTransport.SPAWN,
+                "shellTransform is an injection surface; --allow-injection is a spawn-CLI flag",
+                "a command printing a JSON response object, ending in ' #', sets the body (rift 0.24.0)", () -> {
+            try (Rift rift = engine()) {
+                Imposter imposter = rift.create(imposter("shell-json").protocol("http")
+                        .stub(onGet("/").willReturn(status(200).shellTransform("printf '{\"body\":\"hello\"}' #"))));
+
+                HttpResponse<String> answer = HttpClient.newHttpClient().send(
+                        HttpRequest.newBuilder(URI.create(imposter.uri() + "/")).timeout(Duration.ofSeconds(5)).build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertEquals("hello", answer.body());
             }
         });
     }
