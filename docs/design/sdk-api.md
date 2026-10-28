@@ -67,7 +67,7 @@ io.github.achirdlabs.rift            Rift, RiftAsync, Imposter, Space, FlowState
                                         InterceptRule, InterceptRuleBuilder, TruststoreFormat
 io.github.achirdlabs.rift.error      RiftException (sealed) + 5 leaves
 io.github.achirdlabs.rift.verify     VerificationException, VerificationTimes, RequestMatch,
-                                        PredicateEvaluator
+                                        PredicateEvaluator (deprecated, #337)
 io.github.achirdlabs.rift.model      wire records (ImposterDefinition, Stub, Predicate, …),
                                         WireFormatException
 io.github.achirdlabs.rift.json       JsonValue + codec (unchanged)
@@ -372,7 +372,7 @@ public interface Imposter {
 
   // -- recorded requests + verification (§8) --
   List<RecordedRequest> recorded();
-  List<RecordedRequest> recorded(RequestMatch match);      // client-side filtered
+  List<RecordedRequest> recorded(RequestMatch match);      // engine-evaluated (verify + includeRequests, #337)
   RecordedPage recordedPage();                             // baseline: retained + cursor (§8)
   RecordedPage recordedPage(MatchClause... filters);       // server-side filtered (§8.2)
   RecordedPage recordedSince(long cursor);                 // tail poll: strictly newer than cursor
@@ -728,9 +728,9 @@ public interface RequestMatch {
 engine's evaluator — the same one the request hot path uses — decides; this SDK never re-implements
 matching, so a verdict can never drift from a stub's. Consequences: `inject`/`xpath` predicates are
 honoured in `verify` (not rejected client-side); a custom `RiftTransport` must implement `verify`;
-remote requires an engine with `POST /imposters/{port}/verify` (rift#494). `recorded(match)` stays a
-client-side convenience filter, and `verifyNoInteractions` a client-side emptiness check — neither
-is a predicate verdict.
+remote requires an engine with `POST /imposters/{port}/verify` (rift#494). `recorded(match)` is the same
+engine call with `includeRequests` (#337), returning the matching requests rather than a count;
+`verifyNoInteractions` is a client-side emptiness check, not a predicate verdict.
 
 `verifyResult` is the same verification as a value — the typed seam a bridge renders its own
 assertion failures from (no diff-string scraping):
@@ -757,10 +757,10 @@ public final class VerificationTimes {                    // factories re-export
 }
 ```
 
-`verify` is evaluated by the engine (above). Core's `PredicateEvaluator` implements Mountebank
-predicate semantics against `RecordedRequest` (all field ops + `and/or/not` +
-`caseSensitive/keyCaseSensitive/except` + `jsonpath` + `xpath` via the JDK — zero external deps),
-but it backs only the client-side `recorded(match)` filter.
+`verify` and `recorded(match)` are evaluated by the engine (above). Core's `PredicateEvaluator`, a
+JVM copy of Mountebank's predicate semantics, is deprecated for removal (#337) and no longer called:
+it had drifted from the engine three times (#330, #335, and rift 0.24.0's array rules, rift#1553 /
+rift#1579), which is the failure mode an engine-evaluated design exists to rule out.
 
 On failure, `VerificationException extends AssertionError` renders the engine's verdict, with its
 closest non-matching request when it reports one:
@@ -874,7 +874,7 @@ still percent-encoded, never carrying the query string, which the engine keeps a
 | What | Mountebank predicate set | journal/stream filter clause |
 | Evaluated by | the engine's predicate engine, via `POST /verify` | the engine's journal filter, via `match=` |
 | Grammar | full — `equals`/`contains`/`matches`/`jsonPath`/`xpath`/`and`/`or`/`not` | closed — exact equality on header, flow id, method, path |
-| Used for | `verify(match, times)`, `recorded(match)` (client-side filter) | `recordedPage`/`recordedSince`/`clearRecorded` filters, `Space.recordedPage`/`recordedSince` (auto-injected `flow_id`, #149), `/events?match=` (#131) |
+| Used for | `verify(match, times)`, `recorded(match)` | `recordedPage`/`recordedSince`/`clearRecorded` filters, `Space.recordedPage`/`recordedSince` (auto-injected `flow_id`, #149), `/events?match=` (#131) |
 
 The grammar is closed because the engine's is: it rejects a clause it cannot parse with a 400 rather
 than serving everything, since a filter that silently widened would cross-contaminate correlated
