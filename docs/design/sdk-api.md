@@ -682,6 +682,11 @@ ProxySpec generateBy(PredicateGeneratorSpec generator)   // .matching(fields).ca
                                                          //   .predicateOperator(GeneratorOperator)  .except(regex)
 ProxySpec addWaitBehavior()                              // proxy.addWaitBehavior: records upstream latency on recorded stubs
 ProxySpec decorateWith(String script)                    // proxy.addDecorateBehavior: decorates the stubs this proxy records
+ProxySpec clientCertificate(String certPem, String keyPem[, String passphrase])
+                                                         // proxy.cert/key/passphrase: presented to an mTLS upstream
+                                                         //   (rift >= 0.24.0, rift#1609; gated: an older engine drops
+                                                         //   them silently). A pair by construction; PEM blocks checked
+                                                         //   up front, key/cert matching left to the engine (400). (#342)
 // not to be confused with BehaviorChain.waitMs/decorate (§7.3), which act on this proxy's own
 // response — before it is served and before it is recorded.
 ```
