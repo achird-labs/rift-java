@@ -86,7 +86,14 @@ public interface Imposter {
 
     List<RecordedRequest> recorded();
 
-    /** Recorded requests filtered client-side against {@code match}'s predicates (equals on method/path only; see {@code ImposterImpl}). */
+    /**
+     * The recorded requests that satisfy every predicate in {@code match}, in journal order. The
+     * engine evaluates them ({@code POST /imposters/{port}/verify} with {@code includeRequests}, one
+     * call), so the result follows the running engine's rules exactly: from rift 0.24.0 Mountebank's
+     * array rules for a repeated query key or header and for JSON bodies, and {@code inject}
+     * predicates too. A malformed predicate fails with the engine's error, as {@code verify} does.
+     * An imposter that does not record answers an empty list.
+     */
     List<RecordedRequest> recorded(RequestMatch match);
 
     /**

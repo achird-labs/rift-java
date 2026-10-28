@@ -34,14 +34,19 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 /**
- * Client-side evaluation of Mountebank predicate semantics against a recorded request. Verification
- * itself is engine-authoritative (#127); what remains here backs {@code recorded(RequestMatch)}, the
- * client-side convenience filter over an imposter's journal.
+ * Client-side evaluation of Mountebank predicate semantics against a recorded request.
+ *
+ * @deprecated The SDK no longer calls this: {@code verify} (#127) and {@code recorded(RequestMatch)}
+ *     (#337) are evaluated by the engine, whose rules this copy cannot keep up with (from rift
+ *     0.24.0 it gets repeated query keys, repeated headers and JSON-body arrays wrong). Use
+ *     {@link io.github.achirdlabs.rift.Imposter#recorded(RequestMatch)} or
+ *     {@code verifyResult(match, VerifyDetail.REQUESTS)}. To be removed in the next minor release.
  *
  * <p>Uses {@code instanceof} chains rather than pattern-matching {@code switch} throughout: the
  * latter is still a preview feature at the Java 17 release level this module compiles against
  * (finalized only in Java 21).
  */
+@Deprecated(since = "0.3.8", forRemoval = true)
 public final class PredicateEvaluator {
 
     private PredicateEvaluator() {}

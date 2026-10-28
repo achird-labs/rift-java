@@ -15,7 +15,6 @@ import io.github.achirdlabs.rift.model.Stub;
 import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 import io.github.achirdlabs.rift.transport.StubAddress;
-import io.github.achirdlabs.rift.verify.PredicateEvaluator;
 import io.github.achirdlabs.rift.verify.RequestMatch;
 import io.github.achirdlabs.rift.verify.VerificationException;
 import io.github.achirdlabs.rift.verify.VerificationResult;
@@ -250,7 +249,10 @@ final class ImposterImpl implements Imposter {
 
     @Override
     public List<RecordedRequest> recorded(RequestMatch match) {
-        return recorded().stream().filter(r -> PredicateEvaluator.matches(r, match.predicates())).toList();
+        // The engine's evaluator, not a JVM copy of Mountebank's rules (#337). No requireRecording():
+        // a non-recording imposter answers an empty list here, as recorded() does.
+        return RecordedRequests.readMatched(
+                transport.verify(port, VerifyBody.build(match, Optional.empty(), VerifyDetail.REQUESTS)));
     }
 
     @Override

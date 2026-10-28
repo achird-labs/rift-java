@@ -91,20 +91,4 @@ class SpaceRecordedTest {
             }
         }
     }
-
-    @Test
-    void aClientSideMatchStillFiltersOnTopOfTheFlowIdFilter() {
-        try (FakeAdminServer s = new FakeAdminServer()) {
-            s.respond("GET /imposters/4545/savedRequests", 200, TWO);
-            try (Rift rift = connect(s)) {
-                // Two different filters, composed: flow_id is cut engine-side, the predicate
-                // client-side (Space.recorded(RequestMatch) is documented as the latter).
-                List<RecordedRequest> hits = created(s, rift).space("alice")
-                        .recorded(io.github.achirdlabs.rift.dsl.RiftDsl.onGet("/a"));
-
-                assertEquals(List.of("/a"), hits.stream().map(RecordedRequest::path).toList());
-                assertEquals("/imposters/4545/savedRequests?match=flow_id%3Dalice", lastGet(s));
-            }
-        }
-    }
 }

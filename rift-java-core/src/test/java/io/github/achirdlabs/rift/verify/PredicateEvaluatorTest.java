@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Mountebank predicate semantics evaluated client-side against a {@link RecordedRequest}. */
+@SuppressWarnings("removal") // deprecated for removal (#337); kept tested until it is deleted
 class PredicateEvaluatorTest {
 
     private static RecordedRequest req(String httpMethod, String httpPath, String body,

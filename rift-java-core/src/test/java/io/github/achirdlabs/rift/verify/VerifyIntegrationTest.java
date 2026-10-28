@@ -135,10 +135,13 @@ class VerifyIntegrationTest {
     }
 
     @Test
-    void recordedWithMatchFilters() {
+    void recordedWithMatchAsksTheEngine() {
+        // #337: the engine picks the matches (verify + includeRequests); the SDK no longer filters.
+        verifyResponder = body -> "{\"matched\":1,\"total\":3,\"requests\":[{\"method\":\"GET\",\"path\":\"/health\"}]}";
         List<io.github.achirdlabs.rift.RecordedRequest> hits = recordingImposter().recorded(onGet("/health"));
         assertEquals(1, hits.size());
         assertEquals("/health", hits.get(0).path());
+        assertTrue(verifyBodies.get(0).contains("\"includeRequests\":true"), verifyBodies.get(0));
     }
 
     @Test
@@ -203,9 +206,10 @@ class VerifyIntegrationTest {
     }
 
     @Test
-    void spaceRecordedWithMatchFilters() {
-        routes.put("GET /imposters/4545/savedRequests",
-                "{\"requests\":[{\"method\":\"GET\",\"path\":\"/a\"},{\"method\":\"GET\",\"path\":\"/b\"}]}");
+    void spaceRecordedWithMatchAsksTheEngineInItsFlow() {
+        verifyResponder = body -> body.contains("\"flowId\":\"flow-A\"")
+                ? "{\"matched\":1,\"total\":2,\"requests\":[{\"method\":\"GET\",\"path\":\"/a\"}]}"
+                : "{\"matched\":0,\"total\":0,\"requests\":[]}";
         List<io.github.achirdlabs.rift.RecordedRequest> hits = recordingImposter().space("flow-A").recorded(onGet("/a"));
         assertEquals(1, hits.size());
         assertEquals("/a", hits.get(0).path());

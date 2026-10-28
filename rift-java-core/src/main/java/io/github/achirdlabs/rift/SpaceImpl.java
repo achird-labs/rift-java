@@ -7,7 +7,6 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.Stub;
 import io.github.achirdlabs.rift.transport.RiftTransport;
 import io.github.achirdlabs.rift.transport.StubAddress;
-import io.github.achirdlabs.rift.verify.PredicateEvaluator;
 import io.github.achirdlabs.rift.verify.RequestMatch;
 import io.github.achirdlabs.rift.verify.VerificationException;
 import io.github.achirdlabs.rift.verify.VerificationResult;
@@ -63,7 +62,8 @@ final class SpaceImpl implements Space {
 
     @Override
     public List<RecordedRequest> recorded(RequestMatch match) {
-        return recorded().stream().filter(r -> PredicateEvaluator.matches(r, match.predicates())).toList();
+        return RecordedRequests.readMatched(
+                transport.verify(port, VerifyBody.build(match, Optional.of(flowId), VerifyDetail.REQUESTS)));
     }
 
     @Override

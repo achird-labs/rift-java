@@ -41,6 +41,19 @@ final class RecordedRequests {
                 + " body: expected a JSON array of recorded requests, or a {\"requests\":[...]} envelope");
     }
 
+    /**
+     * The matching requests out of a {@code verify} reply asked for with {@code includeRequests}. A
+     * reply without them is a {@link CommunicationError}: read as empty, it would say "nothing matched"
+     * beside the engine's own non-zero {@code matched}.
+     */
+    static List<RecordedRequest> readMatched(JsonValue verifyReply) {
+        if (verifyReply instanceof JsonObject obj && obj.get("requests") instanceof JsonArray arr) {
+            return read(arr);
+        }
+        throw new CommunicationError("rift admin API returned a verify body without the requested"
+                + " \"requests\" array: " + verifyReply.toJson());
+    }
+
     private static List<RecordedRequest> read(JsonArray arr) {
         List<RecordedRequest> out = new ArrayList<>(arr.items().size());
         for (JsonValue v : arr.items()) {
