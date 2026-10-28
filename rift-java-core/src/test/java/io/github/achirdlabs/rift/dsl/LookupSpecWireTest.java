@@ -9,6 +9,7 @@ import static io.github.achirdlabs.rift.dsl.RiftDsl.lookupKeyFromQuery;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.regex;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The {@code lookup} grammar the engine accepts (#290): {@code key.index}, {@code csv.delimiter}, an object {@code key.from}. */
 class LookupSpecWireTest {
@@ -69,5 +70,44 @@ class LookupSpecWireTest {
         assertEquals(lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code").into("$ROW").build().toJson(),
                 lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code", ';').fromCsv("p.csv", "code")
                         .into("$ROW").build().toJson());
+    }
+
+    @Test
+    void aMultiCharacterDelimiterIsSentVerbatim() {
+        assertEquals("{\"key\":{\"from\":\"body\",\"using\":{\"method\":\"jsonpath\",\"selector\":\"$.code\"}},"
+                        + "\"fromDataSource\":{\"csv\":{\"path\":\"p.csv\",\"keyColumn\":\"code\",\"delimiter\":\"||\"}},\"into\":\"$ROW\"}",
+                lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code", "||").into("$ROW").build().toJson());
+    }
+
+    @Test
+    void aOneCharacterStringDelimiterIsTheSameAsTheCharForm() {
+        assertEquals(lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code", ';').into("$ROW").build().toJson(),
+                lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code", ";").into("$ROW").build().toJson());
+    }
+
+    @Test
+    void anEmptyDelimiterIsRefusedSinceTheTwoArgumentFormAlreadyMeansTheDefault() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> lookupKey("body").fromCsv("p.csv", "code", ""));
+        assertEquals("csv delimiter must not be empty; use fromCsv(path, keyColumn) for the engine's default ','",
+                e.getMessage());
+    }
+
+    @Test
+    void aNullDelimiterIsRefused() {
+        assertThrows(NullPointerException.class, () -> lookupKey("body").fromCsv("p.csv", "code", (String) null));
+    }
+
+    @Test
+    void anUnpairedSurrogateInAStringDelimiterIsRefused() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> lookupKey("body").fromCsv("p.csv", "code", "|\uD83D"));
+        assertEquals("csv delimiter must be a whole character, not half of a surrogate pair (U+D83D)", e.getMessage());
+    }
+
+    @Test
+    void aSupplementaryCharacterDelimiterIsAccepted() {
+        assertTrue(lookupKey("body").using(jsonPath("$.code")).fromCsv("p.csv", "code", "\uD83D\uDE00")
+                .into("$ROW").build().toJson().contains("\"delimiter\":\"\uD83D\uDE00\""));
     }
 }

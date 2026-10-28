@@ -620,6 +620,7 @@ static LookupSpec lookupKeyFromHeader(String name)       // key.from {"headers":
 //   .index(n)  key.index, Mountebank's meaning: regex 0 = whole match, n = nth capture group;
 //              jsonPath/xPath = nth selected value. Unset = first group / first value.
 //   .fromCsv(path, keyColumn, ';')  csv.delimiter (engine default ','); both emitted only when set
+//   .fromCsv(path, keyColumn, "||") a multi-character csv.delimiter (rift >= 0.24.0, rift#1566); empty is refused
 ```
 
 ### 7.4 New `StubSpec` methods
