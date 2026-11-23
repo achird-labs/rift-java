@@ -14,6 +14,9 @@ import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
 import io.github.achirdlabs.rift.model.Response;
 import io.github.achirdlabs.rift.model.RiftConditional;
+import io.github.achirdlabs.rift.model.RiftConfig;
+import io.github.achirdlabs.rift.model.RiftScriptConfig;
+import io.github.achirdlabs.rift.model.RiftScriptEngineConfig;
 import io.github.achirdlabs.rift.model.RiftResponseExtension;
 import io.github.achirdlabs.rift.transport.HostAuthority;
 import io.github.achirdlabs.rift.transport.RemoteTransport;
@@ -61,6 +64,12 @@ final class RiftImpl implements Rift {
 
     /** The first engine release whose intercept forward rule reads a target {@code host}/{@code scheme} (rift#1273). */
     static final String INTERCEPT_FORWARD_TARGET_SINCE = "0.20.0";
+
+    /**
+     * The first engine release that runs wasm components and reads the imposter clock and seed
+     * ({@code _rift.script} wasm keys, {@code _rift.scriptEngine.wasm/seed/rngKey/clock}, rift#1749).
+     */
+    static final String WASM_ENGINE_SINCE = "0.25.0";
 
     private static final System.Logger LOG = System.getLogger(RiftImpl.class.getName());
 
@@ -285,7 +294,42 @@ final class RiftImpl implements Rift {
                     "a client certificate on a proxy (cert / key / passphrase)", "drops them silently, so an"
                     + " upstream that requires one refuses the handshake", "remove clientCertificate"));
         }
+        if (hasWasmScript(def)) {
+            requirements.add(new EngineRequirement(WASM_ENGINE_SINCE,
+                    "a wasm script (engine \"wasm\", component, export, knobs, instance or _rift.scriptEngine.wasm)",
+                    "refuses it or runs it on another engine", "use a Rhai or JavaScript script"));
+        }
+        if (hasClockOrSeed(def)) {
+            requirements.add(new EngineRequirement(WASM_ENGINE_SINCE,
+                    "the imposter clock and seed (_rift.scriptEngine seed / rngKey / clock)",
+                    "accepts them and ignores them silently, so nothing is seeded", "remove them"));
+        }
         return requirements;
+    }
+
+    private static boolean hasWasmScript(ImposterDefinition def) {
+        Optional<RiftScriptEngineConfig> engine = def.rift().flatMap(RiftConfig::scriptEngine);
+        boolean defaultsToWasm = engine.map(c -> c.defaultEngine().equalsIgnoreCase("wasm") || c.wasm().isPresent())
+                .orElse(false);
+        return defaultsToWasm || scripts(def).anyMatch(RiftScriptConfig::isWasm);
+    }
+
+    private static boolean hasClockOrSeed(ImposterDefinition def) {
+        return def.rift().flatMap(RiftConfig::scriptEngine)
+                .map(c -> c.seed().isPresent() || c.rngKey().isPresent() || c.clock().isPresent())
+                .orElse(false);
+    }
+
+    /** Every script a definition carries: the named registry and each response's {@code _rift.script}. */
+    private static java.util.stream.Stream<RiftScriptConfig> scripts(ImposterDefinition def) {
+        java.util.stream.Stream<RiftScriptConfig> registry = def.rift().stream()
+                .flatMap(rift -> rift.scripts().values().stream());
+        java.util.stream.Stream<RiftScriptConfig> responses = def.stubs().stream()
+                .flatMap(stub -> stub.responses().stream())
+                .flatMap(r -> r instanceof Response.RiftScript s ? s.rift().script().stream()
+                        : r instanceof Response.Is is ? is.rift().flatMap(RiftResponseExtension::script).stream()
+                        : java.util.stream.Stream.empty());
+        return java.util.stream.Stream.concat(registry, responses);
     }
 
     private static boolean hasProxyClientCertificate(ImposterDefinition def) {
@@ -465,6 +509,11 @@ final class RiftImpl implements Rift {
     @Override
     public EngineInfo info() {
         return EngineInfo.read(transport.buildInfo());
+    }
+
+    @Override
+    public Components components() {
+        return new ComponentsImpl(transport);
     }
 
     @Override

@@ -5,10 +5,22 @@ import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
 import com.networknt.schema.ValidationMessage;
+import io.github.achirdlabs.rift.dsl.ClockSource;
+import io.github.achirdlabs.rift.dsl.Script;
+import io.github.achirdlabs.rift.dsl.ScriptEngine;
+import io.github.achirdlabs.rift.dsl.WasmExport;
+import io.github.achirdlabs.rift.dsl.WasmInstanceScope;
+import io.github.achirdlabs.rift.json.JsonArray;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.model.ImposterDefinition;
+import io.github.achirdlabs.rift.model.Behaviors;
 import io.github.achirdlabs.rift.model.PredicateOperation;
+import io.github.achirdlabs.rift.model.Response;
+import io.github.achirdlabs.rift.model.RiftResponseExtension;
+import io.github.achirdlabs.rift.model.RiftScriptConfig;
+import io.github.achirdlabs.rift.model.Stub;
+import io.github.achirdlabs.rift.model.WasmLimits;
 import io.github.achirdlabs.rift.model.WireFormatException;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DynamicTest;
@@ -20,9 +32,11 @@ import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
@@ -30,6 +44,7 @@ import java.util.stream.Stream;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.imposter;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.onGet;
 import static io.github.achirdlabs.rift.dsl.RiftDsl.response;
+import static io.github.achirdlabs.rift.dsl.RiftDsl.script;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -149,6 +164,41 @@ class SchemaConformanceTest {
                 .build().toJson();
         assertFalse(json.contains("statusCode"), json);
         assertEquals(List.of(), schema.validate(json));
+    }
+
+    /**
+     * rift 0.25.0's script keys (rift-java#354): every key the typed builders write validates, and the
+     * script and script-engine objects, fully populated, write exactly the keys the schema declares, so
+     * a key the engine adds there shows up here rather than being dropped on a read.
+     */
+    @Test
+    void theWasmClockAndSeedKeysAreTheSchemas() {
+        ImposterSchema schema = schemaOrSkip(Corpus.loadOrSkip());
+        String sha = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        ImposterDefinition def = imposter("twin").port(4545)
+                .scriptEngine(ScriptEngine.WASM, Duration.ofSeconds(2))
+                .seed(-1L).rngKey("header:X-Rift-Rng-Key", "body:/id").clock(ClockSource.HEADER)
+                .wasmLimits(WasmLimits.DEFAULTS.withFuel(1_000_000).withMaxMemoryMiB(32).withMaxTables(2)
+                        .withMaxTableElements(1000))
+                .script("shared", Script.wasm(new byte[] {0, 'a', 's', 'm'}))
+                .stub(onGet("/a").willReturn(script(Script.component(sha).export(WasmExport.HTTP)
+                        .knobs(JsonValue.parse("{\"rate\":1}")).instance(WasmInstanceScope.IMPOSTER))))
+                .stub(onGet("/b").willReturn(script(Script.wasmFile("twin.wasm").export(WasmExport.RIFT))))
+                .build();
+        assertValid(schema, "the 0.25.0 script keys", def.toJson());
+
+        JsonObject rift = (JsonObject) ((JsonObject) JsonValue.parse(def.toJson())).get("_rift");
+        JsonObject engine = (JsonObject) rift.get("scriptEngine");
+        assertEquals(schema.properties("RiftScriptEngineConfig"), engine.fields().keySet());
+        assertEquals(schema.properties("WasmLimits"), ((JsonObject) engine.get("wasm")).fields().keySet());
+        RiftScriptConfig every = new RiftScriptConfig(Optional.of("wasm"), Optional.of("c"), Optional.of("f"),
+                Optional.of("r"), Optional.of("sha256:" + sha), Optional.of("rift"), Optional.of(JsonValue.parse("{}")),
+                Optional.of("request"));
+        String stub = new Stub(List.of(), List.of(new Response.RiftScript(
+                new RiftResponseExtension(Optional.empty(), Optional.of(every), false), Behaviors.EMPTY, Map.of()))).toJson();
+        JsonValue response = ((JsonArray) ((JsonObject) JsonValue.parse(stub)).get("responses")).items().get(0);
+        JsonObject script = (JsonObject) ((JsonObject) ((JsonObject) response).get("_rift")).get("script");
+        assertEquals(schema.properties("RiftScriptConfig"), script.fields().keySet());
     }
 
     @Test

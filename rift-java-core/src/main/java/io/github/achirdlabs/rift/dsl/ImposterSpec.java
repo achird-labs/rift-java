@@ -12,6 +12,7 @@ import io.github.achirdlabs.rift.model.RiftProxyConfig;
 import io.github.achirdlabs.rift.model.RiftScriptConfig;
 import io.github.achirdlabs.rift.model.RiftScriptEngineConfig;
 import io.github.achirdlabs.rift.model.Stub;
+import io.github.achirdlabs.rift.model.WasmLimits;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -309,10 +310,90 @@ public final class ImposterSpec {
      * <p>The {@link Script} factories ({@link Script#rhai}, {@link Script#js}, {@link Script#rhaiFile},
      * {@link Script#jsFile}) always name their engine, so the default only decides scripts that
      * reach the engine without one, such as {@code _rift.script} entries in raw JSON configuration.
-     * There is no capability flag for this behaviour; check the engine version.
+     * There is no capability flag for this behaviour; check the engine version. {@link ScriptEngine#WASM}
+     * as the default needs rift &ge; 0.25.0. The 0.25.0 keys ({@link #seed(long)}, {@link
+     * #rngKey(String...)}, {@link #clock(ClockSource)}, {@link #wasmLimits(WasmLimits)}) are kept
+     * whichever order the calls come in.
      */
     public ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout) {
-        RiftScriptEngineConfig config = new RiftScriptEngineConfig(engine.wire(), timeout.toMillis());
+        return withScriptEngine(config -> config.withDefaults(engine.wire(), timeout.toMillis()));
+    }
+
+    /**
+     * Seeds the imposter's random stream ({@code _rift.scriptEngine.seed}, rift &ge; 0.25.0): {@code
+     * _rift.fault} rolls, the template {@code randomInt} and {@code uuid}, JavaScript {@code
+     * Math.random()} and a wasm component's {@code wasi:random} draw from it, restarting from the seed
+     * at every create, recreate and restart. With a frozen {@link io.github.achirdlabs.rift.Imposter#clock()
+     * clock} as well, a replay answers byte for byte. Unset, the stream is seeded from OS entropy.
+     *
+     * <p>The engine reads an <em>unsigned</em> 64-bit integer, and {@code seed} is its bit pattern: a
+     * negative {@code long} is a seed of 2<sup>63</sup> or more ({@code -1L} is 2<sup>64</sup>&minus;1).
+     * Write such a seed as {@code Long.parseUnsignedLong("18446744073709551615")}. An older engine
+     * ignores the key, so {@code create} refuses it there (see {@link #build()}).
+     */
+    public ImposterSpec seed(long seed) {
+        return withScriptEngine(config -> config.withSeed(seed));
+    }
+
+    /**
+     * Gives each request its own random stream, picked by these request parts ({@code
+     * _rift.scriptEngine.rngKey}, rift &ge; 0.25.0), so a seeded replay draws the same values however
+     * concurrent requests interleave. Each part is one of {@code header:<name>}, {@code query:<name>},
+     * {@code method}, {@code path} or {@code body:<RFC 6901 pointer>}. Needs {@link #seed(long)}. A
+     * per-call {@code X-Rift-Rng-Key} header (a correlation id plus the attempt) is the usual pairing:
+     * {@code rngKey("header:X-Rift-Rng-Key")}.
+     *
+     * @throws IllegalArgumentException if no part is given, or a part is not one of the five forms
+     */
+    public ImposterSpec rngKey(String... parts) {
+        if (parts.length == 0) {
+            throw new IllegalArgumentException("rngKey(...) needs at least one request part");
+        }
+        for (String part : parts) {
+            requireRngKeyPart(part);
+        }
+        List<String> key = List.of(parts);
+        return withScriptEngine(config -> config.withRngKey(key));
+    }
+
+    private static void requireRngKeyPart(String part) {
+        java.util.Objects.requireNonNull(part, "rngKey part");
+        boolean named = (part.startsWith("header:") || part.startsWith("query:")) && part.indexOf(':') < part.length() - 1;
+        boolean pointer = part.startsWith("body:") && (part.length() == 5 || part.charAt(5) == '/');
+        if (!(named || pointer || part.equals("method") || part.equals("path"))) {
+            throw new IllegalArgumentException("rngKey part \"" + part + "\" is not one of header:<name>, query:<name>,"
+                    + " method, path or body:<RFC 6901 pointer>");
+        }
+    }
+
+    /**
+     * Where a request's instant comes from ({@code _rift.scriptEngine.clock}, rift &ge; 0.25.0). Under
+     * {@link ClockSource#HEADER} a request's {@code X-Rift-Now: <ms since epoch>} is its own instant,
+     * ahead of the imposter's {@link io.github.achirdlabs.rift.Imposter#clock() clock}, for flow-state
+     * TTLs, a wasm component's clocks, JavaScript {@code Date.now()} and the template {@code now}. An
+     * older engine ignores the key, so {@code create} refuses it there.
+     */
+    public ImposterSpec clock(ClockSource source) {
+        java.util.Objects.requireNonNull(source, "source");
+        return withScriptEngine(config -> config.withClock(source.wire()));
+    }
+
+    /**
+     * Per-call limits on this imposter's wasm scripts ({@code _rift.scriptEngine.wasm}, rift &ge;
+     * 0.25.0): fuel, linear memory and tables; each one left unset keeps the engine's default. The
+     * wall-clock deadline is {@link #scriptEngine(ScriptEngine, Duration)}'s timeout, as for every engine.
+     */
+    public ImposterSpec wasmLimits(WasmLimits limits) {
+        java.util.Objects.requireNonNull(limits, "limits");
+        return withScriptEngine(config -> config.withWasm(limits));
+    }
+
+    /**
+     * Applies {@code change} to {@code _rift.scriptEngine}, starting from the engine's own defaults when
+     * no block is set yet, so setting one key never changes another (the script deadline in particular).
+     */
+    private ImposterSpec withScriptEngine(java.util.function.UnaryOperator<RiftScriptEngineConfig> change) {
+        RiftScriptEngineConfig config = change.apply(scriptEngine.orElseGet(RiftScriptEngineConfig::engineDefaults));
         return new ImposterSpec(name, port, protocol, recordRequests, recordMatches, allowCors, stubs,
                 defaultResponse, host, cert, key, defaultForward, strictBehaviors, serviceName, serviceInfo,
                 flowState, metrics, proxyPool, Optional.of(config), scripts, clientCertificateCas, enabled);
@@ -367,7 +448,8 @@ public final class ImposterSpec {
      * Builds the immutable {@link ImposterDefinition} this spec represents.
      *
      * @throws IllegalArgumentException if a stub has no response: rift &ge; 0.22.0 refuses such a
-     *         stub with a 400, as Mountebank does (rift#1372), so the imposter could not be created
+     *         stub with a 400, as Mountebank does (rift#1372), so the imposter could not be created;
+     *         or {@link #rngKey(String...)} is set without {@link #seed(long)}, which the engine refuses
      */
     public ImposterDefinition build() {
         for (int i = 0; i < stubs.size(); i++) {
@@ -375,6 +457,11 @@ public final class ImposterSpec {
                 throw new IllegalArgumentException("stubs[" + i + "]: 'responses' must be a non-empty array "
                         + "— add a response with willReturn(...)");
             }
+        }
+        if (scriptEngine.flatMap(RiftScriptEngineConfig::rngKey).isPresent()
+                && scriptEngine.flatMap(RiftScriptEngineConfig::seed).isEmpty()) {
+            throw new IllegalArgumentException("rngKey(...) needs seed(...): a request-keyed stream is derived from "
+                    + "the imposter's seed, and the engine refuses the key without one");
         }
         if (cert.isPresent() != key.isPresent()) {
             throw new IllegalArgumentException("https(...) requires both a certificate and a key, or neither");

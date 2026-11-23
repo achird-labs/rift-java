@@ -245,6 +245,15 @@ public final class RiftProcess {
             cmd.add("--scripts-dir");
             cmd.add(dir.toString());
         });
+        // A value, not a bare switch: the engine's default is on, so false is the setting that matters.
+        opts.allowWasm().ifPresent(allow -> {
+            cmd.add("--allow-wasm");
+            cmd.add(Boolean.toString(allow));
+        });
+        opts.strictWasm().ifPresent(list -> {
+            cmd.add("--strict-wasm");
+            cmd.add(list.toString());
+        });
         opts.upstreamTrust().ifPresent(trust -> {
             if (trust instanceof UpstreamTrust.CaFile file) {
                 cmd.add("--upstream-ca-file");

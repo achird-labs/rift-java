@@ -193,7 +193,7 @@ jobs:
   # so each embedded lane fetches its platform's librift_ffi and exposes it via RIFT_FFI_LIB).
   # Windows stays experimental (continue-on-error) until it is green for two consecutive weeks.
   conformance:
-    name: conformance (${{ matrix.lane.transport }} / ${{ matrix.lane.os }} JDK ${{ matrix.lane.jdk }})
+    name: conformance (${{ matrix.lane.transport }}${{ matrix.lane.ffi && format(' {0}', matrix.lane.ffi) || '' }} / ${{ matrix.lane.os }} JDK ${{ matrix.lane.jdk }})
     runs-on: ${{ matrix.lane.os }}
     continue-on-error: ${{ matrix.lane.experimental == true }}
     strategy:
@@ -202,12 +202,16 @@ jobs:
         lane:
           - { os: ubuntu-latest, jdk: '17', transport: SPAWN }                          # M1 gate
           - { os: ubuntu-latest, jdk: '22', transport: EMBEDDED }                       # M2 gate
+          - { os: ubuntu-latest, jdk: '22', transport: EMBEDDED, ffi: wasm }            # the -wasm librift_ffi (rift#1798)
           - { os: ubuntu-latest, jdk: '21', transport: EMBEDDED }                       # M2 gate (preview FFM)
           - { os: macos-15, jdk: '22', transport: EMBEDDED }                            # M2 gate (darwin-aarch64)
           - { os: windows-latest, jdk: '22', transport: EMBEDDED, experimental: true }  # experimental
     env:
       RIFT_IT: '1'
       CONFORMANCE_TRANSPORT: ${{ matrix.lane.transport }}
+      # The engines that carry wasm (the spawned binary, the -wasm librift_ffi): WasmEngineIT fails on
+      # them, rather than skipping, when the engine does not report the wasm feature.
+      RIFT_EXPECT_WASM: ${{ (matrix.lane.transport == 'SPAWN' || matrix.lane.ffi == 'wasm') && '1' || '' }}
     steps:
       - uses: actions/checkout@v5
       - name: Set up JDK ${{ matrix.lane.jdk }}
@@ -245,6 +249,11 @@ jobs:
             Windows-X64) ASSET="librift_ffi-windows-x86_64.dll" ;;
             *) echo "no librift_ffi asset for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 1 ;;
           esac
+          # The -wasm flavour (rift >= 0.25.0) is librift_ffi-<platform>-wasm.<ext>; WasmEngineIT's
+          # component claims run only on a library that reports the wasm feature.
+          if [ "${{ matrix.lane.ffi }}" = "wasm" ]; then
+            ASSET="${ASSET%.*}-wasm.${ASSET##*.}"
+          fi
           curl -fsSL -o "${RUNNER_TEMP}/${ASSET}" \
             "https://github.com/achird-labs/rift/releases/download/v${VER}/${ASSET}"
           echo "RIFT_FFI_LIB=${RUNNER_TEMP}/${ASSET}" >> "$GITHUB_ENV"

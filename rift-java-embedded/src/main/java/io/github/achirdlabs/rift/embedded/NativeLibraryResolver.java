@@ -16,7 +16,10 @@ import java.util.Map;
  * order: an explicit {@link EmbeddedOptions#libraryPath()}, the {@code rift.ffi.lib} system
  * property, the {@code RIFT_FFI_LIB} environment variable, a {@code native/<classifier>/librift_ffi.<ext>}
  * classpath resource (as shipped by the {@code rift-java-natives} classifier jars, extracted to a
- * temp file), or — if none resolve — a precise {@link EngineUnavailable}.
+ * temp file), or — if none resolve — a precise {@link EngineUnavailable}. With {@link
+ * EmbeddedOptions#wasmLibrary()} the classpath resource is the {@code -wasm} flavour's,
+ * {@code native/<classifier>-wasm/librift_ffi.<ext>} from the {@code <classifier>-wasm} jar; the explicit
+ * sources are loaded as they are.
  */
 final class NativeLibraryResolver {
 
@@ -47,7 +50,7 @@ final class NativeLibraryResolver {
             return new ResolvedLibrary(requireRegularFile(Path.of(fromEnv), "$RIFT_FFI_LIB"), false);
         }
         String ext = extFor(classifier);
-        String resource = "native/" + classifier + "/librift_ffi." + ext;
+        String resource = resourceFor(options, classifier);
         try (InputStream in = loader.getResourceAsStream(resource)) {
             if (in != null) {
                 Path temp = Files.createTempFile("librift_ffi", "." + ext);
@@ -58,9 +61,12 @@ final class NativeLibraryResolver {
         } catch (IOException e) {
             throw new UncheckedIOException("failed to extract classpath resource " + resource, e);
         }
-        throw new EngineUnavailable("no librift_ffi native library found for " + classifier
-                + ": add io.github.achird-labs:rift-java-natives:" + classifier
-                + " to the classpath, or set -Drift.ffi.lib / RIFT_FFI_LIB / EmbeddedOptions.libraryPath");
+        String jar = options.wasmLibrary() ? classifier + "-wasm" : classifier;
+        throw new EngineUnavailable("no " + (options.wasmLibrary() ? "-wasm flavour of the " : "")
+                + "librift_ffi native library found for " + classifier
+                + ": add io.github.achird-labs:rift-java-natives:" + jar
+                + " to the classpath, or set -Drift.ffi.lib / RIFT_FFI_LIB / EmbeddedOptions.libraryPath"
+                + (options.wasmLibrary() ? "" : " (the " + classifier + "-wasm jar needs EmbeddedOptions.wasmLibrary(true))"));
     }
 
     /** Non-extracting availability probe (unlike {@link #resolve}, never writes a temp file). */
@@ -84,7 +90,13 @@ final class NativeLibraryResolver {
             return Files.isRegularFile(Path.of(fromEnv));
         }
         // getResource (not getResourceAsStream) — probe presence without opening/extracting.
-        return loader.getResource("native/" + classifier + "/librift_ffi." + extFor(classifier)) != null;
+        return loader.getResource(resourceFor(options, classifier)) != null;
+    }
+
+    /** The classpath resource a natives jar ships the library at: the plain one, or the {@code -wasm} flavour's. */
+    static String resourceFor(EmbeddedOptions options, String classifier) {
+        String dir = options.wasmLibrary() ? classifier + "-wasm" : classifier;
+        return "native/" + dir + "/librift_ffi." + extFor(classifier);
     }
 
     private static Path requireRegularFile(Path path, String source) {

@@ -271,6 +271,30 @@ final class ImposterImpl implements Imposter {
     }
 
     @Override
+    public ImposterClock clock() {
+        return new ImposterClockImpl(port, transport);
+    }
+
+    @Override
+    public List<WasmInstanceInfo> wasmInstances() {
+        return WasmInstanceInfo.readList(transport.wasmInstances(port));
+    }
+
+    @Override
+    public String wasmSnapshot() {
+        return transport.wasmSnapshot(port, Optional.empty());
+    }
+
+    @Override
+    public String wasmSnapshot(String instanceId) {
+        Objects.requireNonNull(instanceId, "instanceId");
+        if (instanceId.isBlank()) {
+            throw new IllegalArgumentException("a wasm instance id cannot be blank; wasmInstances() lists the ids");
+        }
+        return transport.wasmSnapshot(port, Optional.of(instanceId));
+    }
+
+    @Override
     public Scenarios scenarios() {
         return new ScenariosImpl(port, transport);
     }

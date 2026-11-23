@@ -283,6 +283,57 @@ public interface RiftTransport extends AutoCloseable {
     /** The intercept CA certificate, PEM-encoded. */
     String interceptCaPem();
 
+    // ------------------------------------------------------------------
+    // rift 0.25.0: the imposter clock, wasm instances and the component registry (rift#1749).
+    // Defaults refuse, so a custom transport written before them keeps compiling. An engine before
+    // 0.25.0 has none of these routes; a transport reports that as UnsupportedOperationException.
+    // ------------------------------------------------------------------
+
+    /** {@code GET /imposters/{port}/clock}: {@code {"mode": "wall"|"frozen", "nowMs": …}}. */
+    default JsonValue imposterClock(int port) {
+        throw new UnsupportedOperationException("this transport cannot read an imposter clock (imposterClock)");
+    }
+
+    /** {@code PUT /imposters/{port}/clock} with {@code {"nowMs": …}} or {@code {"advanceMs": …}}; answers as {@link #imposterClock}. */
+    default JsonValue setImposterClock(int port, JsonValue body) {
+        throw new UnsupportedOperationException("this transport cannot set an imposter clock (setImposterClock)");
+    }
+
+    /** {@code DELETE /imposters/{port}/clock}: back to wall time; answers as {@link #imposterClock}. */
+    default JsonValue resetImposterClock(int port) {
+        throw new UnsupportedOperationException("this transport cannot reset an imposter clock (resetImposterClock)");
+    }
+
+    /** {@code GET /imposters/{port}/wasm/instances}: {@code {"instances": [ … ]}}. */
+    default JsonValue wasmInstances(int port) {
+        throw new UnsupportedOperationException("this transport cannot list wasm instances (wasmInstances)");
+    }
+
+    /** {@code GET /imposters/{port}/wasm/snapshot[?instance=]}: the guest's JSON text, byte for byte. */
+    default String wasmSnapshot(int port, Optional<String> instance) {
+        throw new UnsupportedOperationException("this transport cannot read a wasm snapshot (wasmSnapshot)");
+    }
+
+    /** {@code POST /components} with the raw component as {@code application/wasm}: the component's JSON. */
+    default JsonValue uploadComponent(byte[] component) {
+        throw new UnsupportedOperationException("this transport cannot upload a component (uploadComponent)");
+    }
+
+    /** {@code GET /components}: {@code {"components": [ … ]}}. */
+    default JsonValue listComponents() {
+        throw new UnsupportedOperationException("this transport cannot list components (listComponents)");
+    }
+
+    /** {@code GET /components/{sha256}}, or empty when the engine does not hold it. */
+    default Optional<JsonValue> getComponent(String sha256) {
+        throw new UnsupportedOperationException("this transport cannot read a component (getComponent)");
+    }
+
+    /** {@code DELETE /components/{sha256}}; a referenced component is refused ({@code 409}). */
+    default void deleteComponent(String sha256) {
+        throw new UnsupportedOperationException("this transport cannot delete a component (deleteComponent)");
+    }
+
     @Override
     void close();
 }

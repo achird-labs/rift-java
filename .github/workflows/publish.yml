@@ -141,7 +141,8 @@ jobs:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        # natives-bundle fetches + jars the six librift_ffi classifier jars the BOM pins, so the
+        # natives-bundle fetches + jars the librift_ffi classifier jars the BOM pins (six platforms, each
+        # plain and -wasm from rift 0.25.0), so the
         # embedded transport is resolvable from Central. GH-Actions egress to the rift release assets
         # is clean; sha256 is verified against ffi-manifest.json during the fetch.
         # dualEmbedded pulls the stable-FFM rift-java-embedded jar into this JDK 21 reactor (compiled
