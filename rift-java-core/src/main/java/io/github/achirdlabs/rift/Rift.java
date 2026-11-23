@@ -118,8 +118,10 @@ public interface Rift extends AutoCloseable {
      * Replaces every imposter with {@code imposters} via {@code PUT /imposters}. From rift 0.23.0
      * (rift#1518) every listed imposter restarts with fresh runtime state (response cycles, recorded
      * requests, scenario and flow state, saved {@code proxyOnce} responses), as Mountebank's
-     * delete-and-recreate does; an older engine keeps an unchanged imposter's state. Use {@link
-     * #applyConfig} to keep it on every engine.
+     * delete-and-recreate does; an older engine keeps an unchanged imposter's state. From rift 0.25.0
+     * (rift#1799) a request still in flight on a replaced imposter is cut off rather than answered by
+     * the old definition. Use {@link #applyConfig} to keep state and in-flight requests on every
+     * engine.
      */
     void replaceAll(List<ImposterDefinition> imposters);
 

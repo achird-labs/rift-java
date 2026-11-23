@@ -203,7 +203,7 @@ jobs:
           - { os: ubuntu-latest, jdk: '17', transport: SPAWN }                          # M1 gate
           - { os: ubuntu-latest, jdk: '22', transport: EMBEDDED }                       # M2 gate
           - { os: ubuntu-latest, jdk: '21', transport: EMBEDDED }                       # M2 gate (preview FFM)
-          - { os: macos-14, jdk: '22', transport: EMBEDDED }                            # M2 gate (darwin-aarch64)
+          - { os: macos-15, jdk: '22', transport: EMBEDDED }                            # M2 gate (darwin-aarch64)
           - { os: windows-latest, jdk: '22', transport: EMBEDDED, experimental: true }  # experimental
     env:
       RIFT_IT: '1'
