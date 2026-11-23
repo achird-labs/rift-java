@@ -4,7 +4,7 @@ Status: **accepted design, amended as the API evolved** — it pinned down the p
 implementation issues carried no open design decisions, and is kept in step with the shipped API
 (current as of rift-java 0.3.0). Canonical location: `docs/design/sdk-api.md`; mirrored as
 issue #19. Sources: the rift engine (`achird-labs/rift`) — this document tracks the pinned
-`<rift.engine.version>`, currently 0.18.0, and states a per-feature version floor wherever one
+`<rift.engine.version>`, currently 0.25.0, and states a per-feature version floor wherever one
 applies rather than pinning the whole document to a single release — C-ABI v2
 (`librift_ffi`, `include/rift_ffi.h`), the rift-conformance corpus + Plane-B SPI, rift-node
 0.12.x (reference SDK), the rift-scala design issues (consumer of this SDK), and a DX benchmark
@@ -1196,7 +1196,9 @@ Implementation contract (so the implementer has zero decisions):
 ## 14. Versioning, BOM, capability negotiation
 
 - `rift-java-bom` pins all modules + the natives classifier jars. The natives are versioned with
-  the SDK (0.3.x) and bundle the pinned engine's `librift_ffi` (`rift.engine.version`, 0.18.0).
+  the SDK (0.3.x) and bundle the pinned engine's `librift_ffi` (`rift.engine.version`, 0.25.0). The plain
+  `librift_ffi` is wasm-free from rift 0.25.0 (rift#1798); the engine also ships a `-wasm` flavour
+  per platform, which these jars do not bundle yet (#354).
 - `record EngineInfo(String version, String commit, Set<String> features, Set<String>
   serveOptions)` — from `GET /config` / `rift_build_info`. `features` powers honest capability
   negotiation for the conformance harness (Plane-B `require(caps…)`); `serveOptions` gates embedded
