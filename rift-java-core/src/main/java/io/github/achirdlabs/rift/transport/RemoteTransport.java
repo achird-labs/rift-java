@@ -613,6 +613,125 @@ public final class RemoteTransport implements RiftTransport {
         throw mapError(response, OptionalInt.empty());
     }
 
+    // ------------------------------------------------------------------
+    // rift 0.25.0: imposter clock, wasm instances, component registry
+    // ------------------------------------------------------------------
+    //
+    // An engine before 0.25.0 has none of these routes and answers 404, the same status an unknown
+    // port gets. Each 404 is therefore told apart by a second read: GET /imposters/{port} for the
+    // per-imposter routes (a missing imposter is ImposterNotFound, as on every per-port call), GET
+    // /components for the registry. What is left is an engine without the route.
+
+    @Override
+    public JsonValue imposterClock(int port) {
+        return imposterRoute("GET", "/imposters/" + port + "/clock", null, port);
+    }
+
+    @Override
+    public JsonValue setImposterClock(int port, JsonValue body) {
+        return imposterRoute("PUT", "/imposters/" + port + "/clock", body.toJson(), port);
+    }
+
+    @Override
+    public JsonValue resetImposterClock(int port) {
+        return imposterRoute("DELETE", "/imposters/" + port + "/clock", null, port);
+    }
+
+    @Override
+    public JsonValue wasmInstances(int port) {
+        return imposterRoute("GET", "/imposters/" + port + "/wasm/instances", null, port);
+    }
+
+    /**
+     * The snapshot route answers 404 for three more reasons than an old engine: the component has no
+     * {@code rift:mock/introspect} export, or the engine was built without wasm. Those keep the
+     * engine's own message as an {@link EngineError} with status 404, since the route exists.
+     */
+    @Override
+    public String wasmSnapshot(int port, Optional<String> instance) {
+        String path = "/imposters/" + port + "/wasm/snapshot" + instance.map(id -> "?instance=" + enc(id)).orElse("");
+        HttpResponse<String> response = send("GET", path, null);
+        if (isSuccess(response.statusCode())) {
+            return response.body();
+        }
+        if (response.statusCode() == 404) {
+            requireImposter(port);
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    private JsonValue imposterRoute(String method, String path, String body, int port) {
+        HttpResponse<String> response = send(method, path, body);
+        if (isSuccess(response.statusCode())) {
+            return parseJsonBody(response, method + " " + path);
+        }
+        if (response.statusCode() == 404) {
+            requireImposter(port);
+            throw new UnsupportedOperationException("this rift engine has no " + method + " " + path
+                    + " (404: " + extractErrorMessage(response.body()) + "); it needs rift >= 0.25.0"
+                    + (path.contains("/wasm/") ? " built with the wasm feature" : ""));
+        }
+        throw mapError(response, OptionalInt.of(port));
+    }
+
+    @Override
+    public JsonValue uploadComponent(byte[] component) {
+        HttpResponse<String> response = send("POST", "/components",
+                HttpRequest.BodyPublishers.ofByteArray(component), "application/wasm");
+        if (isSuccess(response.statusCode())) {
+            return parseJsonBody(response, "POST /components");
+        }
+        if (response.statusCode() == 404) {
+            throw noComponentRegistry(response);
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    @Override
+    public JsonValue listComponents() {
+        HttpResponse<String> response = send("GET", "/components", null);
+        if (isSuccess(response.statusCode())) {
+            return parseJsonBody(response, "GET /components");
+        }
+        if (response.statusCode() == 404) {
+            throw noComponentRegistry(response);
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    @Override
+    public Optional<JsonValue> getComponent(String sha256) {
+        String path = "/components/" + enc(sha256);
+        HttpResponse<String> response = send("GET", path, null);
+        if (isSuccess(response.statusCode())) {
+            return Optional.of(parseJsonBody(response, "GET " + path));
+        }
+        if (response.statusCode() == 404) {
+            listComponents(); // an engine without the registry throws here; one with it does not hold the component
+            return Optional.empty();
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    /** Idempotent, as deleting an imposter is: a component the engine does not hold is already gone. */
+    @Override
+    public void deleteComponent(String sha256) {
+        HttpResponse<String> response = send("DELETE", "/components/" + enc(sha256), null);
+        if (isSuccess(response.statusCode())) {
+            return;
+        }
+        if (response.statusCode() == 404) {
+            listComponents();
+            return;
+        }
+        throw mapError(response, OptionalInt.empty());
+    }
+
+    private static UnsupportedOperationException noComponentRegistry(HttpResponse<String> response) {
+        return new UnsupportedOperationException("this rift engine has no component registry (404 on /components: "
+                + extractErrorMessage(response.body()) + "); it needs rift >= 0.25.0");
+    }
+
     @Override
     public void close() {
         // java.net.http.HttpClient has no close() at the Java 17 API level (added in 21); marking
@@ -693,18 +812,22 @@ public final class RemoteTransport implements RiftTransport {
     }
 
     private HttpResponse<String> send(String method, String path, String body) {
+        return body == null
+                ? send(method, path, HttpRequest.BodyPublishers.noBody(), null)
+                : send(method, path, HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8), "application/json");
+    }
+
+    /** {@code contentType} null sends no {@code Content-Type}: the request has no body. */
+    private HttpResponse<String> send(String method, String path, HttpRequest.BodyPublisher publisher, String contentType) {
         if (closed.get()) {
             throw new IllegalStateException("this RiftTransport is closed");
         }
         URI uri = URI.create(base + path);
-        HttpRequest.BodyPublisher publisher = body == null
-                ? HttpRequest.BodyPublishers.noBody()
-                : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(requestTimeout)
                 .method(method, publisher);
-        if (body != null) {
-            builder.header("Content-Type", "application/json");
+        if (contentType != null) {
+            builder.header("Content-Type", contentType);
         }
         apiKey.ifPresent(key -> builder.header("Authorization", key));
         try {

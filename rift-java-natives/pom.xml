@@ -154,6 +154,93 @@
                   </includes>
                 </configuration>
               </execution>
+              <!-- The -wasm flavour of each platform (rift >= 0.25.0, rift#1798): librift_ffi with the
+                   WebAssembly engine, opted into with EmbeddedOptions.wasmLibrary(true). Its own
+                   classifier, so depending on a platform jar keeps the smaller plain library. -->
+              <execution>
+                <id>jar-darwin-aarch64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>darwin-aarch64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/darwin-aarch64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jar-darwin-x86_64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>darwin-x86_64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/darwin-x86_64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jar-linux-aarch64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>linux-aarch64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/linux-aarch64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jar-linux-x86_64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>linux-x86_64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/linux-x86_64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jar-linux-musl-x86_64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>linux-musl-x86_64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/linux-musl-x86_64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jar-windows-x86_64-wasm</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>windows-x86_64-wasm</classifier>
+                  <classesDirectory>${project.build.directory}/natives</classesDirectory>
+                  <includes>
+                    <include>native/windows-x86_64-wasm/**</include>
+                  </includes>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
           <plugin>

@@ -154,6 +154,12 @@ public interface Rift extends AutoCloseable {
 
     EngineInfo info();
 
+    /**
+     * The engine's registry of WebAssembly components (rift &ge; 0.25.0): upload one once, then run it
+     * from any stub with {@code Script.component(info.reference())}. See {@link Components}.
+     */
+    Components components();
+
     URI adminUri();
 
     /** Starts an intercept (TLS-MITM) listener with default options. See {@link #intercept(InterceptOptions)}. */

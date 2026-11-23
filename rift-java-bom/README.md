@@ -4,7 +4,9 @@ Bill of materials for rift-java: one `<dependencyManagement>` import version-pin
 module (`rift-java-core`, `rift-java-embedded`, `rift-java-embedded-jdk21`, `rift-java-jackson`,
 `rift-java-junit5`, `rift-java-spring`) plus `rift-java-natives` — both the bare coordinate and
 all six per-platform classifier jars (`linux-x86_64`, `linux-aarch64`, `linux-musl-x86_64`,
-`darwin-x86_64`, `darwin-aarch64`, `windows-x86_64`).
+`darwin-x86_64`, `darwin-aarch64`, `windows-x86_64`), and each one's `-wasm` flavour
+(`darwin-aarch64-wasm`, …): `librift_ffi` with the WebAssembly engine, from rift 0.25.0. The plain
+jar stays the default; load the `-wasm` one with `EmbeddedOptions.builder().wasmLibrary(true)`.
 
 ## Consumer usage
 

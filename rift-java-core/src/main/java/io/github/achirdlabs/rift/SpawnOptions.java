@@ -20,6 +20,9 @@ public final class SpawnOptions {
     /** The first engine whose CLI takes {@code --require-admin-auth} (rift#863). */
     private static final String REQUIRE_ADMIN_AUTH_SINCE = "0.17.0";
 
+    /** The first engine whose CLI takes {@code --allow-wasm} and {@code --strict-wasm} (rift#1752, rift#1757). */
+    static final String WASM_FLAGS_SINCE = "0.25.0";
+
     private final Optional<Path> binaryPath;
     private final String version;
     private final String host;
@@ -41,6 +44,8 @@ public final class SpawnOptions {
     private final OptionalLong maxBodySize;
     private final OptionalLong bodyMemoryBudget;
     private final OptionalLong journalMaxBytes;
+    private final Optional<Boolean> allowWasm;
+    private final Optional<Path> strictWasm;
 
     private SpawnOptions(Builder b) {
         this.binaryPath = b.binaryPath;
@@ -64,6 +69,8 @@ public final class SpawnOptions {
         this.maxBodySize = b.maxBodySize;
         this.bodyMemoryBudget = b.bodyMemoryBudget;
         this.journalMaxBytes = b.journalMaxBytes;
+        this.allowWasm = b.allowWasm;
+        this.strictWasm = b.strictWasm;
     }
 
     public static Builder builder() {
@@ -162,6 +169,16 @@ public final class SpawnOptions {
         return journalMaxBytes;
     }
 
+    /** Whether the engine admits wasm components, if set; see {@link Builder#allowWasm(boolean)}. */
+    public Optional<Boolean> allowWasm() {
+        return allowWasm;
+    }
+
+    /** The engine's component trust list, if set; see {@link Builder#strictWasm(Path)}. */
+    public Optional<Path> strictWasm() {
+        return strictWasm;
+    }
+
     public static final class Builder {
 
         private Optional<Path> binaryPath = Optional.empty();
@@ -185,6 +202,8 @@ public final class SpawnOptions {
         private OptionalLong maxBodySize = OptionalLong.empty();
         private OptionalLong bodyMemoryBudget = OptionalLong.empty();
         private OptionalLong journalMaxBytes = OptionalLong.empty();
+        private Optional<Boolean> allowWasm = Optional.empty();
+        private Optional<Path> strictWasm = Optional.empty();
 
         private Builder() {
         }
@@ -408,13 +427,40 @@ public final class SpawnOptions {
         }
 
         /**
+         * Whether the engine admits {@code engine: "wasm"} scripts, sandboxed components
+         * ({@code --allow-wasm}). Unset, the engine's default applies: admitted, apart from {@link
+         * #allowInjection(boolean)}, which governs host code. {@code false} refuses a component at every
+         * door ({@code 400 invalid wasm} on the admin API). Needs a rift engine &ge; 0.25.0, checked
+         * against {@link #version(String)} at {@link #build()}.
+         */
+        public Builder allowWasm(boolean allowWasm) {
+            this.allowWasm = Optional.of(allowWasm);
+            return this;
+        }
+
+        /**
+         * A trust list of components ({@code --strict-wasm}): a file of lowercase SHA-256 hashes, one per
+         * line, {@code #} comments allowed. Only a listed component is admitted, at upload and at every
+         * write that admits a stub, whichever way it names the component ({@code component}, {@code
+         * file} or {@code code}). The engine reads the file at startup, relative to {@link
+         * #workingDir(Path)} when relative. Needs a rift engine &ge; 0.25.0, checked as for {@link
+         * #allowWasm(boolean)}.
+         */
+        public Builder strictWasm(Path trustList) {
+            this.strictWasm = Optional.of(Objects.requireNonNull(trustList, "trustList"));
+            return this;
+        }
+
+        /**
          * @throws IllegalArgumentException if {@link #upstreamTrust(UpstreamTrust)} is an inline PEM,
          *                                  or is set for an engine {@link #version(String)} older
          *                                  than 0.18.0; or {@link #requireAdminAuth(boolean)} is on
          *                                  for one older than 0.17.0; or {@link #env(Map)} carries
          *                                  {@code MB_APIKEY}, which belongs in {@link #apiKey(String)};
          *                                  or a body or journal limit is set for an engine older
-         *                                  than 0.22.0, or the budget does not cover the ceiling
+         *                                  than 0.22.0, or the budget does not cover the ceiling;
+         *                                  or {@link #allowWasm(boolean)} or {@link #strictWasm(Path)} is
+         *                                  set for an engine older than 0.25.0
          */
         public SpawnOptions build() {
             if (upstreamTrust.isPresent()) {
@@ -439,7 +485,16 @@ public final class SpawnOptions {
             requireBodyLimitFlag("bodyMemoryBudget", bodyMemoryBudget, "--body-memory-budget");
             requireBodyLimitFlag("journalMaxBytes", journalMaxBytes, "--journal-max-bytes");
             BodyLimits.requireBudgetCoversCeiling(maxBodySize, bodyMemoryBudget);
+            requireWasmFlag("allowWasm", allowWasm.isPresent(), "--allow-wasm");
+            requireWasmFlag("strictWasm", strictWasm.isPresent(), "--strict-wasm");
             return new SpawnOptions(this);
+        }
+
+        private void requireWasmFlag(String option, boolean set, String flag) {
+            if (set && !EngineVersion.atLeast(version, WASM_FLAGS_SINCE)) {
+                throw new IllegalArgumentException(option + " needs a rift engine >= " + WASM_FLAGS_SINCE
+                        + ", but version is " + version + " (the older CLI has no " + flag + " flag)");
+            }
         }
 
         private void requireBodyLimitFlag(String option, OptionalLong value, String flag) {

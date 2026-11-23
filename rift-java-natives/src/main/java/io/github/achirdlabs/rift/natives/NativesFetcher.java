@@ -1,6 +1,7 @@
 package io.github.achirdlabs.rift.natives;
 
 import io.github.achirdlabs.rift.json.JsonArray;
+import io.github.achirdlabs.rift.json.JsonBool;
 import io.github.achirdlabs.rift.json.JsonObject;
 import io.github.achirdlabs.rift.json.JsonString;
 import io.github.achirdlabs.rift.json.JsonValue;
@@ -28,6 +29,11 @@ import java.util.Set;
  * {@code native/<classifier>/BUILD_INFO.json} recording the manifest entry the library came from.
  * The {@code natives-bundle} Maven profile runs {@link #main(String[])} in {@code prepare-package}
  * and then jars each classifier subtree separately.
+ *
+ * <p>From rift 0.25.0 (rift#1798) each platform also ships a {@code -wasm} flavour, the library with
+ * the WebAssembly engine, listed as platform {@code <platform>-wasm} with {@code "wasm": true}. It is
+ * staged under {@code native/<classifier>-wasm/} and jarred as the {@code <classifier>-wasm} classifier,
+ * so the plain library stays the default and a consumer opts in by depending on the other jar.
  */
 public final class NativesFetcher {
 
@@ -37,6 +43,9 @@ public final class NativesFetcher {
     private static final Set<String> EXPECTED_CLASSIFIERS = Set.of(
             "darwin-aarch64", "darwin-x86_64", "linux-aarch64",
             "linux-x86_64", "linux-musl-x86_64", "windows-x86_64");
+
+    /** The suffix the manifest and the classifier jars give the wasm flavour. */
+    private static final String WASM_SUFFIX = "-wasm";
 
     /** The rift release convention: tags are {@code v<version>}, assets sit under that tag. */
     public static String defaultBaseUrl(String version) {
@@ -112,6 +121,17 @@ public final class NativesFetcher {
         if (!missing.isEmpty()) {
             throw new IllegalStateException("ffi-manifest.json is missing expected platform(s): " + missing);
         }
+        // A release before 0.25.0 has no wasm flavour at all, and its build jars none. One that has any
+        // must have every one, or a -wasm classifier jar would ship empty.
+        if (staged.stream().anyMatch(c -> c.endsWith(WASM_SUFFIX))) {
+            Set<String> missingWasm = new HashSet<>();
+            EXPECTED_CLASSIFIERS.forEach(c -> missingWasm.add(c + WASM_SUFFIX));
+            missingWasm.removeAll(staged);
+            if (!missingWasm.isEmpty()) {
+                throw new IllegalStateException("ffi-manifest.json lists a -wasm flavour but not for platform(s): "
+                        + missingWasm + " — those classifier jars would be empty");
+            }
+        }
     }
 
     private static String stageOne(JsonObject artifact, ArtifactSource source, Path stagingDir)
@@ -128,6 +148,7 @@ public final class NativesFetcher {
                     "SHA-256 mismatch for " + file + ": expected " + expectedSha256 + " but got " + actualSha256);
         }
 
+        requireFlavourAgrees(artifact, platform);
         String classifier = classifierFor(platform);
         String ext = file.substring(file.lastIndexOf('.') + 1);
         Path dir = stagingDir.resolve("native").resolve(classifier);
@@ -139,9 +160,34 @@ public final class NativesFetcher {
         return classifier;
     }
 
-    /** "linux-x86_64-musl" is the one platform whose classifier name doesn't match the manifest's. */
-    private static String classifierFor(String platform) {
+    /**
+     * "linux-x86_64-musl" is the one platform whose classifier name doesn't match the manifest's; its
+     * wasm flavour "linux-x86_64-musl-wasm" maps the same way, keeping the suffix last.
+     */
+    static String classifierFor(String platform) {
+        if (platform.endsWith(WASM_SUFFIX)) {
+            return classifierFor(platform.substring(0, platform.length() - WASM_SUFFIX.length())) + WASM_SUFFIX;
+        }
         return "linux-x86_64-musl".equals(platform) ? "linux-musl-x86_64" : platform;
+    }
+
+    /**
+     * The manifest's {@code wasm} flag must agree with the platform's suffix: staging a wasm library as
+     * the plain one (or the reverse) is the mix-up rift#1798 fixed in the engine's own assets. An entry
+     * without the flag (a release before 0.25.0) is read by its suffix alone.
+     */
+    private static void requireFlavourAgrees(JsonObject artifact, String platform) {
+        JsonValue flag = artifact.get("wasm");
+        if (flag == null) {
+            return;
+        }
+        if (!(flag instanceof JsonBool wasm)) {
+            throw new IllegalStateException("ffi-manifest.json entry " + platform + " has a non-boolean 'wasm'");
+        }
+        if (wasm.value() != platform.endsWith(WASM_SUFFIX)) {
+            throw new IllegalStateException("ffi-manifest.json entry " + platform + " says \"wasm\": " + wasm.value()
+                    + ", which its platform name contradicts");
+        }
     }
 
     private static String requireStringField(JsonObject obj, String key) {

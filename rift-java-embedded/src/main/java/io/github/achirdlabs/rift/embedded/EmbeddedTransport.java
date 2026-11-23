@@ -41,8 +41,9 @@ import java.util.function.Supplier;
  * warnings — is driven directly through {@code librift_ffi}. The operations the C-ABI cannot
  * express — {@link #replaceAllImposters} (bulk {@code PUT /imposters}), {@link #events} (the
  * {@code GET /events} SSE stream), and the cursor/clause reads {@link #recordedSince} and the
- * scoped {@link #clearRecorded(int, java.util.List)} — are delegated to a lazily-started in-process
- * admin server over {@link RemoteTransport}.
+ * scoped {@link #clearRecorded(int, java.util.List)}, and rift 0.25.0's imposter clock, wasm
+ * instances and component registry — are delegated to a lazily-started in-process admin server over
+ * {@link RemoteTransport}.
  */
 public final class EmbeddedTransport implements RiftTransport {
 
@@ -377,6 +378,56 @@ public final class EmbeddedTransport implements RiftTransport {
         return admin().adminUri();
     }
 
+    // The imposter clock, wasm instances and the component registry have no C-ABI entry point
+    // (rift 0.25.0), so they take the in-process admin plane, as replaceAll and events do. That plane is
+    // served by this handle's imposter manager, so a component uploaded through it runs in an imposter
+    // created over the C-ABI, and a clock set through it is the one that imposter reads.
+
+    @Override
+    public JsonValue imposterClock(int port) {
+        return admin().imposterClock(port);
+    }
+
+    @Override
+    public JsonValue setImposterClock(int port, JsonValue body) {
+        return admin().setImposterClock(port, body);
+    }
+
+    @Override
+    public JsonValue resetImposterClock(int port) {
+        return admin().resetImposterClock(port);
+    }
+
+    @Override
+    public JsonValue wasmInstances(int port) {
+        return admin().wasmInstances(port);
+    }
+
+    @Override
+    public String wasmSnapshot(int port, Optional<String> instance) {
+        return admin().wasmSnapshot(port, instance);
+    }
+
+    @Override
+    public JsonValue uploadComponent(byte[] component) {
+        return admin().uploadComponent(component);
+    }
+
+    @Override
+    public JsonValue listComponents() {
+        return admin().listComponents();
+    }
+
+    @Override
+    public Optional<JsonValue> getComponent(String sha256) {
+        return admin().getComponent(sha256);
+    }
+
+    @Override
+    public void deleteComponent(String sha256) {
+        admin().deleteComponent(sha256);
+    }
+
     /**
      * The {@code rift_serve_admin} payload for these options. Package-private and pure so the wire
      * contract can be pinned without an engine: the engine's {@code ServeOptions} is a camelCase
@@ -402,6 +453,8 @@ public final class EmbeddedTransport implements RiftTransport {
         options.bodyMemoryBudget().ifPresent(bytes -> payload.put("bodyMemoryBudget", JsonNumber.of(bytes)));
         options.journalMaxBytes().ifPresent(bytes -> payload.put("journalMaxBytes", JsonNumber.of(bytes)));
         options.scriptsDir().ifPresent(dir -> payload.put("scriptsDir", new JsonString(dir.toString())));
+        options.allowWasm().ifPresent(allow -> payload.put("allowWasm", JsonBool.of(allow)));
+        options.strictWasm().ifPresent(list -> payload.put("strictWasm", new JsonString(list.toString())));
         options.upstreamTrust().ifPresent(trust -> payload.put(serveOptionKey(trust), serveOptionValue(trust)));
         return payload.build();
     }
@@ -443,6 +496,8 @@ public final class EmbeddedTransport implements RiftTransport {
         options.bodyMemoryBudget().ifPresent(v -> requested.add(new ServeOption("bodyMemoryBudget", "0.22.0", "bodyMemoryBudget")));
         options.journalMaxBytes().ifPresent(v -> requested.add(new ServeOption("journalMaxBytes", "0.22.0", "journalMaxBytes")));
         options.scriptsDir().ifPresent(v -> requested.add(new ServeOption("scriptsDir", "0.24.0", "scriptsDir")));
+        options.allowWasm().ifPresent(v -> requested.add(new ServeOption("allowWasm", "0.25.0", "allowWasm")));
+        options.strictWasm().ifPresent(v -> requested.add(new ServeOption("strictWasm", "0.25.0", "strictWasm")));
         options.upstreamTrust().ifPresent(trust -> requested.add(new ServeOption(serveOptionKey(trust), "0.18.0", "upstreamTrust")));
         if (requested.isEmpty()) {
             return;

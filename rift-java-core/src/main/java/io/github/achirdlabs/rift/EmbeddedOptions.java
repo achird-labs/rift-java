@@ -32,6 +32,9 @@ public final class EmbeddedOptions {
     private final OptionalLong bodyMemoryBudget;
     private final OptionalLong journalMaxBytes;
     private final Optional<Path> scriptsDir;
+    private final Optional<Boolean> allowWasm;
+    private final Optional<Path> strictWasm;
+    private final boolean wasmLibrary;
 
     private EmbeddedOptions(
             Optional<Path> libraryPath,
@@ -47,7 +50,10 @@ public final class EmbeddedOptions {
             OptionalLong maxBodySize,
             OptionalLong bodyMemoryBudget,
             OptionalLong journalMaxBytes,
-            Optional<Path> scriptsDir) {
+            Optional<Path> scriptsDir,
+            Optional<Boolean> allowWasm,
+            Optional<Path> strictWasm,
+            boolean wasmLibrary) {
         this.libraryPath = libraryPath;
         this.versionCheck = versionCheck;
         this.serveAdminEagerly = serveAdminEagerly;
@@ -62,6 +68,9 @@ public final class EmbeddedOptions {
         this.bodyMemoryBudget = bodyMemoryBudget;
         this.journalMaxBytes = journalMaxBytes;
         this.scriptsDir = scriptsDir;
+        this.allowWasm = allowWasm;
+        this.strictWasm = strictWasm;
+        this.wasmLibrary = wasmLibrary;
     }
 
     public static Builder builder() {
@@ -134,6 +143,21 @@ public final class EmbeddedOptions {
         return scriptsDir;
     }
 
+    /** Whether the admin plane admits wasm components, if set; see {@link Builder#allowWasm(boolean)}. */
+    public Optional<Boolean> allowWasm() {
+        return allowWasm;
+    }
+
+    /** The component trust list, if set; see {@link Builder#strictWasm(Path)}. */
+    public Optional<Path> strictWasm() {
+        return strictWasm;
+    }
+
+    /** Whether to load the {@code -wasm} flavour of {@code librift_ffi}; see {@link Builder#wasmLibrary(boolean)}. */
+    public boolean wasmLibrary() {
+        return wasmLibrary;
+    }
+
     public static final class Builder {
 
         private Optional<Path> libraryPath = Optional.empty();
@@ -150,6 +174,9 @@ public final class EmbeddedOptions {
         private OptionalLong bodyMemoryBudget = OptionalLong.empty();
         private OptionalLong journalMaxBytes = OptionalLong.empty();
         private Optional<Path> scriptsDir = Optional.empty();
+        private Optional<Boolean> allowWasm = Optional.empty();
+        private Optional<Path> strictWasm = Optional.empty();
+        private boolean wasmLibrary = false;
 
         private Builder() {
         }
@@ -374,6 +401,49 @@ public final class EmbeddedOptions {
         }
 
         /**
+         * Whether the admin plane admits {@code engine: "wasm"} scripts, sandboxed components —
+         * {@code allowWasm} on {@code rift_serve_admin}. Unset, the engine's default applies: admitted,
+         * apart from {@link #allowInjection(boolean)}. Like that option it gates what reaches the engine
+         * through the plane ({@link Rift#replaceAll}); {@link Rift#create} and {@link Rift#applyConfig}
+         * run over the C-ABI and are not gated. Running a component at all needs the {@code -wasm}
+         * library ({@link #wasmLibrary(boolean)}). Needs an engine that advertises {@code allowWasm} in
+         * {@code serveOptions} (rift &ge; 0.25.0), checked when the plane is served.
+         */
+        public Builder allowWasm(boolean allowWasm) {
+            this.allowWasm = Optional.of(allowWasm);
+            return this;
+        }
+
+        /**
+         * A trust list of components — {@code strictWasm} on {@code rift_serve_admin}: a file of lowercase
+         * SHA-256 hashes, one per line, {@code #} comments allowed. From the moment the plane is served
+         * the engine admits only listed components, through every door, the C-ABI included; so setting
+         * it serves the plane when the engine starts, as {@link #serveAdminEagerly(boolean)} does, before
+         * any imposter exists. An unreadable file fails {@link Rift#embedded(EmbeddedOptions)}. The
+         * engine runs in this JVM, so a relative path resolves against its working directory. Needs an
+         * engine that advertises {@code strictWasm} (rift &ge; 0.25.0).
+         */
+        public Builder strictWasm(Path trustList) {
+            this.strictWasm = Optional.of(Objects.requireNonNull(trustList, "trustList"));
+            return this;
+        }
+
+        /**
+         * Loads the {@code -wasm} flavour of {@code librift_ffi} from the classpath: the C-ABI library with
+         * the WebAssembly engine (rift &ge; 0.25.0, about 12–18 MB larger), shipped in the {@code
+         * rift-java-natives} {@code <platform>-wasm} classifier jars. Off by default: the plain library
+         * has no wasm engine, and refuses a wasm script. A library named explicitly ({@link
+         * #libraryPath(Path)}, {@code -Drift.ffi.lib}, {@code RIFT_FFI_LIB}) is loaded as it is, whatever
+         * this says. Either way, with this on the engine must report the {@code wasm} feature, or {@link
+         * Rift#embedded(EmbeddedOptions)} fails with {@link io.github.achirdlabs.rift.error.EngineUnavailable}
+         * rather than refusing every component later.
+         */
+        public Builder wasmLibrary(boolean wasmLibrary) {
+            this.wasmLibrary = wasmLibrary;
+            return this;
+        }
+
+        /**
          * @throws IllegalArgumentException if a non-zero {@link #bodyMemoryBudget(long)} is below
          *                                  {@link #maxBodySize(long)}, or a ceiling above 1 GiB has no
          *                                  budget: the engine refuses both
@@ -382,7 +452,7 @@ public final class EmbeddedOptions {
             BodyLimits.requireBudgetCoversCeiling(maxBodySize, bodyMemoryBudget);
             return new EmbeddedOptions(libraryPath, versionCheck, serveAdminEagerly, adminHost, adminPort, apiKey,
                     upstreamTrust, allowInjection, requireAdminAuth, metricsPort, maxBodySize, bodyMemoryBudget,
-                    journalMaxBytes, scriptsDir);
+                    journalMaxBytes, scriptsDir, allowWasm, strictWasm, wasmLibrary);
         }
     }
 }

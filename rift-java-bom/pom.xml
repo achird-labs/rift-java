@@ -144,6 +144,48 @@
         <classifier>windows-x86_64</classifier>
         <type>jar</type>
       </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>linux-x86_64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>linux-aarch64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>linux-musl-x86_64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>darwin-x86_64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>darwin-aarch64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>io.github.achird-labs</groupId>
+        <artifactId>rift-java-natives</artifactId>
+        <version>${project.version}</version>
+        <classifier>windows-x86_64-wasm</classifier>
+        <type>jar</type>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 

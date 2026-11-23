@@ -198,6 +198,43 @@ public interface Imposter {
      */
     FlowState flowState(String flowId);
 
+    /**
+     * This imposter's clock (rift &ge; 0.25.0): freeze it, step it, or put it back on wall time, so a
+     * 24-hour TTL does not take 24 hours to test. See {@link ImposterClock}.
+     */
+    ImposterClock clock();
+
+    /**
+     * The wasm instances this imposter keeps for its {@code instance: "imposter"} stubs ({@code GET
+     * /imposters/{port}/wasm/instances}, rift &ge; 0.25.0): one per component, export and knobs, once a
+     * call has made it. Empty when no stub keeps one.
+     *
+     * @throws UnsupportedOperationException on an engine before 0.25.0, or one built without the
+     *                                       {@code wasm} feature
+     */
+    List<WasmInstanceInfo> wasmInstances();
+
+    /**
+     * The state of this imposter's only kept wasm instance ({@code GET /imposters/{port}/wasm/snapshot},
+     * rift &ge; 0.25.0): the JSON text its {@code rift:mock/introspect} {@code snapshot} export returns,
+     * byte for byte. A snapshot is not a call: it does not count, runs neither {@code init} nor {@code
+     * respond}, and cannot change the instance's state. It never instantiates.
+     *
+     * @throws io.github.achirdlabs.rift.error.InvalidDefinition when more than one instance is live (name
+     *         one with {@link #wasmSnapshot(String)})
+     * @throws io.github.achirdlabs.rift.error.EngineError with status 409 when nothing is instantiated yet
+     *         or every wasm stub is {@code instance: "request"}; 404 when the component has no
+     *         {@code rift:mock/introspect} export or the engine has no wasm; 500 when the guest fails or
+     *         traps (a trap drops the instance); 504 when it times out
+     */
+    String wasmSnapshot();
+
+    /**
+     * {@link #wasmSnapshot()} of one kept instance, by the {@link WasmInstanceInfo#id() id} {@link
+     * #wasmInstances()} lists. An id that is not live is a 409, as for {@link #wasmSnapshot()}.
+     */
+    String wasmSnapshot(String instanceId);
+
     /** Verifies at least one recorded request matched {@code match}'s predicates. */
     void verify(RequestMatch match);
 

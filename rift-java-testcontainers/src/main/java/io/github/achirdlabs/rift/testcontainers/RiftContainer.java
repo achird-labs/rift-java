@@ -67,6 +67,8 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     static final String INTERCEPT_CA_KEY_PATH = "/etc/rift/intercept-ca-key.pem";
     private static final String INTERCEPT_CA_CERT_ENV = "RIFT_INTERCEPT_CA_CERT";
     private static final String INTERCEPT_CA_KEY_ENV = "RIFT_INTERCEPT_CA_KEY";
+    /** Where a {@link #withStrictWasm(Path)} trust list is written inside the container. Package-private for tests. */
+    static final String STRICT_WASM_PATH = "/etc/rift/strict-wasm.txt";
     /** An image tag that declares an engine version ({@code v0.18.0}, {@code 0.18.0-static}), as opposed to {@code latest}. */
     private static final Pattern VERSION_TAG = Pattern.compile("[vV]?\\d+(\\.\\d+){0,2}([-+].*)?");
     private static final Pattern TAG_MAJOR_MINOR = Pattern.compile("[vV]?(\\d+)(?:\\.(\\d+))?.*");
@@ -86,6 +88,7 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     private Optional<UpstreamTrust> upstreamTrust = Optional.empty();
     private OptionalLong maxBodySize = OptionalLong.empty();
     private OptionalLong bodyMemoryBudget = OptionalLong.empty();
+    private Optional<Path> strictWasm = Optional.empty();
 
     /** Uses {@code zainalpour/rift-proxy:v}{@link #ENGINE_VERSION}. */
     public RiftContainer() {
@@ -368,16 +371,65 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
     }
 
     private void requireBodyLimitsTag(String option, String env) {
+        requireTagAtLeast(22, option, env);
+    }
+
+    /** Refuses an image tag that is a version older than {@code 0.<minor>.0}; a tag that is not a version passes. */
+    private void requireTagAtLeast(long minor, String option, String env) {
         String tag = imageName.getVersionPart();
         Matcher version = TAG_MAJOR_MINOR.matcher(tag);
         if (VERSION_TAG.matcher(tag).matches() && version.matches()) {
-            long major = Long.parseLong(version.group(1));
-            long minor = version.group(2) == null ? 0 : Long.parseLong(version.group(2));
-            if (major == 0 && minor < 22) {
-                throw new IllegalArgumentException(option + " needs a rift engine >= 0.22.0, but the image tag is "
+            long tagMajor = Long.parseLong(version.group(1));
+            long tagMinor = version.group(2) == null ? 0 : Long.parseLong(version.group(2));
+            if (tagMajor == 0 && tagMinor < minor) {
+                throw new IllegalArgumentException(option + " needs a rift engine >= 0." + minor + ".0, but the image tag is "
                         + tag + " (the older engine ignores " + env + ")");
             }
         }
+    }
+
+    /**
+     * Whether the engine admits {@code engine: "wasm"} scripts, sandboxed components ({@code
+     * RIFT_ALLOW_WASM}, the env form of {@code --allow-wasm}). Unset, the engine's default applies:
+     * admitted, apart from {@code allowInjection}. {@code false} refuses a component at every door. The
+     * image's engine is built with wasm, so components run without anything else.
+     *
+     * <p>Requires a rift engine &ge; 0.25.0, checked against the image tag as {@link
+     * #withUpstreamTrust(UpstreamTrust)} is.
+     *
+     * @throws IllegalArgumentException if the image tag is a version older than 0.25.0
+     */
+    public RiftContainer withAllowWasm(boolean allowWasm) {
+        requireTagAtLeast(25, "allowWasm", "RIFT_ALLOW_WASM");
+        withEnv("RIFT_ALLOW_WASM", Boolean.toString(allowWasm));
+        return self();
+    }
+
+    /**
+     * Admits only the listed components ({@code RIFT_STRICT_WASM}, the env form of {@code --strict-wasm}):
+     * a file of lowercase SHA-256 hashes, one per line, {@code #} comments allowed. The host file is read
+     * when the container starts (an unreadable one fails the start) and copied in. A later call replaces
+     * an earlier one. Requires a rift engine &ge; 0.25.0, checked as for {@link #withAllowWasm(boolean)}.
+     *
+     * @throws IllegalArgumentException if the image tag is a version older than 0.25.0
+     */
+    public RiftContainer withStrictWasm(Path trustList) {
+        Objects.requireNonNull(trustList, "trustList");
+        requireTagAtLeast(25, "strictWasm", "RIFT_STRICT_WASM");
+        this.strictWasm = Optional.of(trustList);
+        return self();
+    }
+
+    /** The trust list to copy to {@link #STRICT_WASM_PATH}, if one is set. Package-private for tests. */
+    Optional<Transferable> strictWasmCopy() {
+        return strictWasm.map(file -> {
+            try {
+                return Transferable.of(Files.readAllBytes(file));
+            } catch (IOException e) {
+                throw new UncheckedIOException("cannot read the strictWasm trust list " + file
+                        + " to copy into the rift container: " + e.getMessage(), e);
+            }
+        });
     }
 
     /**
@@ -420,6 +472,10 @@ public final class RiftContainer extends GenericContainer<RiftContainer> {
         if (upstreamTrust.orElse(null) instanceof UpstreamTrust.SkipVerify) {
             withEnv(UPSTREAM_TLS_SKIP_VERIFY_ENV, "true");
         }
+        strictWasmCopy().ifPresent(list -> {
+            withCopyToContainer(list, STRICT_WASM_PATH);
+            withEnv("RIFT_STRICT_WASM", STRICT_WASM_PATH);
+        });
         launchedCa = launchedInterceptCa();
         launchedCa.ifPresent(ca -> {
             withCopyToContainer(Transferable.of(ca.certPem()), INTERCEPT_CA_CERT_PATH);

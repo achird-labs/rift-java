@@ -303,3 +303,7 @@ served stubs — is covered in [docs/recording.md](docs/recording.md).
 Spaces and flow state (`imposter.space(flowId)`, `imposter.flowState(flowId)`) are covered in
 [docs/spaces.md](docs/spaces.md), and the server-side event stream (`rift.events(...)`) in
 [docs/events.md](docs/events.md).
+
+An imposter's own clock (`imposter.clock()`), seeded randomness (`.seed(...)`) and WebAssembly
+components (`Script.component(...)`, `rift.components()`), from rift 0.25.0, are covered in
+[docs/wasm.md](docs/wasm.md).

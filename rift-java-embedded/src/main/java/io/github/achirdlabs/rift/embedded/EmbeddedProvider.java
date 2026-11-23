@@ -1,6 +1,9 @@
 package io.github.achirdlabs.rift.embedded;
 
 import io.github.achirdlabs.rift.EmbeddedOptions;
+import io.github.achirdlabs.rift.EngineInfo;
+import io.github.achirdlabs.rift.error.EngineUnavailable;
+import io.github.achirdlabs.rift.json.JsonValue;
 import io.github.achirdlabs.rift.transport.EmbeddedEngine;
 import io.github.achirdlabs.rift.transport.EmbeddedEngineProvider;
 
@@ -24,13 +27,21 @@ public final class EmbeddedProvider implements EmbeddedEngineProvider {
     static boolean needsAdminPlaneAtStart(EmbeddedOptions options) {
         return options.serveAdminEagerly() || options.upstreamTrust().isPresent() || options.metricsPort().isPresent()
                 || options.maxBodySize().isPresent() || options.bodyMemoryBudget().isPresent()
-                || options.journalMaxBytes().isPresent();
+                || options.journalMaxBytes().isPresent() || options.strictWasm().isPresent();
     }
 
     @Override
     public EmbeddedEngine start(EmbeddedOptions options) {
         NativeLibraryResolver.ResolvedLibrary resolved = NativeLibraryResolver.resolve(options);
         EmbeddedTransport transport = EmbeddedTransport.open(resolved.path(), options);
+        if (options.wasmLibrary()) {
+            try {
+                requireWasmFeature(transport.buildInfo());
+            } catch (RuntimeException e) {
+                closeQuietly(transport, resolved);
+                throw e;
+            }
+        }
         // Trust and the body/journal limits are applied when the admin plane is served, and an
         // imposter keeps the outbound client and limits it was created with — so the plane must be up
         // before the first imposter can exist. The metrics listener comes up with the plane, so asking
@@ -61,6 +72,20 @@ public final class EmbeddedProvider implements EmbeddedEngineProvider {
                 }
                 : () -> { };
         return new EmbeddedEngine(transport, onClose);
+    }
+
+    /**
+     * Refuses a library without the wasm engine when the caller asked for one: otherwise every wasm
+     * script would be refused later, one by one, far from the option that caused it. Package-private for tests.
+     */
+    static void requireWasmFeature(JsonValue buildInfo) {
+        EngineInfo info = EngineInfo.read(buildInfo);
+        if (!info.features().contains("wasm")) {
+            throw new EngineUnavailable("EmbeddedOptions.wasmLibrary(true) asked for the wasm engine, but the loaded"
+                    + " librift_ffi (" + info.version() + ") reports features " + info.features() + " without \"wasm\"."
+                    + " Load the -wasm flavour (rift >= 0.25.0): the rift-java-natives <platform>-wasm jar, or"
+                    + " librift_ffi-<platform>-wasm.<ext> through -Drift.ffi.lib / RIFT_FFI_LIB / libraryPath.");
+        }
     }
 
     /**
