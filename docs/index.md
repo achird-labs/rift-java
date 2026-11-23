@@ -31,6 +31,8 @@ try (Rift rift = Rift.embedded()) {
 - **[Spaces & flow state](spaces.md)** — per-flow stub overlays, flow-scoped reads, and flow state,
   including declarative writes from a response.
 - **[Event stream](events.md)** — follow requests and imposter changes as they happen.
+- **[Clock, seed & WebAssembly](wasm.md)** — freeze an imposter's clock, seed its randomness, and
+  run WebAssembly components (rift 0.25.0).
 
 ## Reference
 

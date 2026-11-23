@@ -34,5 +34,6 @@ nav:
       - Record & replay: recording.md
       - Spaces & flow state: spaces.md
       - Event stream: events.md
+      - Clock, seed & WebAssembly: wasm.md
   - Reference:
       - API design (v1): design/sdk-api.md

@@ -74,7 +74,14 @@ class DocsGuideCoverageTest {
                     // flow-scoped scenario state (#151)
                     "setState(",
                     // blank flow id is rejected, with the reason (#153)
-                    "IllegalArgumentException", "blank")));
+                    "IllegalArgumentException", "blank")),
+            Map.entry("wasm.md", List.of(
+                    // the rift 0.25.0 surface (rift-java#354) and its floor
+                    "0.25.0", ".clock()", ".set(", ".advance(", ".reset()", "ClockSource.HEADER", "X-Rift-Now",
+                    ".seed(", ".rngKey(", "unsignedSeed()", "Date.now()", "Math.random()", "{{NOW}}",
+                    "Script.wasmFile(", "Script.wasm(", "Script.component(", ".export(", ".knobs(", ".instance(",
+                    ".components()", ".wasmInstances()", ".wasmSnapshot(", ".allowWasm(", ".strictWasm(",
+                    "withAllowWasm(", ".wasmLibrary(true)", "-wasm")));
 
     @TestFactory
     Stream<DynamicTest> everyGuidePageDocumentsItsFeature() {
@@ -162,6 +169,42 @@ class DocsGuideCoverageTest {
         MatchClause.class.getMethod("flowId", String.class);
         MatchClause.class.getMethod("method", String.class);
         MatchClause.class.getMethod("path", String.class);
+
+        // wasm.md
+        Imposter.class.getMethod("clock");
+        Imposter.class.getMethod("wasmInstances");
+        Imposter.class.getMethod("wasmSnapshot");
+        Imposter.class.getMethod("wasmSnapshot", String.class);
+        ImposterClock.class.getMethod("set", java.time.Instant.class);
+        ImposterClock.class.getMethod("advance", java.time.Duration.class);
+        ImposterClock.class.getMethod("reset");
+        ImposterClock.class.getMethod("get");
+        Rift.class.getMethod("components");
+        Components.class.getMethod("upload", java.nio.file.Path.class);
+        Components.class.getMethod("upload", byte[].class);
+        Components.class.getMethod("get", String.class);
+        Components.class.getMethod("delete", String.class);
+        ComponentInfo.class.getMethod("reference");
+        Class<?> imposterSpec = io.github.achirdlabs.rift.dsl.ImposterSpec.class;
+        imposterSpec.getMethod("seed", long.class);
+        imposterSpec.getMethod("rngKey", String[].class);
+        imposterSpec.getMethod("clock", io.github.achirdlabs.rift.dsl.ClockSource.class);
+        imposterSpec.getMethod("wasmLimits", io.github.achirdlabs.rift.model.WasmLimits.class);
+        Class<?> script = io.github.achirdlabs.rift.dsl.Script.class;
+        script.getMethod("wasmFile", String.class);
+        script.getMethod("wasm", byte[].class);
+        script.getMethod("component", String.class);
+        script.getMethod("export", io.github.achirdlabs.rift.dsl.WasmExport.class);
+        script.getMethod("knobs", io.github.achirdlabs.rift.json.JsonValue.class);
+        script.getMethod("instance", io.github.achirdlabs.rift.dsl.WasmInstanceScope.class);
+        io.github.achirdlabs.rift.model.RiftScriptEngineConfig.class.getMethod("unsignedSeed");
+        io.github.achirdlabs.rift.model.WasmLimits.class.getMethod("withFuel", long.class);
+        io.github.achirdlabs.rift.model.WasmLimits.class.getMethod("withMaxMemoryMiB", long.class);
+        Class.forName(SpawnOptions.class.getName() + "$Builder").getMethod("allowWasm", boolean.class);
+        Class.forName(SpawnOptions.class.getName() + "$Builder").getMethod("strictWasm", java.nio.file.Path.class);
+        Class.forName(EmbeddedOptions.class.getName() + "$Builder").getMethod("allowWasm", boolean.class);
+        Class.forName(EmbeddedOptions.class.getName() + "$Builder").getMethod("strictWasm", java.nio.file.Path.class);
+        Class.forName(EmbeddedOptions.class.getName() + "$Builder").getMethod("wasmLibrary", boolean.class);
     }
 
     /** Every {@code *.md} the nav declares, as docs-relative paths. */

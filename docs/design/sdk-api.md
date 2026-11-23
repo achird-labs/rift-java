@@ -143,6 +143,12 @@ public interface Rift extends AutoCloseable {
   // -- engine --
   EventStream events(EventStreamOptions options);   // push tail over the engine's SSE stream (§8.3)
   EngineInfo info();                         // {version, commit, features} — GET /config | rift_build_info
+  Components components();                   // rift >= 0.25.0: the wasm component registry (/components):
+                                             //   upload(byte[] | Path) → ComponentInfo {sha256, size, world,
+                                             //   imports, uploadedAt, referencedBy, reference() = "sha256:<hex>"},
+                                             //   list(), get(sha) → Optional (404 = not held), delete(sha)
+                                             //   (idempotent; 409 EngineError while referenced). An engine
+                                             //   without the routes → UnsupportedOperationException.
   URI adminUri();                            // remote/spawn: the admin endpoint; embedded: lazily
                                              // starts rift_serve_admin on first call
   // -- intercept (TLS-MITM) --
@@ -206,6 +212,9 @@ public final class SpawnOptions {
   // Binary resolution order: binaryPath → $RIFT_BINARY_PATH → PATH (rift) →
   //   version cache (~/.cache/rift-java/binaries/rift-<ver>/) → download via release
   //   ffi-manifest.json (SHA-256 verified; RIFT_OFFLINE/RIFT_SKIP_BINARY_DOWNLOAD → fail).
+  // allowWasm (Optional<Boolean>, --allow-wasm <BOOL>; unset = the engine's default, on) and
+  //   strictWasm (Optional<Path>, --strict-wasm: a file of trusted component sha256s): rift >= 0.25.0,
+  //   checked at build().
 }
 
 public final class EmbeddedOptions {
@@ -229,6 +238,12 @@ public final class EmbeddedOptions {
   //   scripts from (rift#1617). Unset, 0.24.0 refuses such a lookup on the plane, replaceAll
   //   included. Not eager: the plane takes it whenever it is served. SpawnOptions.scriptsDir is the
   //   same root as --scripts-dir.
+  // allowWasm (Optional<Boolean>) / strictWasm (Optional<Path>): rift_serve_admin's keys, advertised
+  //   from rift 0.25.0. allowWasm gates components on the plane only (create/applyConfig are C-ABI);
+  //   strictWasm binds every door from the moment the plane is served, so it serves the plane eagerly.
+  // wasmLibrary (bool, default false): resolve native/<classifier>-wasm/ (the rift-java-natives
+  //   <classifier>-wasm jar) instead of the plain library; with it on, a loaded library whose
+  //   build info lacks the "wasm" feature fails Rift.embedded with EngineUnavailable.
 }
 
 public sealed interface UpstreamTrust {       // outbound TLS trust for proxying/recording (#209)
@@ -309,6 +324,18 @@ public interface RiftTransport extends AutoCloseable {
   default void interceptReplaceRules(JsonValue rules);  // PUT /intercept/rules | rift_intercept_replace_rules (>= 0.20.0)
   JsonValue interceptListRules(); void interceptClearRules();
   String interceptCaPem();
+  // rift 0.25.0 (default: UnsupportedOperationException); embedded: the admin plane, no C-ABI symbol
+  default JsonValue imposterClock(int port);                       // GET    /imposters/{port}/clock
+  default JsonValue setImposterClock(int port, JsonValue body);    // PUT    {"nowMs"} | {"advanceMs"}
+  default JsonValue resetImposterClock(int port);                  // DELETE → wall
+  default JsonValue wasmInstances(int port);                       // GET    /imposters/{port}/wasm/instances
+  default String wasmSnapshot(int port, Optional<String> instance); // GET   …/wasm/snapshot[?instance=], raw text
+  default JsonValue uploadComponent(byte[] component);             // POST   /components (application/wasm)
+  default JsonValue listComponents();                              // GET    /components
+  default Optional<JsonValue> getComponent(String sha256);         // GET    /components/{sha256}; 404 → empty
+  default void deleteComponent(String sha256);                     // DELETE /components/{sha256}; 404 → ok
+  // A 404 on these is told apart from an older engine by a second read (GET /imposters/{port},
+  // GET /components); what remains is an engine without the route → UnsupportedOperationException.
   // events
   default EventStream events(EventStreamOptions options);
   // engine
@@ -341,7 +368,8 @@ rift_set_imposter_enabled`, `scenarios→rift_scenarios`, `setScenarioState→
 rift_set_scenario_state`, `resetScenarios→rift_reset_scenarios`, `verify→rift_verify`,
 `stubWarnings→rift_stub_warnings`. The operations with no C-ABI counterpart — `replaceAllImposters`
 (bulk `PUT /imposters`), `events` (`GET /events`), and the cursor/clause reads `recordedSince` plus
-the scoped `clearRecorded` (`?since=`/`match=`, which the C-ABI cannot express) — still route
+the scoped `clearRecorded` (`?since=`/`match=`, which the C-ABI cannot express), and rift 0.25.0's
+imposter clock, wasm instances/snapshot and component registry — still route
 through the lazily-started in-process admin server. Ownership discipline (per-call confined arenas,
 `rift_free`, sentinel + same-thread `rift_last_error`, static `build_info` never freed, symbol-probe
 for graceful degradation) is encapsulated once in the bridge (issue #8).
@@ -396,6 +424,12 @@ public interface Imposter {
   // -- spaces + flow state --
   Space space(String flowId);
   FlowState flowState(String flowId);
+
+  // -- clock + wasm (rift >= 0.25.0) --
+  ImposterClock clock();              // get() / set(Instant) / advance(Duration >= 0) / reset() → Reading(Mode WALL|FROZEN, Instant now)
+  List<WasmInstanceInfo> wasmInstances();   // instance: "imposter" kept instances {id, sha256, export, knobsHash, instantiatedAt, calls, memoryBytes}
+  String wasmSnapshot();              // the guest's rift:mock/introspect JSON text, byte for byte
+  String wasmSnapshot(String instanceId);   // 400 → InvalidDefinition (several live, none named); 409/404/500/504 → EngineError
 
   // -- lifecycle --
   void enable(); void disable();
@@ -666,8 +700,30 @@ ImposterSpec serviceInfo(JsonValue info)
 ImposterSpec allowCors()                                 // exists
 ImposterSpec flowState(FlowStateSpec spec)               // _rift.flowState
 ImposterSpec metrics(int port)                           // _rift.metrics — @Deprecated(since 0.2.4): engine ignores it; use --metrics-port
-ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout)   // _rift.scriptEngine (defaultEngine honoured by engine >= 0.18.0)
+ImposterSpec scriptEngine(ScriptEngine engine, Duration timeout)   // _rift.scriptEngine (defaultEngine honoured by engine >= 0.18.0;
+                                                         //   ScriptEngine.WASM needs >= 0.25.0); keeps the 0.25.0 keys below
+// rift >= 0.25.0 (rift#1749): each merges into _rift.scriptEngine, starting from the engine's own
+// defaults (rhai, 5000 ms) when no block is set, so one key never changes another. Rift.create and
+// replaceAll refuse them on an older engine, which ignores seed/rngKey/clock without a word.
+ImposterSpec seed(long seed)                             // _rift.scriptEngine.seed: an unsigned u64 given as its bit
+                                                         //   pattern (-1L = 2^64-1); written unsigned. The model carries
+                                                         //   the JSON value (the engine admits a non-u64 and runs unseeded);
+                                                         //   RiftScriptEngineConfig.unsignedSeed() reads it back.
+ImposterSpec rngKey(String... parts)                     // header:<n> | query:<n> | method | path | body:<pointer>; needs seed (build)
+ImposterSpec clock(ClockSource source)                   // WALL | HEADER (X-Rift-Now names a request's instant)
+ImposterSpec wasmLimits(WasmLimits limits)               // fuel / maxMemoryMiB / maxTables / maxTableElements; unset = engine default
 ImposterSpec script(String name, Script script)          // _rift.scripts named registry
+
+// Script sources: rhai/js(code), rhaiFile/jsFile(path), ref(name), and from rift 0.25.0 the wasm engine:
+//   Script.wasmFile(path)          engine "wasm" + file (resolved against --scripts-dir on the admin API)
+//   Script.wasm(byte[] component)  engine "wasm" + code = base64 (the form the engine stores; no file, no upload)
+//   Script.component(sha256)       engine "wasm" + component "sha256:<hex>" (prefix optional; 64 lowercase hex)
+//   .export(WasmExport RIFT|HTTP)  .knobs(JsonValue)  .instance(WasmInstanceScope REQUEST|IMPOSTER)
+//                                  — wasm scripts only; IllegalStateException on any other.
+// rift 0.25.0 (rift#1756): Rhai, JavaScript and templates read the imposter clock and seed —
+//   JS Date.now()/new Date(), Rhai timestamp_header(), template now/{{NOW}}/{{DAYS±N}} follow a
+//   frozen or stepped Imposter.clock() (or X-Rift-Now under ClockSource.HEADER), and JS Math.random()
+//   (in _rift.script and Mountebank inject/decorate/wait alike) draws from the seeded stream.
 ImposterSpec proxyPool(int maxIdlePerHost, Duration idleTimeout)   // _rift.proxy.connectionPool — @Deprecated(since 0.2.4): engine ignores it
 ImposterSpec recordMatches()                             // recordMatches — @Deprecated(since 0.2.4): engine ignores it; use record()
 
